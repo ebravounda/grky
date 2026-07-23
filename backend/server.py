@@ -8,7 +8,7 @@ import io
 import logging
 import uuid
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
@@ -58,6 +58,39 @@ def clean(doc: dict) -> dict:
     return doc
 
 
+SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                  "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _period_label(dt):
+    return f"{SPANISH_MONTHS[dt.month - 1]} {dt.year}"
+
+
+def _line_usage(line: dict) -> dict:
+    """Agrega el consumo de una línea a partir de sus CDRs."""
+    cdrs = line.get("cdrs", []) or []
+    voice = [c for c in cdrs if c.get("type") == "VOICE"]
+    sms = [c for c in cdrs if c.get("type") == "SMS"]
+    minutes = round(sum(c.get("duration", 0) for c in voice) / 60)
+    return {
+        "lineNumber": line.get("lineNumber"),
+        "productName": line.get("productName"),
+        "nationalMinutes": minutes,
+        "sms": len(sms),
+        "dataGB": line.get("usedGB", 0),
+        "calls": [{"number": c.get("calledNumber"), "date": c.get("date"),
+                   "duration": c.get("duration", 0)} for c in voice],
+    }
+
+
+def _enrich_line(line: dict) -> dict:
+    if line.get("family") == "Mobile":
+        u = _line_usage(line)
+        line["nationalMinutes"] = u["nationalMinutes"]
+        line["smsUsed"] = u["sms"]
+    return line
+
+
 async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
     """Clients can only access their own fiscalId."""
     if user.get("role") == "client":
@@ -74,6 +107,8 @@ class CustomerCreate(BaseModel):
     lastSurname: Optional[str] = ""
     email: str
     contactPhone: str
+    iban: Optional[str] = ""
+    paymentMethod: Optional[str] = "NO"
     street: Optional[str] = ""
     streetNumber: Optional[str] = ""
     postalCode: Optional[str] = ""
@@ -201,6 +236,7 @@ async def create_customer(body: CustomerCreate, request: Request):
         "fiscalId": body.fiscalId, "customerType": body.customerType, "name": body.name,
         "firstSurname": body.firstSurname, "lastSurname": body.lastSurname,
         "email": body.email.lower(), "contactPhone": body.contactPhone,
+        "iban": body.iban, "paymentMethod": body.paymentMethod,
         "billingAddress": {"street": body.street, "streetNumber": body.streetNumber,
                            "postalCode": body.postalCode, "cityName": body.cityName,
                            "provinceName": body.provinceName},
@@ -229,7 +265,7 @@ async def get_customer(fiscalId: str, request: Request):
     lines = await db.lines.find({"fiscalId": fiscalId}).to_list(200)
     subs = await db.subscriptions.find({"fiscalId": fiscalId}).to_list(200)
     invs = await db.invoices.find({"fiscalId": fiscalId}).sort("date", -1).to_list(200)
-    return {"customer": clean(cust), "lines": [clean(l) for l in lines],
+    return {"customer": clean(cust), "lines": [clean(_enrich_line(l)) for l in lines],
             "subscriptions": [clean(s) for s in subs], "invoices": [clean(i) for i in invs]}
 
 
@@ -249,7 +285,7 @@ async def get_line(lineNumber: str, request: Request):
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
-    return clean(line)
+    return clean(_enrich_line(line))
 
 
 @api.post("/lines/{lineNumber}/toggle-block")
@@ -330,14 +366,22 @@ async def _create_invoice(customer, product, status="pending"):
     subtotal = round(product["price"] / 1.21, 2)
     tax = round(product["price"] - subtotal, 2)
     number = await _next_invoice_number()
+    ba = customer.get("billingAddress", {}) or {}
+    address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    mobile_lines = await db.lines.find({"fiscalId": customer["fiscalId"], "family": "Mobile"}).to_list(50)
+    consumption = [_line_usage(l) for l in mobile_lines]
+    now = datetime.now(timezone.utc)
     inv = {
         "invoiceNumber": number, "fiscalId": customer["fiscalId"],
-        "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip(),
-        "customerEmail": customer.get("email"),
-        "items": [{"description": f"{product['productName']} (alta de servicio)",
+        "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip().upper(),
+        "customerEmail": customer.get("email"), "customerAddress": address,
+        "items": [{"description": product["productName"], "detail": "Alta de servicio",
                    "quantity": 1, "amount": product["price"]}],
         "subtotal": subtotal, "tax": tax, "total": product["price"],
-        "status": status, "date": now_iso(),
+        "status": status, "date": now.isoformat(),
+        "period": _period_label(now), "dueDate": (now + timedelta(days=30)).isoformat(),
+        "paymentMethod": customer.get("paymentMethod", "NO"),
+        "consumption": consumption,
     }
     res = await db.invoices.insert_one(inv)
     inv["_id"] = res.inserted_id
@@ -407,15 +451,23 @@ async def create_order(body: OrderCreate, request: Request):
 
 def _gen_cdrs():
     import random
-    types = [("VOICE", "Llamada nacional"), ("DATA", "Datos"), ("SMS", "SMS")]
+    now = datetime.now(timezone.utc)
     out = []
-    for _ in range(8):
-        t, dest = random.choice(types)
-        out.append({"type": t, "destination": dest,
-                    "calledNumber": "6" + str(random.randint(10000000, 99999999)) if t != "DATA" else None,
-                    "duration": random.randint(30, 900) if t == "VOICE" else 0,
-                    "date": now_iso(), "price": round(random.uniform(0, 0.5), 2),
-                    "bytes": random.randint(1000000, 900000000) if t == "DATA" else 0})
+    for _ in range(random.randint(10, 18)):
+        r = random.random()
+        day = random.randint(1, max(1, now.day))
+        date = now.replace(day=day, hour=random.randint(8, 21), minute=random.randint(0, 59), second=0, microsecond=0)
+        number = "6" + str(random.randint(10000000, 99999999))
+        if r < 0.55:
+            out.append({"type": "VOICE", "destination": "Llamada nacional", "calledNumber": number,
+                        "duration": random.randint(20, 1500), "date": date.isoformat(), "price": 0.0, "bytes": 0})
+        elif r < 0.8:
+            out.append({"type": "SMS", "destination": "SMS nacional", "calledNumber": number,
+                        "duration": 0, "date": date.isoformat(), "price": 0.0, "bytes": 0})
+        else:
+            out.append({"type": "DATA", "destination": "Datos", "calledNumber": None,
+                        "duration": 0, "date": date.isoformat(), "price": 0.0, "bytes": random.randint(1000000, 900000000)})
+    out.sort(key=lambda c: c["date"], reverse=True)
     return out
 
 
@@ -490,7 +542,7 @@ async def me_summary(request: Request):
     monthly = round(sum(l.get("price", 0) for l in lines), 2)
     pending = sum(1 for i in invs if i["status"] == "pending")
     return {"customer": clean(cust) if cust else None,
-            "lines": [clean(l) for l in lines], "subscriptions": [clean(s) for s in subs],
+            "lines": [clean(_enrich_line(l)) for l in lines], "subscriptions": [clean(s) for s in subs],
             "invoices": [clean(i) for i in invs], "tickets": [clean(t) for t in tickets],
             "monthlyTotal": monthly, "pendingInvoices": pending}
 
@@ -637,6 +689,10 @@ async def seed_demo(db):
                     "password_hash": hash_password(d["portal_pw"]),
                     "name": f"{d['name']} {d['firstSurname']}".strip(), "role": "client",
                     "fiscalId": d["fiscalId"], "created_at": now_iso()})
+        cust = await db.customers.find_one({"fiscalId": d["fiscalId"]})
+        ba = cust.get("billingAddress", {})
+        address = f"{ba.get('street','')} {ba.get('streetNumber','')}, {ba.get('postalCode','')} {ba.get('cityName','')} ({ba.get('provinceName','')})"
+        cust_mobile_lines = []
         for pid, fam in d["lines"]:
             p = prods[pid]
             ln = ("6" if fam == "Mobile" else "9") + str(random.randint(10000000, 99999999))
@@ -648,6 +704,8 @@ async def seed_demo(db):
                     "creditLimit": 30, "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
                     "cdrs": _gen_cdrs() if fam == "Mobile" else [], "created": now_iso()}
             await db.lines.insert_one(line)
+            if fam == "Mobile":
+                cust_mobile_lines.append(line)
             await db.subscriptions.insert_one({
                 "subscriptionId": str(uuid.uuid4()), "fiscalId": d["fiscalId"], "family": fam,
                 "status": "ACTIVE", "pendingChange": False, "created": now_iso(),
@@ -655,15 +713,21 @@ async def seed_demo(db):
                               "type": "Main", "status": "ACTIVE", "lineNumber": ln,
                               "price": p["price"], "finalPrice": round(p["price"] * 1.21, 2)}]})
         # facturas (una pagada, una pendiente)
+        consumption = [_line_usage(l) for l in cust_mobile_lines]
         for i, status in enumerate(["paid", "pending"]):
             inv_seq += 1
             p = prods[d["lines"][0][0]]
             subtotal = round(p["price"] / 1.21, 2)
+            base = datetime.now(timezone.utc) - timedelta(days=30 * (1 - i))
             await db.invoices.insert_one({
                 "invoiceNumber": f"GRK-{datetime.now().year}-{inv_seq:05d}", "fiscalId": d["fiscalId"],
-                "customerName": f"{d['name']} {d['firstSurname']}".strip(), "customerEmail": d["email"],
-                "items": [{"description": f"{p['productName']} - cuota mensual", "quantity": 1, "amount": p["price"]}],
+                "customerName": f"{d['name']} {d['firstSurname']}".strip().upper(), "customerEmail": d["email"],
+                "customerAddress": address.strip(),
+                "items": [{"description": p["productName"], "detail": "Cuota mensual", "quantity": 1, "amount": p["price"]}],
                 "subtotal": subtotal, "tax": round(p["price"] - subtotal, 2), "total": p["price"],
-                "status": status, "date": now_iso()})
+                "status": status, "date": base.isoformat(),
+                "period": _period_label(base), "dueDate": (base + timedelta(days=30)).isoformat(),
+                "paymentMethod": "SEPA CORE" if status == "paid" else "NO",
+                "consumption": consumption})
     await db.counters.update_one({"_id": "invoice"}, {"$set": {"seq": inv_seq}}, upsert=True)
     logger.info("Demo data seeded")

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 2 – tested only the NEW features (Goroky PDF layout, per-line usage minutes/SMS/data + CDR listing, customer IBAN + paymentMethod, invoice propagation of paymentMethod & consumption). Backend: 7/7 pytest passed. Frontend: admin & client UIs verified — line detail shows usage-minutes/usage-sms/usage-data cards + 'Últimos consumos (CDRs)' table with real called numbers; Customers 'Nuevo cliente' modal shows cust-iban + cust-payment (Radix Select) and creates the customer; admin Facturas shows PDF buttons (7 present); client portal Facturas shows PDF + Pagar buttons.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter2_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py keeps growing (~730 lines): seed_demo, _create_invoice, _gen_cdrs, and all routes live in the same module. Split into routers/services modules for maintainability.",
+    "_gen_cdrs uses inline `import random` inside function scope but the module already imports datetime at top; keep imports at top-level for consistency.",
+    "_create_invoice iterates ALL mobile lines of the customer for consumption even when the newly-ordered line is Fiber; the consumption block should probably be gated by product family or scope, but the current behaviour still matches the requirement 'consumption incluye sus líneas móviles'.",
+    "invoices.py `_wrap` uses fixed font size 8.5 for width measurement but drawString uses whatever font was last set — potential subtle mismatch; not visible for current text lengths.",
+    "invoices.py page-break inside consumption calls `_footer(c); c.showPage(); _header(c)` but does not reset the current font, so following calls rely on defaults set in the header — works today but is fragile.",
+    "server.py `list_invoices` doesn't restrict fiscalId query param for clients — a client passing ?fiscalId=OTHER still triggers scope_fiscal() which overrides to their own fiscalId, so it's safe (behaviour verified in iteration 1).",
+    "clean() uses str(_id) but strips password_hash — good pattern, keep."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter2_new_features.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7 new-feature tests)", "frontend": "100% (all new UI selectors + flows verified for admin & client)"},
+  "test_credentials": "Admin: admin@goroky.com / Goroky2026! ; Client: cliente@goroky.com / Cliente2026!",
+  "seed_data_creation": "DB reset by main agent; seed generated 3 demo customers with mobile lines whose CDRs include current-month VOICE/SMS/DATA with called numbers. During tests, an admin-created customer with IBAN=ES9121000418450200051332 / paymentMethod=SEPA CORE and its order (mobile) were persisted; the associated invoice carries paymentMethod SEPA CORE and consumption including the new mobile line.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: /app/backend/tests/backend_test.py (iter1, 29 assertions) + /app/backend/tests/test_iter2_new_features.py (iter2, 7 assertions). Line numbers in seed are random 6XXXXXXXX; fetch via GET /api/lines (admin) or GET /api/me/summary (client) rather than hardcoding. Admin lines table rows use data-testid='line-row-{lineNumber}' (row is <tr> with onClick navigate; use direct URL navigation to /app/lines/{lineNumber} to avoid execution-context race). Radix Select still needs ~300ms after opening before clicking [role='option']. Likes API remains in MOCK mode (403 IP) — expected.",
+  "mocked_integrations_notice": "MOCKED: Likes Telecom API (catalog, operators, coverage, ticket typologies) returns 403 by IP; server.py falls back to MOCK_PRODUCTS/DEFAULT_SVAS. All new iteration-2 features are backed by REAL MongoDB + REAL PDF generation via reportlab.",
+  "rca of the issue": "No blocking issues found in iteration 2. First playwright pass reported two false-negatives: (a) admin line detail failed because the click on a <tr> onClick handler raced with wait_for_url — resolved by navigating directly to /app/lines/{lineNumber}; (b) admin invoices PDF button was not found because the page had not finished loading before the query — resolved by an explicit wait, 7 buttons then detected correctly."
+}

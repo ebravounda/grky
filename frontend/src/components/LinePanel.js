@@ -4,7 +4,7 @@ import api, { apiErr } from "@/lib/api";
 import { StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Signal, Wifi, Lock, Unlock, Gauge } from "lucide-react";
+import { ArrowLeft, Signal, Wifi, Lock, Unlock, Gauge, Phone, MessageSquare, Database } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -57,6 +57,21 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
           </Button>
         </div>
       </div>
+
+      {isMobile && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {[
+            { icon: Phone, label: "Minutos nacionales", value: `${line.nationalMinutes ?? 0}`, testid: "usage-minutes" },
+            { icon: MessageSquare, label: "SMS enviados", value: `${line.smsUsed ?? 0}`, testid: "usage-sms" },
+            { icon: Database, label: "Datos usados", value: `${line.usedGB} GB`, testid: "usage-data" },
+          ].map((s) => (
+            <div key={s.label} data-testid={s.testid} className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-2 text-primary mb-2"><s.icon size={16} /><span className="overline text-muted-foreground">{s.label}</span></div>
+              <p className="font-heading text-2xl font-700">{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {isMobile && (

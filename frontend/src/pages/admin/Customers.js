@@ -17,8 +17,8 @@ import { toast } from "sonner";
 
 const empty = {
   fiscalId: "", customerType: "Residential", name: "", firstSurname: "", lastSurname: "",
-  email: "", contactPhone: "", street: "", streetNumber: "", postalCode: "", cityName: "",
-  provinceName: "", createPortalAccess: false, portalPassword: "",
+  email: "", contactPhone: "", iban: "", paymentMethod: "NO", street: "", streetNumber: "",
+  postalCode: "", cityName: "", provinceName: "", createPortalAccess: false, portalPassword: "",
 };
 
 export default function Customers() {
@@ -79,6 +79,19 @@ export default function Customers() {
                 <div className="space-y-1.5"><Label>Primer apellido</Label><Input value={form.firstSurname} onChange={(e) => set("firstSurname", e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Email</Label><Input data-testid="cust-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Teléfono</Label><Input data-testid="cust-phone" value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>IBAN (SEPA)</Label><Input data-testid="cust-iban" value={form.iban} onChange={(e) => set("iban", e.target.value)} placeholder="ES..." /></div>
+                <div className="space-y-1.5">
+                  <Label>Método de pago</Label>
+                  <Select value={form.paymentMethod} onValueChange={(v) => set("paymentMethod", v)}>
+                    <SelectTrigger data-testid="cust-payment"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NO">Sin domiciliar</SelectItem>
+                      <SelectItem value="SEPA CORE">SEPA CORE</SelectItem>
+                      <SelectItem value="SEPA B2B">SEPA B2B</SelectItem>
+                      <SelectItem value="CASH">Efectivo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-1.5 col-span-2"><Label>Dirección</Label><Input value={form.street} onChange={(e) => set("street", e.target.value)} placeholder="Calle" /></div>
                 <div className="space-y-1.5"><Label>Nº</Label><Input value={form.streetNumber} onChange={(e) => set("streetNumber", e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>C.P.</Label><Input value={form.postalCode} onChange={(e) => set("postalCode", e.target.value)} /></div>

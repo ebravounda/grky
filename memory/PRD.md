@@ -16,6 +16,9 @@ Crear una webapp para los clientes de un distribuidor de telecomunicaciones usan
 La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. IP de salida a autorizar: `104.198.214.223`. Mientras tanto, catálogo/cobertura/operadores/tipologías vienen de MOCK que replica el contrato; clientes/líneas/suscripciones/facturas sembrados en MongoDB.
 
 ## Implementado (2026-06)
+- **Factura PDF formato Goroky** (emisor TRAMILEX GLOBAL SERVICE SL, bloque Factura, FACTURAR A, caja PAGO Y TOTALES base/IVA/total, tabla Concepto/Detalle/Precio, página 2 legal) + **desglose de consumo por línea** (minutos nacionales, SMS, datos y listado de números llamados).
+- **Campos de consumo por línea en el CRM**: nationalMinutes, smsUsed, datos + listado CDRs (números llamados) en el detalle de línea (admin y portal).
+- **Alta de cliente ampliada**: IBAN + método de pago (SEPA CORE/B2B/CASH/NO), reflejado en la factura.
 - Auth JWT con roles + seed admin/cliente demo.
 - Panel admin: dashboard con KPIs y gráfico, clientes (CRUD + alta portal), líneas (detalle, consumo GB, bloqueo/desbloqueo, SVAs, CDRs), catálogo + cobertura, contratación (crea línea+suscripción+**factura PDF**), facturas (listado + PDF + cobro Stripe), tickets, suscripciones.
 - Portal cliente: resumen, tarjetas de líneas con consumo, detalle de línea, **cambio de pack**, facturas (PDF + pago Stripe), tickets.

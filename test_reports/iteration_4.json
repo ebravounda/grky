@@ -1,0 +1,24 @@
+{
+  "summary": "Iteración 4: generación de contrato en POST /api/orders + descarga PDF + firma. Backend: 11/11 tests OK. Frontend: creación de contratación muestra toast con factura+contrato, columna 'Contrato' con botón descargar y firmar; tras firmar aparece '✓ Firmado' y desaparece el botón. PDF válido (application/pdf, %PDF).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_contract.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py ya excede ~1247 líneas; considerar dividir en módulos (orders, contracts, invoices, likes) para mantenibilidad.",
+    "openContractPdf en frontend abre el blob en nueva pestaña usando window.open(URL.createObjectURL(...)) — funciona pero el navegador no siempre pinta el visor; ok para admin."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_contract.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com/Goroky2026! ; cliente@goroky.com/Cliente2026!",
+  "seed_data_creation": "Se crearon varias órdenes de prueba (móvil 12345678A + fibra) durante los tests; contractNumber CTR-2026-##### y facturas GRK-2026-##### asociadas.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Feature contrato completamente validada: (1) POST /orders devuelve contractNumber (CTR-2026-#####), invoiceNumber e invoiceId; (2) GET /orders/{id}/contract/pdf devuelve application/pdf válido; (3) POST /orders/{id}/contract/sign marca signed=true y persiste; (4) scoping cliente OK (403 en orden ajena, 200 en propia). UI Orders.js muestra columna Contrato con order-contract-* y order-sign-* + '✓ Firmado' tras firmar. Toast incluye ambos números. Likes MOCK y Resend sin configurar como en iteraciones previas.",
+  "rca of the issue": "N/A — no se encontraron issues."
+}

@@ -25,4 +25,11 @@ export async function openInvoicePdf(id) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+export async function openContractPdf(orderId) {
+  const res = await api.get(`/orders/${orderId}/contract/pdf`, { responseType: "blob" });
+  const url = URL.createObjectURL(res.data);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 export default api;

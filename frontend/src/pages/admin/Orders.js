@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api, { apiErr, openInvoicePdf } from "@/lib/api";
+import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ShoppingCart, FileText, Send } from "lucide-react";
+import { ShoppingCart, FileText, Send, FileSignature, PenLine } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Orders() {
@@ -38,12 +38,17 @@ export default function Orders() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  const sign = async (o) => {
+    try { await api.post(`/orders/${o.orderId}/contract/sign`); toast.success("Contrato firmado"); loadOrders(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
   const submit = async () => {
     if (!form.fiscalId || !form.productId) return toast.error("Selecciona cliente y producto");
     setSaving(true);
     try {
       const { data } = await api.post("/orders", form);
-      toast.success(`Servicio creado · Factura ${data.invoiceNumber} generada`, {
+      toast.success(`Servicio creado · Factura ${data.invoiceNumber} y contrato ${data.contractNumber} generados`, {
         action: { label: "Ver factura", onClick: () => openInvoicePdf(data.invoiceId) },
       });
       setOpen(false);
@@ -118,6 +123,7 @@ export default function Orders() {
               <th className="px-4 py-3 font-medium">Importe</th>
               <th className="px-4 py-3 font-medium">Estado</th>
               <th className="px-4 py-3 font-medium">Factura</th>
+              <th className="px-4 py-3 font-medium">Contrato</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -138,9 +144,22 @@ export default function Orders() {
                     </button>
                   </div>
                 </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <button data-testid={`order-contract-${o.orderId}`} onClick={() => openContractPdf(o.orderId)} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <FileSignature size={14} /> {o.signed ? "Ver" : "Contrato"}
+                    </button>
+                    {!o.signed && (
+                      <button data-testid={`order-sign-${o.orderId}`} onClick={() => sign(o)} title="Firmar contrato" className="inline-flex items-center gap-1 text-muted-foreground hover:text-success">
+                        <PenLine size={14} /> Firmar
+                      </button>
+                    )}
+                    {o.signed && <span className="text-xs text-success font-medium">✓ Firmado</span>}
+                  </div>
+                </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Aún no hay contrataciones.</td></tr>}
+            {orders.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">Aún no hay contrataciones.</td></tr>}
           </tbody>
         </table>
       </div>

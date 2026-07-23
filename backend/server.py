@@ -21,6 +21,7 @@ import emailer
 import base64
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
+from contracts import generate_contract_pdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -461,6 +462,13 @@ async def _next_invoice_number():
     return f"GRK-{datetime.now().year}-{seq:05d}"
 
 
+async def _next_contract_number():
+    counter = await db.counters.find_one_and_update(
+        {"_id": "contract"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True)
+    seq = counter["seq"] if counter and "seq" in counter else 1
+    return f"CTR-{datetime.now().year}-{seq:05d}"
+
+
 async def _create_invoice(customer, product, status="pending"):
     subtotal = round(product["price"] / 1.21, 2)
     tax = round(product["price"] - subtotal, 2)
@@ -536,6 +544,7 @@ async def create_order(body: OrderCreate, request: Request):
 
     # factura PDF (siempre que se crea un servicio)
     invoice = await _create_invoice(customer, product, status="pending")
+    contract_number = await _next_contract_number()
 
     order = {
         "orderId": order_id, "fiscalId": body.fiscalId,
@@ -543,7 +552,9 @@ async def create_order(body: OrderCreate, request: Request):
         "status": "COMPLETED", "channel": "WD", "price": product["price"],
         "productName": product["productName"], "family": product["family"],
         "lineNumber": line_number, "portability": body.portability,
+        "donorOperatorId": body.donorOperatorId,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
+        "contractNumber": contract_number, "signed": False,
         "created": now_iso(),
     }
     await db.orders.insert_one(order)
@@ -564,7 +575,50 @@ async def create_order(body: OrderCreate, request: Request):
             "status": "IN_PROGRESS", "created": now_iso()})
 
     return {"order": clean(order), "invoiceId": str(invoice["_id"]),
-            "invoiceNumber": invoice["invoiceNumber"]}
+            "invoiceNumber": invoice["invoiceNumber"], "contractNumber": contract_number}
+
+
+async def _build_contract(order):
+    customer = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+    ba = (customer.get("billingAddress", {}) if customer else {}) or {}
+    address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    donor = None
+    if order.get("donorOperatorId"):
+        donor = next((d["Name"] for d in likes_client.get_donor_operators() if d.get("Code") == order["donorOperatorId"]), order["donorOperatorId"])
+    return {
+        "contractNumber": order.get("contractNumber", order["orderId"]),
+        "date": order.get("created"), "customerName": order.get("customerName"),
+        "fiscalId": order["fiscalId"], "customerAddress": address,
+        "customerEmail": customer.get("email") if customer else "",
+        "customerPhone": customer.get("contactPhone") if customer else "",
+        "productName": order.get("productName"), "family": order.get("family"),
+        "lineNumber": order.get("lineNumber"), "price": order.get("price", 0),
+        "portability": order.get("portability", False), "donorOperator": donor,
+        "signed": order.get("signed", False),
+    }
+
+
+@api.get("/orders/{order_id}/contract/pdf")
+async def order_contract_pdf(order_id: str, request: Request):
+    user = await current_user(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if user.get("role") == "client" and order["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    ct = await _build_contract(order)
+    pdf_bytes = generate_contract_pdf(ct)
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={ct['contractNumber']}.pdf"})
+
+
+@api.post("/orders/{order_id}/contract/sign")
+async def sign_contract(order_id: str, request: Request):
+    await require_admin(request)
+    r = await db.orders.update_one({"orderId": order_id}, {"$set": {"signed": True, "signedAt": now_iso()}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    return {"ok": True}
 
 
 def _gen_cdrs():

@@ -13,6 +13,9 @@ import Catalog from "@/pages/admin/Catalog";
 import Tariffs from "@/pages/admin/Tariffs";
 import Settings from "@/pages/admin/Settings";
 import Orders from "@/pages/admin/Orders";
+import Installations from "@/pages/admin/Installations";
+import Portabilities from "@/pages/admin/Portabilities";
+import Resources from "@/pages/admin/Resources";
 import Invoices from "@/pages/admin/Invoices";
 import Tickets from "@/pages/admin/Tickets";
 import ClientDashboard from "@/pages/client/ClientDashboard";
@@ -66,6 +69,9 @@ function App() {
             <Route path="tariffs" element={<Tariffs />} />
             <Route path="settings" element={<Settings />} />
             <Route path="orders" element={<Orders />} />
+            <Route path="installations" element={<Installations />} />
+            <Route path="portabilities" element={<Portabilities />} />
+            <Route path="resources" element={<Resources />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="tickets" element={<Tickets />} />
           </Route>

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 3 – validated the MOBILE ADMIN MENU BUG FIX and ALL new iteration-3 features (tariffs CRUD, installations, portabilities, resources, settings/email guard, eSIM QR, SIM/line admin actions, subscription optionals + change titular, customer documents, coverage address, order tracking email guard). Backend: 22 new tests + 1 skip (skip was worker race, sequential run confirms PASS) — combined with iter1+iter2, 58/58 pytest passing. Frontend: mobile menu bug FIXED (hamburger visible on 390x844, sheet opens with all 12 nav items + logout, closes on nav click, desktop sidebar has display:none on mobile); tariffs full CRUD; line detail shows esim-card + line-actions-card with all 4 admin buttons; SPN action end-to-end verified; client portal renders 2 lines correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_new_features.py",
+    "/app/backend/tests/test_iter2_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1200 lines and continues to host models, helpers, seeding AND all routers. Split into routers/ (customers, lines, tariffs, subscriptions, installations, portabilities, resources, docs, payments, email) and services/ to keep the file under 500 lines.",
+    "customer_documents: content is stored as base64 inside MongoDB — fine for demo, but for real customers should be moved to blob storage (S3 / Likes uploadURL). Also, there is no download endpoint (uploaded docs cannot be retrieved), only list.",
+    "documents endpoints do not enforce a max size — a rogue upload could bloat Mongo. Add server-side size limit (e.g. 5 MB) and reject non-whitelisted MIME types.",
+    "GET /api/customers/{fiscalId}/documents is admin-only; the client portal has no read-access to their own docs — inconsistent with rest of endpoints which are scoped per fiscalId.",
+    "POST /installations/{id}/appointment accepts an unvalidated `dict` — replace with a Pydantic model {date:str,slot:str} to prevent malformed data being persisted.",
+    "emailer.send_email raises RuntimeError when API key missing but callers already check emailer.is_configured() first — dead-code branch, could be simplified.",
+    "likes_client.CONNECTION_STATE is a module-level mutable dict shared across requests. In a multi-worker deployment this becomes per-worker; acceptable for demo but note for production.",
+    "resources download always returns the same CSV regardless of `path` — mock is fine, but log a debug line saying 'MOCK content served' so operators are not misled once the real API is enabled.",
+    "AdminLayout mobile Sheet uses onNavigate to close, but user-triggered browser back/forward inside the sheet does not close it — acceptable, but consider `location.pathname` effect to auto-close.",
+    "Settings page: `send-test-email-btn` is properly disabled and shows 'Falta API key' banner — good UX. Consider disabling the input as well to make the state obvious.",
+    "Tariffs.js: after create/edit/delete the client refetches via `load()` which is fine, but the state briefly shows stale prices if the request is slow — a spinner or optimistic update would improve UX.",
+    "LinePanel.js Row helper is duplicated across LinePanel, Settings, and admin CustomerDetail — extract to a shared component."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_new_features.py (new)"
+  ],
+  "success_rate": {"backend": "100% (58/58 tests across iter1+iter2+iter3)", "frontend": "100% (mobile menu bug fixed + all iter3 admin flows verified + client portal OK)"},
+  "test_credentials": "Admin: admin@goroky.com / Goroky2026! ; Client: cliente@goroky.com / Cliente2026!",
+  "seed_data_creation": "Tests create+delete transient customers (fiscalId T********) and one QA tariff cleaned up in-run. Seed remains: 3 customers (12345678A, B87654321, 45678912C) + 6 lines + 6 invoices + portabilities. Change-titular test permanently moves the transient sub to 45678912C (harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full backend regression: run pytest backend/tests/ -v (skips 1 test in parallel-xdist due to order-race; run TestSettingsAndEmail sequentially or after any other test class that touches /api/orders to avoid it). Mobile menu: test at 390x844 — the desktop <aside> is display:none via 'hidden lg:flex'. All 12 nav-<id> testids exist inside [data-testid='mobile-menu-sheet']. Line detail: fetch a mobile lineNumber via GET /api/lines (admin), then goto /app/lines/{n} — esim-card and line-actions-card both appear only for eSim+Mobile+admin. Tariffs CRUD: re-locate cards via document.querySelectorAll after each mutation (React re-renders invalidate playwright locators). Email (Resend) is intentionally NOT configured → /api/email/test, /api/invoices/{id}/email, /api/orders/{id}/send-tracking all return 400 with detail 'Email no configurado' — do NOT flag as bug. Likes API stays in MOCK mode (403 IP) — do NOT flag.",
+  "mocked_integrations_notice": "MOCKED: Likes Telecom API (catalog, coverage, operators, typologies, resources, esim, address) — real API returns 403 IP; server falls back to likes_client MOCK_*. Resend email intentionally NOT configured (no RESEND_API_KEY) → 400 controlled responses on /api/email/*, /api/invoices/{id}/email and /api/orders/{id}/send-tracking. Stripe: real sandbox EUR checkout works (tested iter1).",
+  "rca of the issue": "Original bug (móvil no muestra menú del panel admin) reproduced pre-fix in iter2? No — this iteration validated the FIX. Verified at viewport 390x844: (1) desktop aside has computed display:none (class 'hidden lg:flex'), (2) mobile-menu-btn is rendered at (16,9.5) 36x36px, (3) clicking opens a Radix Sheet with [data-testid=mobile-menu-sheet] containing all 12 nav-* items and mobile-logout-btn, (4) clicking nav-tarifas navigates to /app/tariffs and closes the sheet automatically. No blocking issues found in iteration 3."
+}

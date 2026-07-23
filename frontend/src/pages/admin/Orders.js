@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ShoppingCart, FileText } from "lucide-react";
+import { ShoppingCart, FileText, Send } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Orders() {
@@ -32,6 +32,11 @@ export default function Orders() {
   }, []);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const sendTracking = async (o) => {
+    try { const { data } = await api.post(`/orders/${o.orderId}/send-tracking`); toast.success(`Seguimiento enviado a ${data.to}`); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
 
   const submit = async () => {
     if (!form.fiscalId || !form.productId) return toast.error("Selecciona cliente y producto");
@@ -124,9 +129,14 @@ export default function Orders() {
                 <td className="px-4 py-3 font-semibold">{o.price?.toFixed(2)} €</td>
                 <td className="px-4 py-3"><StatusPill status={o.status} /></td>
                 <td className="px-4 py-3">
-                  <button data-testid={`order-pdf-${o.orderId}`} onClick={() => openInvoicePdf(o.invoiceId)} className="inline-flex items-center gap-1 text-primary hover:underline">
-                    <FileText size={14} /> {o.invoiceNumber}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button data-testid={`order-pdf-${o.orderId}`} onClick={() => openInvoicePdf(o.invoiceId)} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <FileText size={14} /> {o.invoiceNumber}
+                    </button>
+                    <button data-testid={`order-track-${o.orderId}`} onClick={() => sendTracking(o)} title="Enviar seguimiento por email" className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary">
+                      <Send size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

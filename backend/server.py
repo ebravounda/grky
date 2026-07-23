@@ -169,6 +169,38 @@ class EmailTest(BaseModel):
     email: str
 
 
+class SpnUpdate(BaseModel):
+    spn: str
+
+
+class CreditLimitBody(BaseModel):
+    creditLimit: float
+
+
+class ChangeTitular(BaseModel):
+    subscriptionId: str
+    newFiscalId: str
+
+
+class OptionalProductBody(BaseModel):
+    subscriptionId: str
+    productId: str
+
+
+class CancelBody(BaseModel):
+    reason: str
+
+
+class AddressSearch(BaseModel):
+    label: str
+
+
+class DocUpload(BaseModel):
+    type: str
+    filename: str
+    contentBase64: str
+
+
 # ------------------------- catalog / utility -------------------------
 @api.get("/products")
 async def products(family: Optional[str] = None, request: Request = None):
@@ -476,14 +508,17 @@ async def create_order(body: OrderCreate, request: Request):
     # crear línea
     line_number = body.lineNumber or ("6" + str(uuid.uuid4().int)[:8] if product["family"] == "Mobile"
                                       else "9" + str(uuid.uuid4().int)[:8])
+    icc = "8934" + str(uuid.uuid4().int)[:16]
+    is_mobile = product["family"] == "Mobile"
     line = {
         "lineNumber": line_number, "fiscalId": body.fiscalId, "family": product["family"],
         "status": "ACTIVE", "productId": product["productId"], "productName": product["productName"],
-        "price": product["price"], "icc": "8934" + str(uuid.uuid4().int)[:16],
-        "eSim": False, "totalGB": 50 if product["family"] == "Mobile" else 0,
-        "usedGB": round(__import__("random").uniform(2, 40), 1) if product["family"] == "Mobile" else 0,
+        "price": product["price"], "icc": icc, "spn": "GOROKY",
+        "eSim": is_mobile, "esimData": likes_client.esim_data(icc) if is_mobile else None,
+        "totalGB": 50 if is_mobile else 0,
+        "usedGB": round(__import__("random").uniform(2, 40), 1) if is_mobile else 0,
         "creditLimit": 30, "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
-        "cdrs": _gen_cdrs() if product["family"] == "Mobile" else [],
+        "cdrs": _gen_cdrs() if is_mobile else [],
         "created": now_iso(),
     }
     await db.lines.insert_one(line)
@@ -512,6 +547,22 @@ async def create_order(body: OrderCreate, request: Request):
         "created": now_iso(),
     }
     await db.orders.insert_one(order)
+
+    # instalación (fibra) o portabilidad (si aplica)
+    if product["family"] in ("Fiber", "TV"):
+        await db.installations.insert_one({
+            "installationId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
+            "customerName": order["customerName"], "lineNumber": line_number,
+            "productName": product["productName"], "status": "PENDING_APPOINTMENT",
+            "address": (customer.get("billingAddress") or {}).get("street", ""),
+            "appointment": None, "created": now_iso()})
+    if body.portability:
+        await db.portabilities.insert_one({
+            "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
+            "customerName": order["customerName"], "lineNumber": line_number,
+            "type": "IN", "donorOperatorId": body.donorOperatorId,
+            "status": "IN_PROGRESS", "created": now_iso()})
+
     return {"order": clean(order), "invoiceId": str(invoice["_id"]),
             "invoiceNumber": invoice["invoiceNumber"]}
 
@@ -755,6 +806,256 @@ async def email_invoice(invoice_id: str, request: Request):
 
 
 
+# ------------------------- eSIM & acciones de SIM/línea -------------------------
+@api.get("/lines/{lineNumber}/esim")
+async def get_esim(lineNumber: str, request: Request):
+    user = await current_user(request)
+    line = await db.lines.find_one({"lineNumber": lineNumber})
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if not line.get("eSim"):
+        raise HTTPException(status_code=400, detail="Esta línea no es eSIM")
+    return line.get("esimData") or likes_client.esim_data(line["icc"])
+
+
+@api.post("/lines/{lineNumber}/sim-duplicate")
+async def sim_duplicate(lineNumber: str, request: Request):
+    await require_admin(request)
+    line = await db.lines.find_one({"lineNumber": lineNumber})
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    import random
+    new_icc = "8934" + str(random.randint(10**15, 10**16 - 1))
+    upd = {"icc": new_icc}
+    if line.get("eSim"):
+        upd["esimData"] = likes_client.esim_data(new_icc)
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": upd})
+    return {"ok": True, "icc": new_icc}
+
+
+@api.put("/lines/{lineNumber}/spn")
+async def set_spn(lineNumber: str, body: SpnUpdate, request: Request):
+    await require_admin(request)
+    r = await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"spn": body.spn}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    return {"ok": True, "spn": body.spn}
+
+
+@api.get("/lines/{lineNumber}/sim")
+async def sim_info(lineNumber: str, request: Request):
+    user = await current_user(request)
+    line = await db.lines.find_one({"lineNumber": lineNumber})
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    icc = line["icc"]
+    return {"icc": icc, "imsi": "21407" + icc[-10:], "pin": "3736", "pin2": "5678",
+            "puk": "08792901", "puk2": "12345678", "eSim": line.get("eSim", False),
+            "spn": line.get("spn", "GOROKY")}
+
+
+@api.put("/lines/{lineNumber}/credit-limit")
+async def set_credit_limit(lineNumber: str, body: CreditLimitBody, request: Request):
+    await require_admin(request)
+    r = await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"creditLimit": body.creditLimit}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    return {"ok": True, "creditLimit": body.creditLimit}
+
+
+# ------------------------- suscripciones avanzadas -------------------------
+@api.post("/subscriptions/change-titular")
+async def change_titular(body: ChangeTitular, request: Request):
+    await require_admin(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": body.subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    newc = await db.customers.find_one({"fiscalId": body.newFiscalId})
+    if not newc:
+        raise HTTPException(status_code=404, detail="Nuevo titular no encontrado")
+    line_numbers = [p.get("lineNumber") for p in sub.get("products", []) if p.get("lineNumber")]
+    await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"fiscalId": body.newFiscalId}})
+    if line_numbers:
+        await db.lines.update_many({"lineNumber": {"$in": line_numbers}}, {"$set": {"fiscalId": body.newFiscalId}})
+    return {"ok": True, "newFiscalId": body.newFiscalId}
+
+
+@api.get("/subscriptions/{subscriptionId}/optional-products")
+async def compatible_optionals(subscriptionId: str, request: Request):
+    await current_user(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    fam = sub.get("family")
+    opts = await db.tariffs.find({"type": "Optional", "family": fam, "active": True}).to_list(100)
+    return [clean(o) for o in opts]
+
+
+@api.post("/subscriptions/add-optional")
+async def add_optional(body: OptionalProductBody, request: Request):
+    await require_admin(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": body.subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    prod = await _get_tariff(body.productId)
+    if not prod:
+        raise HTTPException(status_code=400, detail="Producto no válido")
+    products = sub.get("products", [])
+    if any(p.get("productId") == body.productId for p in products):
+        raise HTTPException(status_code=400, detail="El producto ya está en la suscripción")
+    products.append({"productId": prod["productId"], "productName": prod["productName"],
+                     "family": prod["family"], "type": "Optional", "status": "ACTIVE",
+                     "lineNumber": products[0].get("lineNumber") if products else None,
+                     "price": prod["price"], "finalPrice": round(prod["price"] * 1.21, 2)})
+    await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"products": products}})
+    return {"ok": True, "productName": prod["productName"]}
+
+
+@api.post("/subscriptions/terminate-optional")
+async def terminate_optional(body: OptionalProductBody, request: Request):
+    await require_admin(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": body.subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    products = [p for p in sub.get("products", []) if not (p.get("productId") == body.productId and p.get("type") == "Optional")]
+    await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"products": products}})
+    return {"ok": True}
+
+
+# ------------------------- instalaciones -------------------------
+@api.get("/installations")
+async def list_installations(request: Request):
+    await require_admin(request)
+    items = await db.installations.find().sort("created", -1).to_list(300)
+    return [clean(i) for i in items]
+
+
+@api.get("/installations/{installation_id}")
+async def get_installation(installation_id: str, request: Request):
+    await require_admin(request)
+    inst = await db.installations.find_one({"installationId": installation_id})
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+    # citas disponibles (mock)
+    now = datetime.now(timezone.utc)
+    slots = []
+    for d in range(1, 6):
+        day = now + timedelta(days=d)
+        for h in ["09:00-11:00", "11:00-13:00", "16:00-18:00"]:
+            slots.append({"date": day.strftime("%Y-%m-%d"), "slot": h})
+    inst = clean(inst)
+    inst["availableAppointments"] = slots
+    return inst
+
+
+@api.post("/installations/{installation_id}/appointment")
+async def set_appointment(installation_id: str, body: dict, request: Request):
+    await require_admin(request)
+    r = await db.installations.update_one({"installationId": installation_id},
+        {"$set": {"appointment": body, "status": "SCHEDULED"}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+    return {"ok": True, "appointment": body}
+
+
+@api.post("/installations/{installation_id}/cancel")
+async def cancel_installation(installation_id: str, body: CancelBody, request: Request):
+    await require_admin(request)
+    r = await db.installations.update_one({"installationId": installation_id},
+        {"$set": {"status": "CANCELLED", "cancelReason": body.reason}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+    return {"ok": True}
+
+
+# ------------------------- portabilidades -------------------------
+@api.get("/portabilities")
+async def list_portabilities(request: Request):
+    await require_admin(request)
+    items = await db.portabilities.find().sort("created", -1).to_list(300)
+    return [clean(p) for p in items]
+
+
+@api.post("/portabilities/{portability_id}/cancel")
+async def cancel_portability(portability_id: str, body: CancelBody, request: Request):
+    await require_admin(request)
+    port = await db.portabilities.find_one({"portabilityId": portability_id})
+    if not port:
+        raise HTTPException(status_code=404, detail="Portabilidad no encontrada")
+    if port.get("type") != "IN":
+        raise HTTPException(status_code=400, detail="Solo se pueden cancelar portabilidades entrantes")
+    await db.portabilities.update_one({"portabilityId": portability_id},
+        {"$set": {"status": "CANCELLED", "cancelReason": body.reason}})
+    return {"ok": True}
+
+
+# ------------------------- recursos de marca -------------------------
+@api.get("/resources")
+async def list_resources(request: Request):
+    await require_admin(request)
+    return likes_client.get_brand_resources()
+
+
+@api.get("/resources/download")
+async def download_resource(path: str, name: str, request: Request):
+    await require_admin(request)
+    # En real: GET /getBrandResources devuelve una presigned URL. Mock: CSV generado.
+    content = f"# Recurso Goroky (demo)\n# path: {path}\n# archivo: {name}\nfecha,concepto,importe\n2026-06-01,Cuota mayorista,-1250.00\n2026-06-15,Comisiones,340.50\n"
+    return StreamingResponse(io.BytesIO(content.encode()), media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename={name}"})
+
+
+# ------------------------- documentación del cliente -------------------------
+@api.get("/customers/{fiscalId}/documents")
+async def list_documents(fiscalId: str, request: Request):
+    await require_admin(request)
+    docs = await db.customer_documents.find({"fiscalId": fiscalId}).to_list(50)
+    return [{"id": str(d["_id"]), "type": d["type"], "filename": d["filename"], "uploadedAt": d["uploadedAt"]} for d in docs]
+
+
+@api.post("/customers/{fiscalId}/documents")
+async def upload_document(fiscalId: str, body: DocUpload, request: Request):
+    await require_admin(request)
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    doc = {"fiscalId": fiscalId, "type": body.type, "filename": body.filename,
+           "content": body.contentBase64, "uploadedAt": now_iso()}
+    res = await db.customer_documents.insert_one(doc)
+    # En real: PUT del binario a la uploadURL devuelta por Likes.
+    return {"id": str(res.inserted_id), "type": body.type, "filename": body.filename, "uploadedAt": doc["uploadedAt"]}
+
+
+@api.post("/coverage/address")
+async def coverage_address(body: AddressSearch, request: Request):
+    await current_user(request)
+    return likes_client.search_address(body.label)
+
+
+@api.post("/orders/{order_id}/send-tracking")
+async def send_order_tracking(order_id: str, request: Request):
+    await require_admin(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    cust = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+    to = cust.get("email") if cust else None
+    if not emailer.is_configured():
+        raise HTTPException(status_code=400, detail="Email no configurado. Añade tu RESEND_API_KEY.")
+    if not to:
+        raise HTTPException(status_code=400, detail="El cliente no tiene email")
+    html = emailer.base_template("Seguimiento de tu pedido",
+        f"Hola {order.get('customerName', '')},<br><br>Tu pedido de <b>{order.get('productName', '')}</b> "
+        f"para la línea <b>{order.get('lineNumber', '')}</b> está en estado <b>{order.get('status', '')}</b>.<br><br>"
+        "Te avisaremos de cualquier novedad. Gracias por confiar en Goroky Telecom.")
+    await emailer.send_email(to, "Seguimiento de tu pedido - Goroky Telecom", html)
+    return {"ok": True, "to": to}
+
+
 app.include_router(create_auth_router(db))
 app.include_router(api)
 
@@ -837,16 +1138,25 @@ async def seed_demo(db):
         for pid, fam in d["lines"]:
             p = prods[pid]
             ln = ("6" if fam == "Mobile" else "9") + str(random.randint(10000000, 99999999))
+            micc = "8934" + str(random.randint(10**15, 10**16 - 1))
+            is_mob = fam == "Mobile"
             line = {"lineNumber": ln, "fiscalId": d["fiscalId"], "family": fam, "status": "ACTIVE",
                     "productId": pid, "productName": p["productName"], "price": p["price"],
-                    "icc": "8934" + str(random.randint(10**15, 10**16 - 1)), "eSim": False,
-                    "totalGB": 50 if fam == "Mobile" else 0,
-                    "usedGB": round(random.uniform(3, 45), 1) if fam == "Mobile" else 0,
+                    "icc": micc, "spn": "GOROKY",
+                    "eSim": is_mob, "esimData": likes_client.esim_data(micc) if is_mob else None,
+                    "totalGB": 50 if is_mob else 0,
+                    "usedGB": round(random.uniform(3, 45), 1) if is_mob else 0,
                     "creditLimit": 30, "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
-                    "cdrs": _gen_cdrs() if fam == "Mobile" else [], "created": now_iso()}
+                    "cdrs": _gen_cdrs() if is_mob else [], "created": now_iso()}
             await db.lines.insert_one(line)
-            if fam == "Mobile":
+            if is_mob:
                 cust_mobile_lines.append(line)
+            else:
+                await db.installations.insert_one({
+                    "installationId": str(uuid.uuid4().int)[:12], "fiscalId": d["fiscalId"],
+                    "customerName": f"{d['name']} {d['firstSurname']}".strip(), "lineNumber": ln,
+                    "productName": p["productName"], "status": random.choice(["PENDING_APPOINTMENT", "SCHEDULED", "COMPLETED"]),
+                    "address": f"Calle Mayor 10, {d['city']}", "appointment": None, "created": now_iso()})
             await db.subscriptions.insert_one({
                 "subscriptionId": str(uuid.uuid4()), "fiscalId": d["fiscalId"], "family": fam,
                 "status": "ACTIVE", "pendingChange": False, "created": now_iso(),
@@ -870,5 +1180,13 @@ async def seed_demo(db):
                 "period": _period_label(base), "dueDate": (base + timedelta(days=30)).isoformat(),
                 "paymentMethod": "SEPA CORE" if status == "paid" else "NO",
                 "consumption": consumption})
+    # portabilidades de ejemplo
+    mobs = await db.lines.find({"family": "Mobile"}).to_list(3)
+    for idx, m in enumerate(mobs[:2]):
+        await db.portabilities.insert_one({
+            "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": m["fiscalId"],
+            "customerName": m["fiscalId"], "lineNumber": m["lineNumber"],
+            "type": "IN", "donorOperatorId": "003",
+            "status": ["IN_PROGRESS", "COMPLETED"][idx % 2], "created": now_iso()})
     await db.counters.update_one({"_id": "invoice"}, {"$set": {"seq": inv_seq}}, upsert=True)
     logger.info("Demo data seeded")

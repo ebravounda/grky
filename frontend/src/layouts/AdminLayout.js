@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
+  Wrench, ArrowRightLeft, FolderDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +16,10 @@ const nav = [
   { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas" },
   { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo" },
   { to: "/app/orders", label: "Contratación", icon: ShoppingCart, id: "contratacion" },
+  { to: "/app/installations", label: "Instalaciones", icon: Wrench, id: "instalaciones" },
+  { to: "/app/portabilities", label: "Portabilidades", icon: ArrowRightLeft, id: "portabilidades" },
   { to: "/app/invoices", label: "Facturas", icon: ReceiptText, id: "facturas" },
+  { to: "/app/resources", label: "Recursos", icon: FolderDown, id: "recursos" },
   { to: "/app/tickets", label: "Soporte", icon: LifeBuoy, id: "soporte" },
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion" },
 ];

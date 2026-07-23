@@ -145,3 +145,50 @@ def check_coverage(address):
             "isNEBA": True,
         },
     }
+
+
+def search_address(label):
+    """Mock de GET /coverage/address (búsqueda de direcciones)."""
+    base = label or "Calle Mayor"
+    return {"sessionId": "mock-session", "items": [
+        {"address": f"{base} 1, 28013 Madrid", "gescal": "28079000000100001"},
+        {"address": f"{base} 15, 28013 Madrid", "gescal": "28079000000100015"},
+        {"address": f"{base} 42, 28013 Madrid", "gescal": "28079000000100042"},
+    ]}
+
+
+def esim_data(icc):
+    """Datos de activación eSIM (mock, replica eSimData de la API)."""
+    ac = f"19-{icc[-6:]}-1UGD0B"
+    return {
+        "icc": icc, "pin": "3736", "puk": "08792901",
+        "smdpAddress": "rsp.truphone.com", "activationCode": ac,
+        "qrUrl": f"https://quickchart.io/qr?size=300&text=LPA:1$rsp.truphone.com${ac}",
+        "qrDownloadUrl": f"https://quickchart.io/qr?size=600&text=LPA:1$rsp.truphone.com${ac}",
+    }
+
+
+MOCK_RESOURCES = [
+    {"title": "Facturación Mayorista", "folders": [
+        {"title": "2026-06", "path": "299/facturacion/2026/06", "documents": ["202606_299_LT-FAC-2026-2406_factura_mayorista.csv"]},
+        {"title": "2026-05", "path": "299/facturacion/2026/05", "documents": ["202605_299_LT-FAC-2026-2211_factura_mayorista.csv"]},
+    ]},
+    {"title": "Comisiones", "folders": [
+        {"title": "2026-06", "path": "299/comisiones/2026/06", "documents": ["comisiones_junio_2026.xlsx"]},
+        {"title": "2026-05", "path": "299/comisiones/2026/05", "documents": ["comisiones_mayo_2026.xlsx"]},
+    ]},
+    {"title": "CDRs", "folders": [
+        {"title": "2026-06", "path": "299/cdrs/2026/06", "documents": ["cdrs_monthly.csv", "cdrs_20260601.csv"]},
+    ]},
+    {"title": "Albaranes", "folders": [
+        {"title": "2026-06", "path": "299/albaranes/2026/06", "documents": ["albaran_20260610.pdf"]},
+    ]},
+    {"title": "Stock logístico", "folders": [
+        {"title": "Pedidos de Compra", "path": "299/logisticStock/PO", "documents": ["PO_20260605.pdf"]},
+    ]},
+]
+
+
+def get_brand_resources():
+    live = _live_get("/getBrandResources")
+    return live if live is not None else MOCK_RESOURCES

@@ -42,7 +42,7 @@ export default function Dashboard() {
         <div className="rounded-lg border border-border bg-card p-6">
           <h3 className="font-heading font-600 mb-4">Líneas por familia</h3>
           <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <PieChart>
                 <Pie data={stats.linesByFamily} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
                   {stats.linesByFamily.map((e, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}

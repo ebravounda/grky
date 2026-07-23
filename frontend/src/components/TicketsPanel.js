@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -55,7 +55,9 @@ export default function TicketsPanel({ isClient = false }) {
               <Button data-testid="new-ticket-btn" className="rounded-full gap-2"><LifeBuoy size={16} /> Nuevo ticket</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Crear ticket de soporte</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Crear ticket de soporte</DialogTitle>
+                <DialogDescription>Selecciona la tipología y describe la incidencia.</DialogDescription>
+              </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label>Tipología</Label>

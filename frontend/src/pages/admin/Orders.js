@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -57,7 +57,9 @@ export default function Orders() {
               <Button data-testid="new-order-btn" className="rounded-full gap-2"><ShoppingCart size={16} /> Nueva contratación</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Crear servicio / orden</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Crear servicio / orden</DialogTitle>
+                <DialogDescription>Al crear el servicio se genera automáticamente la factura PDF.</DialogDescription>
+              </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label>Cliente</Label>

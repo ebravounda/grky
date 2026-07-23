@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -59,7 +59,9 @@ export default function Customers() {
               <Button data-testid="new-customer-btn" className="rounded-full gap-2"><UserPlus size={16} /> Nuevo cliente</Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Crear cliente final</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Crear cliente final</DialogTitle>
+                <DialogDescription>Introduce los datos del cliente y su documentación fiscal.</DialogDescription>
+              </DialogHeader>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>NIF/NIE</Label><Input data-testid="cust-fiscalId" value={form.fiscalId} onChange={(e) => set("fiscalId", e.target.value)} /></div>
                 <div className="space-y-1.5">

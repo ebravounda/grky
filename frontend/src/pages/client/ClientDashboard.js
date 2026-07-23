@@ -6,7 +6,7 @@ import { StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -123,7 +123,9 @@ export default function ClientDashboard() {
 
       <Dialog open={!!changing} onOpenChange={(o) => !o && setChanging(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Cambiar tarifa</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Cambiar tarifa</DialogTitle>
+            <DialogDescription>Elige tu nueva tarifa. El cambio se aplica de inmediato.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">Tarifa actual: <b className="text-foreground">{changing?.products?.[0]?.productName}</b></p>
             <div className="space-y-1.5">

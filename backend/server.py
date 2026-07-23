@@ -17,6 +17,8 @@ load_dotenv(ROOT_DIR / ".env")
 
 import stripe
 import likes_client
+import emailer
+import base64
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
 
@@ -149,15 +151,80 @@ class CheckoutRequest(BaseModel):
     origin_url: str
 
 
+class TariffBody(BaseModel):
+    productId: Optional[str] = None
+    productName: str
+    family: str = "Mobile"
+    type: str = "Main"
+    price: float
+    features: Optional[List[str]] = None
+    active: bool = True
+
+
 class CoverageRequest(BaseModel):
     address: str
+
+
+class EmailTest(BaseModel):
+    email: str
 
 
 # ------------------------- catalog / utility -------------------------
 @api.get("/products")
 async def products(family: Optional[str] = None, request: Request = None):
     await current_user(request)
-    return likes_client.get_products(family)
+    q = {"active": True}
+    if family:
+        q["family"] = family
+    items = await db.tariffs.find(q).sort("price", 1).to_list(500)
+    return [clean(t) for t in items]
+
+
+async def _get_tariff(product_id):
+    return await db.tariffs.find_one({"productId": product_id})
+
+
+@api.get("/tariffs")
+async def list_tariffs(request: Request):
+    await require_admin(request)
+    items = await db.tariffs.find().sort("family", 1).to_list(500)
+    return [clean(t) for t in items]
+
+
+@api.post("/tariffs")
+async def create_tariff(body: TariffBody, request: Request):
+    await require_admin(request)
+    pid = body.productId or str(uuid.uuid4().int)[:4]
+    if await db.tariffs.find_one({"productId": pid}):
+        raise HTTPException(status_code=400, detail="Ya existe una tarifa con ese ID")
+    doc = {"productId": pid, "productName": body.productName, "family": body.family,
+           "type": body.type, "price": body.price, "isRecurringPrice": True,
+           "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])],
+           "active": body.active, "created": now_iso()}
+    await db.tariffs.insert_one(doc)
+    return clean(doc)
+
+
+@api.put("/tariffs/{product_id}")
+async def update_tariff(product_id: str, body: TariffBody, request: Request):
+    await require_admin(request)
+    existing = await db.tariffs.find_one({"productId": product_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+    upd = {"productName": body.productName, "family": body.family, "type": body.type,
+           "price": body.price, "active": body.active,
+           "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])]}
+    await db.tariffs.update_one({"productId": product_id}, {"$set": upd})
+    return clean(await db.tariffs.find_one({"productId": product_id}))
+
+
+@api.delete("/tariffs/{product_id}")
+async def delete_tariff(product_id: str, request: Request):
+    await require_admin(request)
+    res = await db.tariffs.delete_one({"productId": product_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+    return {"ok": True}
 
 
 @api.get("/donor-operators")
@@ -336,7 +403,7 @@ async def change_tariff(body: TariffChange, request: Request):
         raise HTTPException(status_code=404, detail="Suscripción no encontrada")
     if user.get("role") == "client" and sub["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
-    prod = next((p for p in likes_client.get_products() if p["productId"] == body.newProductId), None)
+    prod = await _get_tariff(body.newProductId)
     if not prod:
         raise HTTPException(status_code=400, detail="Producto no válido")
     products = sub.get("products", [])
@@ -401,7 +468,7 @@ async def create_order(body: OrderCreate, request: Request):
     customer = await db.customers.find_one({"fiscalId": body.fiscalId})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    product = next((p for p in likes_client.get_products() if p["productId"] == body.productId), None)
+    product = await _get_tariff(body.productId)
     if not product:
         raise HTTPException(status_code=400, detail="Producto no válido")
 
@@ -626,6 +693,68 @@ async def stripe_webhook(request: Request):
     return {"status": "ok"}
 
 
+# ------------------------- settings & email -------------------------
+@api.get("/settings")
+async def get_settings(request: Request):
+    await require_admin(request)
+    return {
+        "issuer": {"brand": "GOROKY", "legal": "TRAMILEX GLOBAL SERVICE SL",
+                   "cif": "B21796925", "address": "Calle cortina del muelle otr 11, 29015 MALAGA (Málaga)"},
+        "likes": {"live": likes_client.CONNECTION_STATE["live"], "error": likes_client.CONNECTION_STATE["last_error"]},
+        "emailConfigured": emailer.is_configured(),
+        "senderEmail": os.environ.get("SENDER_EMAIL", ""),
+        "stripeMode": os.environ.get("STRIPE_MODE", "test"),
+    }
+
+
+@api.post("/email/test")
+async def email_test(body: EmailTest, request: Request):
+    await require_admin(request)
+    if not emailer.is_configured():
+        raise HTTPException(status_code=400, detail="Email no configurado. Añade tu RESEND_API_KEY.")
+    html = emailer.base_template("Email de prueba",
+        "Este es un correo de prueba enviado desde tu CRM Goroky Telecom. "
+        "Si lo recibes, la integracion de email funciona correctamente.")
+    try:
+        res = await emailer.send_email(body.email, "Prueba de email - Goroky Telecom", html)
+        return {"ok": True, "id": res.get("id") if isinstance(res, dict) else None}
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=500, detail=f"Error al enviar: {e}")
+
+
+@api.post("/invoices/{invoice_id}/email")
+async def email_invoice(invoice_id: str, request: Request):
+    from bson import ObjectId
+    user = await current_user(request)
+    if not emailer.is_configured():
+        raise HTTPException(status_code=400, detail="Email no configurado. Anade tu RESEND_API_KEY.")
+    try:
+        inv = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    to = inv.get("customerEmail")
+    if not to:
+        raise HTTPException(status_code=400, detail="El cliente no tiene email")
+    pdf_bytes = generate_invoice_pdf(inv)
+    html = emailer.base_template(
+        f"Factura {inv['invoiceNumber']}",
+        f"Hola {inv.get('customerName', '')},<br><br>Adjuntamos tu factura <b>{inv['invoiceNumber']}</b> "
+        f"por importe de <b>{inv['total']:.2f} EUR</b> correspondiente al periodo {inv.get('period', '')}.<br><br>"
+        "Gracias por confiar en Goroky Telecom.")
+    try:
+        await emailer.send_email(to, f"Tu factura {inv['invoiceNumber']} - Goroky Telecom", html,
+                                 attachments=[{"filename": f"{inv['invoiceNumber']}.pdf", "content": list(pdf_bytes)}])
+        await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"emailedAt": now_iso()}})
+        return {"ok": True, "to": to}
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=500, detail=f"Error al enviar: {e}")
+
+
+
 app.include_router(create_auth_router(db))
 app.include_router(api)
 
@@ -644,6 +773,7 @@ async def startup():
     await db.customers.create_index("fiscalId", unique=True)
     await db.lines.create_index("lineNumber", unique=True)
     await seed_admin(db)
+    await seed_tariffs(db)
     await seed_demo(db)
 
 
@@ -653,6 +783,17 @@ async def shutdown():
 
 
 # ------------------------- demo seed -------------------------
+async def seed_tariffs(db):
+    if await db.tariffs.count_documents({}) > 0:
+        return
+    for p in likes_client.MOCK_PRODUCTS:
+        doc = dict(p)
+        doc["active"] = True
+        doc["created"] = now_iso()
+        await db.tariffs.insert_one(doc)
+    logger.info("Tariffs seeded")
+
+
 async def seed_demo(db):
     import random
     if await db.customers.count_documents({}) > 0:

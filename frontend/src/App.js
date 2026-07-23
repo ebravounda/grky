@@ -10,6 +10,8 @@ import CustomerDetail from "@/pages/admin/CustomerDetail";
 import Lines from "@/pages/admin/Lines";
 import LineDetail from "@/pages/admin/LineDetail";
 import Catalog from "@/pages/admin/Catalog";
+import Tariffs from "@/pages/admin/Tariffs";
+import Settings from "@/pages/admin/Settings";
 import Orders from "@/pages/admin/Orders";
 import Invoices from "@/pages/admin/Invoices";
 import Tickets from "@/pages/admin/Tickets";
@@ -61,6 +63,8 @@ function App() {
             <Route path="lines" element={<Lines />} />
             <Route path="lines/:lineNumber" element={<LineDetail />} />
             <Route path="catalog" element={<Catalog />} />
+            <Route path="tariffs" element={<Tariffs />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="orders" element={<Orders />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="tickets" element={<Tickets />} />

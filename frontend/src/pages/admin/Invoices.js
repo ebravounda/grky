@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import api, { apiErr, openInvoicePdf } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { FileText, CreditCard } from "lucide-react";
+import { FileText, CreditCard, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [paying, setPaying] = useState(null);
+  const [emailing, setEmailing] = useState(null);
 
   const load = () => api.get("/invoices").then((r) => setInvoices(r.data));
   useEffect(() => { load(); }, []);
@@ -18,6 +19,14 @@ export default function Invoices() {
       const { data } = await api.post("/payments/checkout", { invoiceId: inv.id, origin_url: window.location.origin });
       window.location.href = data.checkout_url;
     } catch (e) { toast.error(apiErr(e)); setPaying(null); }
+  };
+
+  const sendEmail = async (inv) => {
+    setEmailing(inv.id);
+    try {
+      const { data } = await api.post(`/invoices/${inv.id}/email`);
+      toast.success(`Factura enviada a ${data.to}`);
+    } catch (e) { toast.error(apiErr(e)); } finally { setEmailing(null); }
   };
 
   return (
@@ -47,6 +56,9 @@ export default function Invoices() {
                   <div className="flex items-center gap-2 justify-end">
                     <Button data-testid={`invoice-pdf-${i.invoiceNumber}`} variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => openInvoicePdf(i.id)}>
                       <FileText size={14} /> PDF
+                    </Button>
+                    <Button data-testid={`invoice-email-${i.invoiceNumber}`} variant="outline" size="sm" className="rounded-full gap-1.5" disabled={emailing === i.id} onClick={() => sendEmail(i)}>
+                      <Mail size={14} /> {emailing === i.id ? "…" : "Email"}
                     </Button>
                     {i.status === "pending" && (
                       <Button data-testid={`invoice-pay-${i.invoiceNumber}`} size="sm" className="rounded-full gap-1.5" disabled={paying === i.id} onClick={() => pay(i)}>

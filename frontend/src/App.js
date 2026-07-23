@@ -1,55 +1,82 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import AdminLayout from "@/layouts/AdminLayout";
+import ClientLayout from "@/layouts/ClientLayout";
+import Login from "@/pages/Login";
+import Dashboard from "@/pages/admin/Dashboard";
+import Customers from "@/pages/admin/Customers";
+import CustomerDetail from "@/pages/admin/CustomerDetail";
+import Lines from "@/pages/admin/Lines";
+import LineDetail from "@/pages/admin/LineDetail";
+import Catalog from "@/pages/admin/Catalog";
+import Orders from "@/pages/admin/Orders";
+import Invoices from "@/pages/admin/Invoices";
+import Tickets from "@/pages/admin/Tickets";
+import ClientDashboard from "@/pages/client/ClientDashboard";
+import ClientLineDetail from "@/pages/client/ClientLineDetail";
+import ClientInvoices from "@/pages/client/ClientInvoices";
+import ClientTickets from "@/pages/client/ClientTickets";
+import PaymentResult from "@/pages/PaymentResult";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function Loading() {
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
+    <div className="min-h-screen grid place-items-center bg-background">
+      <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
     </div>
   );
-};
+}
+
+function RequireRole({ role, children }) {
+  const { user, loading } = useAuth();
+  if (loading || user === null) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (role && user.role !== role) {
+    return <Navigate to={user.role === "admin" ? "/app" : "/portal"} replace />;
+  }
+  return children;
+}
+
+function RootRedirect() {
+  const { user, loading } = useAuth();
+  if (loading || user === null) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <Navigate to={user.role === "admin" ? "/app" : "/portal"} replace />;
+}
 
 function App() {
   return (
-    <div className="App">
+    <AuthProvider>
+      <Toaster richColors position="top-right" />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/payment/:result" element={<PaymentResult />} />
+
+          <Route path="/app" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
+            <Route index element={<Dashboard />} />
+            <Route path="customers" element={<Customers />} />
+            <Route path="customers/:fiscalId" element={<CustomerDetail />} />
+            <Route path="lines" element={<Lines />} />
+            <Route path="lines/:lineNumber" element={<LineDetail />} />
+            <Route path="catalog" element={<Catalog />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="tickets" element={<Tickets />} />
           </Route>
+
+          <Route path="/portal" element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
+            <Route index element={<ClientDashboard />} />
+            <Route path="lines/:lineNumber" element={<ClientLineDetail />} />
+            <Route path="invoices" element={<ClientInvoices />} />
+            <Route path="tickets" element={<ClientTickets />} />
+          </Route>
+
+          <Route path="*" element={<RootRedirect />} />
         </Routes>
       </BrowserRouter>
-    </div>
+    </AuthProvider>
   );
 }
 

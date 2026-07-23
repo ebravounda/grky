@@ -1,0 +1,136 @@
+{
+  "project_name": "Goroky Telecom CRM & Client Portal",
+  "theme_strategy": "hybrid_fullstack",
+  "theme": "Light mode by default for admin dashboard to ensure data readability, dark mode option available. Client portal has a slightly more consumer-friendly vibrant look.",
+  "colors": {
+    "archetype": "The Performance Pro (Deep Obsidian + White + Volt Blue)",
+    "primary": {
+      "DEFAULT": "hsl(230, 100%, 50%)",
+      "foreground": "hsl(0, 0%, 100%)",
+      "hover": "hsl(230, 100%, 45%)"
+    },
+    "background": {
+      "light": "hsl(220, 20%, 98%)",
+      "dark": "hsl(224, 71%, 4%)"
+    },
+    "card": {
+      "light": "hsl(0, 0%, 100%)",
+      "dark": "hsl(224, 71%, 7%)"
+    },
+    "border": {
+      "light": "hsl(220, 13%, 91%)",
+      "dark": "hsl(224, 71%, 15%)"
+    },
+    "success": "hsl(142, 71%, 45%)",
+    "warning": "hsl(38, 92%, 50%)",
+    "destructive": "hsl(348, 100%, 61%)",
+    "rules": [
+      "Never use pure #000000 or #808080. Tint grays slightly blue.",
+      "Ensure contrast ratios are 4.5:1 for normal text.",
+      "Limit use of primary color strictly to CTAs.",
+      "DO NOT use complete transparent background in header, overlays, any surface that has content under it."
+    ]
+  },
+  "typography": {
+    "headings": {
+      "font_family": "'Outfit', sans-serif",
+      "weights": [400, 500, 600, 700],
+      "rules": "Tracking-tight on sizes above 32px. Never center headings by default."
+    },
+    "body": {
+      "font_family": "'Manrope', sans-serif",
+      "weights": [400, 500],
+      "rules": "High legibility, leading-relaxed for body copy, tight for data."
+    },
+    "banned_fonts": ["Inter", "Roboto", "Open Sans", "Lato", "Space Grotesk"],
+    "hierarchy_rules": "H1 max text-5xl on desktop. Use tracking-[0.2em] uppercase for overlines/labels."
+  },
+  "grids": {
+    "dashboard": "High Density Grid (grid-cols-1 md:grid-cols-3 lg:grid-cols-4), gap-4 or gap-6. Direct children must be grid items.",
+    "client_portal": "Bento Grid (grid-cols-1 md:grid-cols-2 lg:grid-cols-3), gap-6 or gap-8."
+  },
+  "layouts": {
+    "spacing_strategy": "Generous Spacing Philosophy. Use p-6, p-8 in containers. For cards with borders, ensure padding prevents text collision.",
+    "navigation": "Every page MUST have a visible nav bar. No transparent headers over hero images - use glassmorphism or solid background.",
+    "alignment": "Optical alignment over geometrical. Left-align data and forms."
+  },
+  "component_name": {
+    "cards": "Cardless or subtle roundness (max 8px). Flat solid surfaces with 1px border. Hover: -translate-y-1 and shadow-lg.",
+    "buttons": "Pill-shaped or rounded-md. Sharp focus rings.",
+    "inputs": "Shadcn components heavily customized. Left aligned labels.",
+    "charts": "Shadcn charts/Recharts. Use semantic colors for data. Accessible tooltips.",
+    "tables": "Dense rows for Admin, more spacious for Client portal. 1px borders.",
+    "toasts": "Sonner for notifications."
+  },
+  "visual_enhancers": {
+    "glassmorphism": "Only for sticky headers/floating navs. bg-white/70 or bg-black/60, backdrop-blur-xl, 1px delicate inner stroke.",
+    "neumorphism": "Do not use. Stick to flat and crisp (Grid Borders technical look).",
+    "status_pills": "Use vibrant backgrounds with high contrast text for Active/Inactive/Pending statuses."
+  },
+  "motion": {
+    "transitions": "transition: transform 0.2s ease, opacity 0.2s ease (Never transition: all).",
+    "interactions": "Hover states must darken/lighten distinctly. Click/press states scale down slightly (scale-95).",
+    "entrance": "Staggered fade-up for list items (Framer Motion)."
+  },
+  "accessibility": {
+    "contrast": "Minimum 4.5:1 ratio for text (APCA). Use text shadows over images.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute.",
+    "focus": "focus:ring-2 focus:ring-primary focus:outline-none"
+  },
+  "media": {
+    "images": "Max height 80vh on mobile. Never use placeholder URLs.",
+    "icons": "Use @phosphor-icons/react. Phosphor icons for dense dashboards."
+  },
+  "3d_libraries_and_steps": {
+    "decision": "Not mandatory for data-heavy CRM, but React Recharts is MANDATORY for data visualization (data consumption gauges, revenue charts).",
+    "data_viz": "Use Recharts for line, bar, and donut charts. Add custom tooltips."
+  },
+  "image_urls": {
+    "marketing_client": [
+      {
+        "url": "https://images.pexels.com/photos/11749490/pexels-photo-11749490.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Woman enjoying smartphone in sunny day",
+        "category": "Client Portal Welcome / Empty State"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1670272505340-d906d8d77d03?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxwZXJzb24lMjB1c2luZyUyMHNtYXJ0cGhvbmUlMjBzbWlsaW5nfGVufDB8fHx8MTc4NDgxMjMzN3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Woman at table using smartphone",
+        "category": "Client Portal Profile/Dashboard Header"
+      }
+    ],
+    "admin_dashboard": [
+      {
+        "url": "https://images.unsplash.com/photo-1604869515882-4d10fa4b0492?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwY2FibGVzJTIwYWJzdHJhY3R8ZW58MHx8fHwxNzg0ODEyMzM3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract fiber optic cables (white/blue)",
+        "category": "Admin Login Background or Network Status Header"
+      },
+      {
+        "url": "https://images.pexels.com/photos/8640331/pexels-photo-8640331.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Neon blue optical fibers",
+        "category": "Telecom Cover/Background"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install required fonts: Outfit and Manrope via Google Fonts in index.html.",
+    "Install @phosphor-icons/react for icons.",
+    "Install recharts for consumption and revenue KPIs.",
+    "Structure the app to support two layouts based on auth role: Admin (dense sidebar) vs Client (bento grid, top nav).",
+    "Configure Tailwind config colors to match the guidelines provided above.",
+    "DO NOT USE INTER FONT.",
+    "Ensure all JS components use .js extensions as requested."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid the 'AI slop' aesthetic.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) where appropriate.",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Use sonner for toasts.",
+    "Prioritize using pre-existing components from src/components/ui when applicable."
+  ]
+}

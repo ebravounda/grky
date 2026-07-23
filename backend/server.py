@@ -101,6 +101,80 @@ async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
     return fiscalId
 
 
+# ------------------------- billing config -------------------------
+BILLING_REMINDER_DAYS = [int(x) for x in os.environ.get("BILLING_REMINDER_DAYS", "5,3").split(",") if x.strip()]
+BILLING_MAX_FAILED = int(os.environ.get("BILLING_MAX_FAILED_ATTEMPTS", "3"))
+
+
+async def log_event(source: str, level: str, message: str, meta: dict = None):
+    """Registra un evento del sistema (para el panel de Alertas del CRM)."""
+    try:
+        await db.system_events.insert_one({
+            "source": source, "level": level, "message": message,
+            "meta": meta or {}, "read": False, "created_at": now_iso()})
+    except Exception as e:  # noqa
+        logger.warning("log_event failed: %s", e)
+
+
+async def _send_mail_safe(source: str, to: str, subject: str, html: str, attachments=None):
+    """Envía email y registra un evento si falla (sin romper el flujo)."""
+    if not emailer.is_configured():
+        await log_event("email", "warning", f"Email NO enviado (Resend sin configurar): {subject}", {"to": to})
+        return False
+    if not to:
+        return False
+    try:
+        await emailer.send_email(to, subject, html, attachments=attachments)
+        return True
+    except Exception as e:  # noqa
+        await log_event("email", "error", f"Error al enviar email «{subject}»: {str(e)[:120]}", {"to": to})
+        return False
+
+
+# ------------------------- email templates -------------------------
+def _mail_payment_reminder(name, amount, days, period):
+    return emailer.base_template(
+        f"Recordatorio de pago · {period}",
+        f"Hola {name},<br><br>Te recordamos que en <b>{days} día(s)</b> se cargará en tu cuenta "
+        f"la cuota de <b>{amount:.2f} €</b> correspondiente al periodo <b>{period}</b> mediante "
+        "domiciliación SEPA.<br><br>Asegúrate de disponer de saldo suficiente. "
+        "No necesitas hacer nada, el cobro es automático.<br><br>Gracias por confiar en GoRoky.")
+
+
+def _mail_payment_success(name, amount, invoice_number, period):
+    return emailer.base_template(
+        "Pago recibido correctamente",
+        f"Hola {name},<br><br>Hemos recibido el pago de <b>{amount:.2f} €</b> correspondiente al periodo "
+        f"<b>{period}</b>.<br><br>Tu factura <b>{invoice_number}</b> ya está disponible en tu área de clientes.<br><br>"
+        "Gracias por confiar en GoRoky. 🎉")
+
+
+def _mail_payment_failed(name, amount, attempt, max_attempts):
+    return emailer.base_template(
+        "No hemos podido cobrar tu cuota",
+        f"Hola {name},<br><br>No hemos podido cobrar la cuota de <b>{amount:.2f} €</b> mediante domiciliación SEPA "
+        f"(intento <b>{attempt}</b> de {max_attempts}).<br><br>Por favor, revisa que tu cuenta bancaria tenga saldo. "
+        "Volveremos a intentar el cobro automáticamente.<br><br>Si el problema persiste, contacta con soporte.")
+
+
+def _mail_suspension_warning(name, amount):
+    return emailer.base_template(
+        "⚠️ Mañana tu línea será suspendida",
+        f"Hola {name},<br><br><b>Mañana tu línea será suspendida si no se recibe el pago</b> de "
+        f"<b>{amount:.2f} €</b>.<br><br>Han fallado varios intentos de cobro por domiciliación SEPA. "
+        "Regulariza el pago hoy para evitar la suspensión del servicio.<br><br>"
+        "Si ya has realizado el pago, ignora este mensaje.")
+
+
+def _mail_suspended(name, amount):
+    return emailer.base_template(
+        "Tu línea ha sido suspendida por impago",
+        f"Hola {name},<br><br>Lamentamos informarte de que tus líneas han sido <b>suspendidas</b> tras varios "
+        f"intentos fallidos de cobro de <b>{amount:.2f} €</b>.<br><br>Para reactivar tu servicio, regulariza el "
+        "pago pendiente. En cuanto recibamos el cobro, tus líneas se reactivarán automáticamente.<br><br>"
+        "Contacta con soporte si necesitas ayuda.")
+
+
 # ------------------------- models -------------------------
 class CustomerCreate(BaseModel):
     fiscalId: str

@@ -202,6 +202,34 @@ class DocUpload(BaseModel):
     contentBase64: str
 
 
+class ApplicationCreate(BaseModel):
+    productId: str
+    docType: str = "DNI"
+    fiscalId: str
+    name: str
+    firstSurname: Optional[str] = ""
+    lastSurname: Optional[str] = ""
+    dob: Optional[str] = ""
+    address: str
+    city: str
+    postalCode: str
+    province: Optional[str] = ""
+    iban: str
+    bank: Optional[str] = ""
+    contactPhone: str
+    email: str
+    acceptedTerms: bool = False
+    docFront: Optional[str] = None
+    docBack: Optional[str] = None
+    selfie: Optional[str] = None
+
+
+class SignBody(BaseModel):
+    signatureType: str = "draw"
+    signerName: Optional[str] = ""
+    signatureImage: Optional[str] = None
+
+
 # ------------------------- catalog / utility -------------------------
 @api.get("/products")
 async def products(family: Optional[str] = None, request: Request = None):
@@ -1108,6 +1136,216 @@ async def send_order_tracking(order_id: str, request: Request):
         "Te avisaremos de cualquier novedad. Gracias por confiar en Goroky Telecom.")
     await emailer.send_email(to, "Seguimiento de tu pedido - Goroky Telecom", html)
     return {"ok": True, "to": to}
+
+
+# ------------------------- portal público de contratación -------------------------
+import secrets as _secrets
+from bson import ObjectId as _OID
+
+
+async def _save_file(kind, data_url, owner):
+    if not data_url:
+        return None
+    res = await db.files.insert_one({"kind": kind, "dataUrl": data_url,
+                                     "owner": owner, "createdAt": now_iso()})
+    return str(res.inserted_id)
+
+
+@api.get("/public/catalog")
+async def public_catalog():
+    items = await db.tariffs.find({"active": True, "type": "Main"}).sort("price", 1).to_list(500)
+    out = {"Mobile": [], "Fiber": [], "Satellite": [], "TV": []}
+    for t in items:
+        fam = t.get("family")
+        if fam in out:
+            out[fam].append(clean(t))
+    return out
+
+
+@api.get("/public/products/{product_id}")
+async def public_product(product_id: str):
+    t = await db.tariffs.find_one({"productId": product_id, "active": True})
+    if not t:
+        raise HTTPException(status_code=404, detail="Producto no disponible")
+    return clean(t)
+
+
+@api.post("/public/applications")
+async def create_application(body: ApplicationCreate):
+    if not body.acceptedTerms:
+        raise HTTPException(status_code=400, detail="Debes aceptar los términos y condiciones")
+    product = await _get_tariff(body.productId)
+    if not product:
+        raise HTTPException(status_code=400, detail="Producto no válido")
+    token = _secrets.token_urlsafe(24)
+    contract_code = "GRK-" + _secrets.token_hex(4).upper()
+    front = await _save_file("doc_front", body.docFront, body.fiscalId)
+    back = await _save_file("doc_back", body.docBack, body.fiscalId)
+    selfie = await _save_file("selfie", body.selfie, body.fiscalId)
+    doc = {
+        "token": token, "contractCode": contract_code, "status": "PENDING_SIGN",
+        "productId": product["productId"], "productName": product["productName"],
+        "family": product["family"], "price": product["price"],
+        "docType": body.docType, "fiscalId": body.fiscalId, "name": body.name,
+        "firstSurname": body.firstSurname, "lastSurname": body.lastSurname, "dob": body.dob,
+        "address": body.address, "city": body.city, "postalCode": body.postalCode,
+        "province": body.province, "iban": body.iban, "bank": body.bank,
+        "contactPhone": body.contactPhone, "email": body.email.lower(),
+        "acceptedTerms": True, "fileIds": {"front": front, "back": back, "selfie": selfie},
+        "createdAt": now_iso(),
+    }
+    await db.applications.insert_one(doc)
+    if emailer.is_configured():
+        try:
+            link = f"{os.environ.get('FRONTEND_URL', '')}/firmar/{token}"
+            html = emailer.base_template("Firma tu contrato",
+                f"Hola {body.name},<br><br>Gracias por contratar <b>{product['productName']}</b>. "
+                f"Para completar el alta, firma tu contrato (código <b>{contract_code}</b>) aquí:<br><br>"
+                f"<a href='{link}' style='background:#0033ff;color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none'>Firmar contrato</a>")
+            await emailer.send_email(body.email, "Firma tu contrato - Goroky Telecom", html)
+        except Exception:
+            pass
+    return {"token": token, "contractCode": contract_code, "signUrl": f"/firmar/{token}"}
+
+
+def _app_public_view(app_doc):
+    return {"token": app_doc["token"], "contractCode": app_doc["contractCode"],
+            "status": app_doc["status"], "productName": app_doc["productName"],
+            "family": app_doc["family"], "price": app_doc["price"],
+            "name": app_doc["name"], "fiscalId": app_doc["fiscalId"],
+            "address": app_doc["address"], "city": app_doc["city"],
+            "email": app_doc["email"], "signerName": app_doc.get("signerName")}
+
+
+@api.get("/public/applications/{token}")
+async def get_application(token: str):
+    app_doc = await db.applications.find_one({"token": token})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return _app_public_view(app_doc)
+
+
+def _app_to_contract(app_doc):
+    return {
+        "contractNumber": app_doc["contractCode"], "date": app_doc.get("signedAt") or app_doc["createdAt"],
+        "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip().upper(),
+        "fiscalId": app_doc["fiscalId"],
+        "customerAddress": f"{app_doc['address']}, {app_doc['postalCode']} {app_doc['city']} ({app_doc.get('province', '')})".strip(),
+        "customerEmail": app_doc["email"], "customerPhone": app_doc["contactPhone"],
+        "productName": app_doc["productName"], "family": app_doc["family"],
+        "lineNumber": app_doc.get("lineNumber", "Pendiente de asignar"), "price": app_doc["price"],
+        "portability": False, "donorOperator": None,
+        "signed": app_doc["status"] in ("SIGNED", "COMPLETED"),
+        "signerName": app_doc.get("signerName"), "signatureImage": app_doc.get("signatureImage"),
+    }
+
+
+@api.get("/public/applications/{token}/contract.pdf")
+async def public_contract_pdf(token: str):
+    app_doc = await db.applications.find_one({"token": token})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    pdf_bytes = generate_contract_pdf(_app_to_contract(app_doc))
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={app_doc['contractCode']}.pdf"})
+
+
+@api.post("/public/applications/{token}/sign")
+async def sign_application(token: str, body: SignBody):
+    app_doc = await db.applications.find_one({"token": token})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if app_doc["status"] == "COMPLETED":
+        return {"ok": True, "contractCode": app_doc["contractCode"], "already": True}
+    if not body.signerName and not body.signatureImage:
+        raise HTTPException(status_code=400, detail="Debes firmar o escribir tu nombre")
+    sig_id = await _save_file("signature", body.signatureImage, app_doc["fiscalId"]) if body.signatureImage else None
+
+    is_mobile = app_doc["family"] == "Mobile"
+    line_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
+    product = await _get_tariff(app_doc["productId"])
+
+    customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
+    kyc = {"docType": app_doc["docType"], "dob": app_doc.get("dob"),
+           "iban": app_doc["iban"], "bank": app_doc.get("bank"),
+           "fileIds": app_doc.get("fileIds", {}), "selfieId": app_doc.get("fileIds", {}).get("selfie"),
+           "contractCode": app_doc["contractCode"], "signedAt": now_iso(),
+           "signatureId": sig_id, "signerName": body.signerName, "applicationToken": token}
+    if customer:
+        await db.customers.update_one({"fiscalId": app_doc["fiscalId"]}, {"$set": {"kyc": kyc, "iban": app_doc["iban"]}})
+    else:
+        await db.customers.insert_one({
+            "fiscalId": app_doc["fiscalId"], "customerType": "Residential", "name": app_doc["name"],
+            "firstSurname": app_doc.get("firstSurname", ""), "lastSurname": app_doc.get("lastSurname", ""),
+            "email": app_doc["email"], "contactPhone": app_doc["contactPhone"],
+            "iban": app_doc["iban"], "paymentMethod": "SEPA CORE",
+            "billingAddress": {"street": app_doc["address"], "streetNumber": "",
+                               "postalCode": app_doc["postalCode"], "cityName": app_doc["city"],
+                               "provinceName": app_doc.get("province", "")},
+            "kyc": kyc, "created": now_iso()})
+    customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
+
+    icc = "8934" + str(uuid.uuid4().int)[:16]
+    line = {"lineNumber": line_number, "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
+            "status": "ACTIVE", "productId": product["productId"], "productName": product["productName"],
+            "price": product["price"], "icc": icc, "spn": "GOROKY",
+            "eSim": is_mobile, "esimData": likes_client.esim_data(icc) if is_mobile else None,
+            "totalGB": 50 if is_mobile else 0, "usedGB": 0, "creditLimit": 30,
+            "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
+            "cdrs": _gen_cdrs() if is_mobile else [], "created": now_iso()}
+    await db.lines.insert_one(line)
+    await db.subscriptions.insert_one({
+        "subscriptionId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
+        "status": "ACTIVE", "pendingChange": False, "created": now_iso(),
+        "products": [{"productId": product["productId"], "productName": product["productName"],
+                      "family": app_doc["family"], "type": "Main", "status": "ACTIVE",
+                      "lineNumber": line_number, "price": product["price"],
+                      "finalPrice": round(product["price"] * 1.21, 2)}]})
+    invoice = await _create_invoice(customer, product, status="pending")
+    await db.orders.insert_one({"orderId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"],
+             "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip(),
+             "status": "COMPLETED", "channel": "WEB", "price": product["price"],
+             "productName": product["productName"], "family": app_doc["family"],
+             "lineNumber": line_number, "portability": False, "donorOperatorId": None,
+             "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
+             "contractNumber": app_doc["contractCode"], "signed": True, "signedAt": now_iso(),
+             "created": now_iso()})
+
+    await db.applications.update_one({"token": token}, {"$set": {
+        "status": "COMPLETED", "signerName": body.signerName, "signatureType": body.signatureType,
+        "signatureImage": body.signatureImage, "signatureId": sig_id,
+        "signedAt": now_iso(), "lineNumber": line_number}})
+    return {"ok": True, "contractCode": app_doc["contractCode"]}
+
+
+@api.get("/files/{file_id}")
+async def get_file(file_id: str, request: Request):
+    await require_admin(request)
+    try:
+        f = await db.files.find_one({"_id": _OID(file_id)})
+    except Exception:
+        f = None
+    if not f:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    data_url = f["dataUrl"]
+    if isinstance(data_url, str) and data_url.startswith("data:"):
+        header, b64 = data_url.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
+        return StreamingResponse(io.BytesIO(base64.b64decode(b64)), media_type=mime)
+    return {"dataUrl": data_url}
+
+
+@api.get("/customers/{fiscalId}/kyc")
+async def get_kyc(fiscalId: str, request: Request):
+    await require_admin(request)
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    kyc = cust.get("kyc")
+    order = await db.orders.find_one({"fiscalId": fiscalId, "contractNumber": {"$exists": True}}, sort=[("created", -1)])
+    return {"kyc": kyc, "contractOrderId": order["orderId"] if order else None,
+            "contractCode": (kyc or {}).get("contractCode"), "signedAt": (kyc or {}).get("signedAt")}
+
 
 
 app.include_router(create_auth_router(db))

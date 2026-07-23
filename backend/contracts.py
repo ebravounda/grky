@@ -148,9 +148,24 @@ def generate_contract_pdf(ct: dict) -> bytes:
     c.setFillColor(DARK); c.setFont("Helvetica-Bold", 9)
     c.drawString(LM, y + 3 * mm, ISSUER_BRAND)
     c.drawString(RM - 60 * mm, y + 3 * mm, ct.get("customerName", ""))
+    # Firma del cliente (imagen dibujada o nombre escrito)
+    sig = ct.get("signatureImage")
+    if sig and isinstance(sig, str) and sig.startswith("data:"):
+        try:
+            import base64 as _b64
+            from reportlab.lib.utils import ImageReader
+            raw = _b64.b64decode(sig.split(",", 1)[1])
+            img = ImageReader(io.BytesIO(raw))
+            c.drawImage(img, RM - 60 * mm, y + 6 * mm, width=45 * mm, height=16 * mm,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+    elif ct.get("signerName"):
+        c.setFillColor(DARK); c.setFont("Helvetica-Oblique", 13)
+        c.drawString(RM - 60 * mm, y + 8 * mm, ct["signerName"])
     if ct.get("signed"):
-        c.setFillColor(colors.HexColor("#16a34a")); c.setFont("Helvetica-Oblique", 10)
-        c.drawString(RM - 60 * mm, y + 8 * mm, "Firmado digitalmente")
+        c.setFillColor(colors.HexColor("#16a34a")); c.setFont("Helvetica-Oblique", 8)
+        c.drawString(RM - 60 * mm, y + 22 * mm, "Firmado digitalmente")
 
     _footer(c, 1)
     c.showPage()

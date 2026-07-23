@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import api, { apiErr, openInvoicePdf } from "@/lib/api";
+import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
+  ShieldCheck, FileSignature,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,6 +29,7 @@ export default function CustomerDetail() {
   const { fiscalId } = useParams();
   const [data, setData] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [kyc, setKyc] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [docType, setDocType] = useState("DNI_FRONT");
   const fileRef = useRef();
@@ -41,7 +43,7 @@ export default function CustomerDetail() {
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
-  useEffect(() => { load(); loadDocs(); api.get("/customers").then((r) => setCustomers(r.data)); }, [fiscalId]);
+  useEffect(() => { load(); loadDocs(); api.get("/customers").then((r) => setCustomers(r.data)); api.get(`/customers/${fiscalId}/kyc`).then((r) => setKyc(r.data)).catch(() => {}); }, [fiscalId]);
   if (!data) return <div className="text-muted-foreground">Cargando…</div>;
 
   const { customer, lines, subscriptions, invoices } = data;
@@ -179,6 +181,35 @@ export default function CustomerDetail() {
           )}
         </div>
 
+        {/* Verificación / KYC */}
+        {kyc && kyc.kyc && (
+          <div data-testid="kyc-section" className="rounded-lg border border-border bg-card p-6 lg:col-span-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2 text-primary"><ShieldCheck size={18} /><h3 className="font-heading font-600 text-foreground">Verificación de identidad (KYC)</h3></div>
+              {kyc.contractOrderId && (
+                <Button data-testid="kyc-contract-btn" variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => openContractPdf(kyc.contractOrderId)}>
+                  <FileSignature size={14} /> Contrato {kyc.contractCode}
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5 text-sm">
+              <Row l="Código contrato" v={kyc.contractCode} />
+              <Row l="Firmado" v={kyc.signedAt?.slice(0, 10)} />
+              <Row l="Tipo doc." v={kyc.kyc.docType} />
+              <Row l="Nacimiento" v={kyc.kyc.dob} />
+              <Row l="IBAN" v={kyc.kyc.iban} />
+              <Row l="Banco" v={kyc.kyc.bank} />
+              <Row l="Firmante" v={kyc.kyc.signerName} />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <KycImage fileId={kyc.kyc.selfieId} label="Selfie" testid="kyc-selfie" />
+              <KycImage fileId={kyc.kyc.fileIds?.front} label="Documento anverso" testid="kyc-front" />
+              <KycImage fileId={kyc.kyc.fileIds?.back} label="Documento reverso" testid="kyc-back" />
+              <KycImage fileId={kyc.kyc.signatureId} label="Firma" testid="kyc-signature" contain />
+            </div>
+          </div>
+        )}
+
         {/* Facturas */}
         <div className="rounded-lg border border-border bg-card p-6 lg:col-span-3">
           <h3 className="font-heading font-600 mb-4">Facturas ({invoices.length})</h3>
@@ -238,6 +269,27 @@ function Row({ l, v }) {
     <div className="flex justify-between gap-4 text-sm border-b border-border/60 pb-2">
       <span className="text-muted-foreground">{l}</span>
       <span className="font-medium text-right">{v || "—"}</span>
+    </div>
+  );
+}
+
+function KycImage({ fileId, label, testid, contain }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!fileId) return;
+    let active = true;
+    api.get(`/files/${fileId}`, { responseType: "blob" }).then((r) => {
+      if (active) setUrl(URL.createObjectURL(r.data));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [fileId]);
+  return (
+    <div data-testid={testid}>
+      <p className="text-xs text-muted-foreground mb-1.5">{label}</p>
+      <div className="rounded-lg border border-border bg-muted h-32 overflow-hidden grid place-items-center">
+        {url ? <img src={url} alt={label} className={`w-full h-full ${contain ? "object-contain bg-white" : "object-cover"}`} />
+          : <span className="text-xs text-muted-foreground">No disponible</span>}
+      </div>
     </div>
   );
 }

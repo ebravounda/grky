@@ -1,0 +1,26 @@
+{
+  "summary": "Iteración 5 (portal público de contratación + KYC + firma) validada. Backend 17/17 tests pytest OK. Frontend: catálogo público /contratar, wizard 4 pasos, subida de docs+selfie (fallback file input), firma modo 'text', navegación a /firmar/{token} y pantalla de éxito con código de contrato. Admin: sección KYC con selfie/anverso/reverso/firma y datos + botón Contrato, y tarjeta share-link-card en Settings con enlace, Copiar y Abrir.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_public.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py sigue creciendo (~1500 líneas). Recomendado mover el bloque público (líneas 1141-1348) a un módulo aparte /app/backend/public_signup.py para mantenibilidad.",
+    "En sign_application (server.py) no se comprueba que la application no esté ya COMPLETED antes de crear una segunda línea/suscripción/factura si el mismo token se firma con distinta payload: solo se hace early-return si status==COMPLETED (correcto). OK.",
+    "El endpoint GET /api/public/applications/{token} devuelve datos sensibles (email, address, fiscalId) accesibles con solo poseer el token — el token es 24 bytes random, así que aceptable, pero podría añadir rate limiting.",
+    "customerType siempre se fija a 'Residential' en aplicaciones públicas; considerar campo para empresas."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_public.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! ; cliente@goroky.com / Cliente2026! ; rutas /contratar y /firmar/{token} no requieren login",
+  "seed_data_creation": "Vía tests backend: fiscalId TEST 'T99912345Z' con producto móvil (1411). Vía UI: fiscalId 'T848558B' (Playwright Auto) con contrato GRK-ABE44C9E. Ambos crean cliente + línea + suscripción + factura + orden.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "El flujo público completo funciona: GET /api/public/catalog (agrupado Mobile/Fiber/Satellite/TV con channels en Satellite/TV), POST /api/public/applications, GET /api/public/applications/{token}, GET /contract.pdf (%PDF válido), POST /sign (crea customer con kyc, línea, sub, factura, order con contractNumber=contractCode). GET /api/customers/{fiscalId}/kyc devuelve kyc completo. GET /api/files/{id} devuelve image/* (requiere admin Bearer). UI: PublicCatalog, SignupWizard (data-testids: doc-type-select, w-fiscalId, w-name, w-dob, w-phone, w-email, w-address, w-city, w-postal, w-iban, doc-front-input, doc-back-input, selfie-file-input -> son inputs hidden por diseño, usar state='attached' o directamente set_input_files sin wait). SignContract con mode-text funciona; mode-draw requiere simular movimiento sobre canvas SignaturePad. CustomerDetail muestra kyc-section con kyc-selfie/front/back/signature/contract-btn. Settings tiene share-link-card con public-link, copy-link-btn, open-link-btn.",
+  "rca of the issue": "N/A — no issues encontrados."
+}

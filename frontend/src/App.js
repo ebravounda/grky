@@ -23,6 +23,9 @@ import ClientLineDetail from "@/pages/client/ClientLineDetail";
 import ClientInvoices from "@/pages/client/ClientInvoices";
 import ClientTickets from "@/pages/client/ClientTickets";
 import PaymentResult from "@/pages/PaymentResult";
+import PublicCatalog from "@/pages/public/PublicCatalog";
+import SignupWizard from "@/pages/public/SignupWizard";
+import SignContract from "@/pages/public/SignContract";
 
 function Loading() {
   return (
@@ -58,6 +61,9 @@ function App() {
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
           <Route path="/payment/:result" element={<PaymentResult />} />
+          <Route path="/contratar" element={<PublicCatalog />} />
+          <Route path="/contratar/:productId" element={<SignupWizard />} />
+          <Route path="/firmar/:token" element={<SignContract />} />
 
           <Route path="/app" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
             <Route index element={<Dashboard />} />

@@ -39,6 +39,16 @@ export default function Settings() {
       <PageHeader overline="Ajustes" title="Configuración" subtitle="Datos de tu marca e integraciones conectadas." />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div data-testid="share-link-card" className="rounded-lg border border-primary/30 bg-primary/5 p-6 lg:col-span-2">
+          <div className="flex items-center gap-2 text-primary mb-2"><Mail size={18} /><h3 className="font-heading font-600 text-foreground">Portal público de contratación</h3></div>
+          <p className="text-sm text-muted-foreground mb-4">Comparte este enlace con tus clientes para que contraten online (móvil, fibra, satélite y TV) con verificación de identidad y firma digital.</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input readOnly data-testid="public-link" value={`${window.location.origin}/contratar`} className="font-mono text-sm" />
+            <Button data-testid="copy-link-btn" className="rounded-full gap-2" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/contratar`); toast.success("Enlace copiado"); }}>Copiar</Button>
+            <Button variant="outline" data-testid="open-link-btn" className="rounded-full" onClick={() => window.open("/contratar", "_blank")}>Abrir</Button>
+          </div>
+        </div>
+
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">
           <div className="flex items-center gap-2 text-primary"><Building2 size={18} /><h3 className="font-heading font-600 text-foreground">Datos del emisor</h3></div>
           <Row l="Marca" v={s.issuer.brand} />

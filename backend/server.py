@@ -649,6 +649,65 @@ async def sign_contract(order_id: str, request: Request):
     return {"ok": True}
 
 
+@api.post("/orders/{order_id}/activate")
+async def activate_order(order_id: str, request: Request):
+    await require_admin(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    await db.orders.update_one({"orderId": order_id}, {"$set": {"status": "COMPLETED", "activatedAt": now_iso()}})
+    line = await db.lines.find_one({"lineNumber": order.get("lineNumber")})
+    if line:
+        await db.lines.update_one({"lineNumber": order["lineNumber"]}, {"$set": {"status": "ACTIVE"}})
+    if emailer.is_configured():
+        cust = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+        to = cust.get("email") if cust else None
+        pins = (line or {}).get("pins") or {}
+        if to:
+            try:
+                html = emailer.base_template("¡Bienvenido a GoRoky! Tu línea ya está activada",
+                    f"Hola {order.get('customerName', '')},<br><br>¡Tu línea ya está <b>activada</b>! "
+                    f"Ya puedes disfrutar de <b>{order.get('productName', '')}</b>.<br><br>"
+                    "<b>Datos de tu línea:</b><br>"
+                    f"• Número: <b>{order.get('lineNumber', '')}</b><br>"
+                    f"• PIN: <b>{pins.get('pin', '—')}</b> · PUK: <b>{pins.get('puk', '—')}</b><br>"
+                    f"• PIN2: {pins.get('pin2', '—')} · PUK2: {pins.get('puk2', '—')}<br>"
+                    f"• ICC (SIM): {(line or {}).get('icc', '—')}<br><br>"
+                    "Gracias por confiar en GoRoky. Estamos encantados de tenerte con nosotros. 🎉")
+                await emailer.send_email(to, "¡Bienvenido a GoRoky! Tu línea está activada", html)
+            except Exception:
+                pass
+    return {"ok": True, "status": "COMPLETED"}
+
+
+@api.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, request: Request):
+    await require_admin(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    await db.orders.update_one({"orderId": order_id}, {"$set": {"status": "CANCELLED", "cancelledAt": now_iso()}})
+    if order.get("lineNumber"):
+        await db.lines.update_one({"lineNumber": order["lineNumber"]}, {"$set": {"status": "SUSPENDED"}})
+    return {"ok": True, "status": "CANCELLED"}
+
+
+@api.get("/me/orders")
+async def my_orders(request: Request):
+    user = await current_user(request)
+    fid = user.get("fiscalId")
+    if not fid:
+        return []
+    orders = await db.orders.find({"fiscalId": fid}).sort("created", -1).to_list(200)
+    return [clean(o) for o in orders]
+
+
+def _sim_pins():
+    import random
+    return {"pin": f"{random.randint(0,9999):04d}", "puk": f"{random.randint(0,99999999):08d}",
+            "pin2": f"{random.randint(0,9999):04d}", "puk2": f"{random.randint(0,99999999):08d}"}
+
+
 def _gen_cdrs():
     import random
     now = datetime.now(timezone.utc)
@@ -935,8 +994,9 @@ async def sim_info(lineNumber: str, request: Request):
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
     icc = line["icc"]
-    return {"icc": icc, "imsi": "21407" + icc[-10:], "pin": "3736", "pin2": "5678",
-            "puk": "08792901", "puk2": "12345678", "eSim": line.get("eSim", False),
+    p = line.get("pins") or {"pin": "3736", "puk": "08792901", "pin2": "5678", "puk2": "12345678"}
+    return {"icc": icc, "imsi": "21407" + icc[-10:], "pin": p["pin"], "pin2": p.get("pin2", ""),
+            "puk": p["puk"], "puk2": p.get("puk2", ""), "eSim": line.get("eSim", False),
             "spn": line.get("spn", "GOROKY")}
 
 
@@ -1287,8 +1347,8 @@ async def sign_application(token: str, body: SignBody):
 
     icc = "8934" + str(uuid.uuid4().int)[:16]
     line = {"lineNumber": line_number, "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
-            "status": "ACTIVE", "productId": product["productId"], "productName": product["productName"],
-            "price": product["price"], "icc": icc, "spn": "GOROKY",
+            "status": "PROVISIONING", "productId": product["productId"], "productName": product["productName"],
+            "price": product["price"], "icc": icc, "spn": "GOROKY", "pins": _sim_pins(),
             "eSim": is_mobile, "esimData": likes_client.esim_data(icc) if is_mobile else None,
             "totalGB": 50 if is_mobile else 0, "usedGB": 0, "creditLimit": 30,
             "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
@@ -1304,7 +1364,7 @@ async def sign_application(token: str, body: SignBody):
     invoice = await _create_invoice(customer, product, status="pending")
     await db.orders.insert_one({"orderId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"],
              "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip(),
-             "status": "COMPLETED", "channel": "WEB", "price": product["price"],
+             "status": "PROVISIONING", "channel": "WEB", "price": product["price"],
              "productName": product["productName"], "family": app_doc["family"],
              "lineNumber": line_number, "portability": False, "donorOperatorId": None,
              "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
@@ -1315,6 +1375,19 @@ async def sign_application(token: str, body: SignBody):
         "status": "COMPLETED", "signerName": body.signerName, "signatureType": body.signatureType,
         "signatureImage": body.signatureImage, "signatureId": sig_id,
         "signedAt": now_iso(), "lineNumber": line_number}})
+
+    # email: contrato firmado / línea en aprovisionamiento
+    if emailer.is_configured():
+        try:
+            html = emailer.base_template("Tu contrato ha sido firmado",
+                f"Hola {app_doc['name']},<br><br>Hemos recibido tu contrato firmado "
+                f"(código <b>{app_doc['contractCode']}</b>) para <b>{product['productName']}</b>.<br><br>"
+                "Tu línea está ahora en <b>proceso de activación (aprovisionamiento de red)</b>. "
+                "Te enviaremos un email en cuanto esté activa.<br><br>Gracias por elegir GoRoky.")
+            await emailer.send_email(app_doc["email"], "Contrato firmado - GoRoky Telecom", html)
+        except Exception:
+            pass
+
     return {"ok": True, "contractCode": app_doc["contractCode"]}
 
 
@@ -1434,7 +1507,7 @@ async def seed_demo(db):
             is_mob = fam == "Mobile"
             line = {"lineNumber": ln, "fiscalId": d["fiscalId"], "family": fam, "status": "ACTIVE",
                     "productId": pid, "productName": p["productName"], "price": p["price"],
-                    "icc": micc, "spn": "GOROKY",
+                    "icc": micc, "spn": "GOROKY", "pins": _sim_pins(),
                     "eSim": is_mob, "esimData": likes_client.esim_data(micc) if is_mob else None,
                     "totalGB": 50 if is_mob else 0,
                     "usedGB": round(random.uniform(3, 45), 1) if is_mob else 0,

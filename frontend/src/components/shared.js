@@ -9,6 +9,11 @@ export function StatusPill({ status }) {
     pending: { c: "bg-warning/15 text-warning", t: "Pendiente" },
     failed: { c: "bg-destructive/12 text-destructive", t: "Fallida" },
     COMPLETED: { c: "bg-success/12 text-success", t: "Completada" },
+    PROVISIONING: { c: "bg-primary/12 text-primary", t: "Aprovisionando" },
+    CANCELLED: { c: "bg-destructive/12 text-destructive", t: "Cancelada" },
+    APPROVED: { c: "bg-success/12 text-success", t: "Aprobada" },
+    REJECTED: { c: "bg-destructive/12 text-destructive", t: "Rechazada" },
+    PENDING_REVIEW: { c: "bg-warning/15 text-warning", t: "Pendiente" },
     OPEN: { c: "bg-primary/12 text-primary", t: "Abierto" },
     CLOSED: { c: "bg-muted text-muted-foreground", t: "Cerrado" },
   };

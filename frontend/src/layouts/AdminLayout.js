@@ -1,32 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
-  Wrench, ArrowRightLeft, FolderDown,
+  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { to: "/app", label: "Panel", icon: LayoutDashboard, end: true, id: "panel" },
+  { to: "/app/alerts", label: "Alertas", icon: Bell, id: "alertas", badge: true },
+  { to: "/app/solicitudes", label: "Solicitudes", icon: ClipboardCheck, id: "solicitudes" },
   { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes" },
   { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas" },
   { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas" },
   { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo" },
   { to: "/app/orders", label: "Contratación", icon: ShoppingCart, id: "contratacion" },
+  { to: "/app/billing", label: "Cobros", icon: Banknote, id: "cobros" },
   { to: "/app/installations", label: "Instalaciones", icon: Wrench, id: "instalaciones" },
   { to: "/app/portabilities", label: "Portabilidades", icon: ArrowRightLeft, id: "portabilidades" },
+  { to: "/app/shipments", label: "Envíos de SIM", icon: Truck, id: "envios" },
   { to: "/app/invoices", label: "Facturas", icon: ReceiptText, id: "facturas" },
   { to: "/app/resources", label: "Recursos", icon: FolderDown, id: "recursos" },
   { to: "/app/tickets", label: "Soporte", icon: LifeBuoy, id: "soporte" },
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion" },
 ];
 
-function NavItems({ onNavigate }) {
+function NavItems({ onNavigate, unread }) {
   return (
-    <nav className="flex-1 p-3 space-y-1">
+    <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
       {nav.map((n) => (
         <NavLink
           key={n.to}
@@ -43,7 +48,10 @@ function NavItems({ onNavigate }) {
             )
           }
         >
-          <n.icon size={18} /> {n.label}
+          <n.icon size={18} /> <span className="flex-1">{n.label}</span>
+          {n.badge && unread > 0 && (
+            <span data-testid="nav-alerts-badge" className="grid place-items-center min-w-5 h-5 px-1 rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold">{unread}</span>
+          )}
         </NavLink>
       ))}
     </nav>
@@ -68,13 +76,21 @@ export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const doLogout = () => logout().then(() => navigate("/login"));
+
+  useEffect(() => {
+    const fetchUnread = () => api.get("/events/unread-count").then((r) => setUnread(r.data.unreadCount)).catch(() => {});
+    fetchUnread();
+    const iv = setInterval(fetchUnread, 30000);
+    return () => clearInterval(iv);
+  }, []);
 
   return (
     <div className="min-h-screen flex bg-background">
       <aside className="hidden lg:flex flex-col w-64 shrink-0 border-r border-border bg-card">
         <Brand />
-        <NavItems />
+        <NavItems unread={unread} />
         <div className="p-3 border-t border-border">
           <div className="px-3 py-2 mb-1">
             <p className="text-sm font-semibold truncate">{user?.name}</p>
@@ -98,7 +114,7 @@ export default function AdminLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="p-0 w-72 flex flex-col" data-testid="mobile-menu-sheet">
                 <Brand />
-                <NavItems onNavigate={() => setOpen(false)} />
+                <NavItems unread={unread} onNavigate={() => setOpen(false)} />
                 <div className="p-3 border-t border-border">
                   <div className="px-3 py-2 mb-1">
                     <p className="text-sm font-semibold truncate">{user?.name}</p>

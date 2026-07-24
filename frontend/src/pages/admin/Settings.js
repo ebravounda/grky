@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Building2, Wifi, Mail, CreditCard, CheckCircle2, AlertTriangle, Send } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Building2, Wifi, Mail, CreditCard, CheckCircle2, AlertTriangle, Send, ShieldCheck, Euro } from "lucide-react";
 import { toast } from "sonner";
 
 function StatusRow({ ok, okText, koText }) {
@@ -21,9 +22,23 @@ export default function Settings() {
   const [s, setS] = useState(null);
   const [testEmail, setTestEmail] = useState("");
   const [sending, setSending] = useState(false);
+  const [cfg, setCfg] = useState(null);
+  const [savingCfg, setSavingCfg] = useState(false);
 
-  useEffect(() => { api.get("/settings").then((r) => { setS(r.data); setTestEmail(user?.email || ""); }); }, [user]);
+  useEffect(() => {
+    api.get("/settings").then((r) => { setS(r.data); setTestEmail(user?.email || ""); });
+    api.get("/admin/settings").then((r) => setCfg(r.data));
+  }, [user]);
   if (!s) return <div className="text-muted-foreground">Cargando…</div>;
+
+  const saveCfg = async (patch) => {
+    setSavingCfg(true);
+    try {
+      const { data } = await api.put("/admin/settings", patch);
+      setCfg(data);
+      toast.success("Configuración guardada");
+    } catch (e) { toast.error(apiErr(e)); } finally { setSavingCfg(false); }
+  };
 
   const sendTest = async () => {
     if (!testEmail) return;
@@ -72,6 +87,36 @@ export default function Settings() {
             <StatusRow ok={s.emailConfigured} okText="Configurado" koText="Falta API key" />
           </div>
           {!s.likes.live && <p className="text-xs text-muted-foreground">Autoriza la IP de salida en Likes para activar datos reales.</p>}
+        </div>
+
+        <div data-testid="onboarding-config-card" className="rounded-lg border border-border bg-card p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-2 text-primary"><ShieldCheck size={18} /><h3 className="font-heading font-600 text-foreground">Altas y cobros</h3></div>
+          {cfg && (
+            <>
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
+                <div>
+                  <p className="text-sm font-medium">Auto-aprobación de altas online</p>
+                  <p className="text-xs text-muted-foreground">Si está activo, las líneas se activan automáticamente al recibir el pago, sin revisión manual en «Solicitudes».</p>
+                </div>
+                <Switch data-testid="auto-approve-switch" checked={!!cfg.autoApprove} disabled={savingCfg}
+                  onCheckedChange={(v) => saveCfg({ autoApprove: v })} />
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3 max-w-md">
+                <div className="flex-1 space-y-1.5">
+                  <Label className="flex items-center gap-1.5"><Euro size={14} /> Cuota de alta (proporcional)</Label>
+                  <Input data-testid="setup-fee-input" type="number" step="0.01" min="0"
+                    value={cfg.setupFee ?? 0} onChange={(e) => setCfg((c) => ({ ...c, setupFee: parseFloat(e.target.value || 0) }))} />
+                  <p className="text-xs text-muted-foreground">Se cobra una sola vez al dar de alta. La cuota mensual se cobra a partir del mes siguiente.</p>
+                </div>
+                <Button data-testid="save-setup-fee-btn" className="rounded-full" disabled={savingCfg}
+                  onClick={() => saveCfg({ setupFee: cfg.setupFee })}>Guardar cuota</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Recordatorios de pago: <b>{(cfg.reminderDays || []).join(" y ")} días</b> antes del cobro ·
+                Suspensión tras <b>{cfg.maxFailed}</b> intentos fallidos.
+              </p>
+            </>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 lg:col-span-2">

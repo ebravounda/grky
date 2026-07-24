@@ -288,7 +288,7 @@ class ApplicationCreate(BaseModel):
     city: str
     postalCode: str
     province: Optional[str] = ""
-    iban: str
+    iban: Optional[str] = ""
     bank: Optional[str] = ""
     contactPhone: str
     email: str
@@ -296,12 +296,40 @@ class ApplicationCreate(BaseModel):
     docFront: Optional[str] = None
     docBack: Optional[str] = None
     selfie: Optional[str] = None
+    paymentMethod: str = "sepa"  # "sepa" | "card"
+    simType: str = "esim"        # "esim" | "physical"
 
 
 class SignBody(BaseModel):
     signatureType: str = "draw"
     signerName: Optional[str] = ""
     signatureImage: Optional[str] = None
+
+
+class RecurringCheckoutBody(BaseModel):
+    method: str = "sepa"  # "sepa" | "card"
+    origin_url: str
+
+
+class AppSettingsBody(BaseModel):
+    autoApprove: Optional[bool] = None
+    setupFee: Optional[float] = None
+    reminderDays: Optional[List[int]] = None
+    maxFailed: Optional[int] = None
+
+
+class RejectBody(BaseModel):
+    reason: Optional[str] = ""
+
+
+class SimulateBody(BaseModel):
+    outcome: str = "failed"  # "failed" | "success"
+
+
+class ShipmentUpdate(BaseModel):
+    status: Optional[str] = None       # PENDING | SHIPPED | DELIVERED
+    carrier: Optional[str] = None
+    tracking: Optional[str] = None
 
 
 # ------------------------- catalog / utility -------------------------
@@ -661,6 +689,9 @@ async def create_order(body: OrderCreate, request: Request):
     }
     await db.orders.insert_one(order)
 
+    await log_event("order", "success",
+                    f"Orden creada · {order['customerName']} · {product['productName']} · línea {line_number}",
+                    {"orderId": order_id, "channel": "WD"})
     # instalación (fibra) o portabilidad (si aplica)
     if product["family"] in ("Fiber", "TV"):
         await db.installations.insert_one({
@@ -927,7 +958,13 @@ async def payment_status(session_id: str):
                 await db.payment_transactions.update_one(
                     {"session_id": session_id, "payment_status": {"$ne": "paid"}},
                     {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
-                if record.get("invoice_id"):
+                if record.get("kind") == "subscription":
+                    # fallback: configurar cobro recurrente sin esperar al webhook
+                    already = await db.subscriptions.find_one(
+                        {"billing.stripeSubscriptionId": s.get("subscription")}) if s.get("subscription") else None
+                    if not already:
+                        await _on_subscription_checkout(dict(s))
+                elif record.get("invoice_id"):
                     await db.invoices.update_one({"_id": ObjectId(record["invoice_id"])},
                                                  {"$set": {"status": "paid"}})
                 record = await db.payment_transactions.find_one({"session_id": session_id})
@@ -949,14 +986,555 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid signature")
     obj, t = event["data"]["object"], event["type"]
     if t == "checkout.session.completed":
-        await db.payment_transactions.update_one(
-            {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
-            {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"),
-                      "updated_at": now_iso()}})
-        inv_id = obj.get("metadata", {}).get("invoice_id")
-        if inv_id:
-            await db.invoices.update_one({"_id": ObjectId(inv_id)}, {"$set": {"status": "paid"}})
+        mode = obj.get("mode")
+        if mode == "subscription":
+            await _on_subscription_checkout(obj)
+        else:
+            await db.payment_transactions.update_one(
+                {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
+                {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"),
+                          "updated_at": now_iso()}})
+            inv_id = obj.get("metadata", {}).get("invoice_id")
+            if inv_id:
+                await db.invoices.update_one({"_id": ObjectId(inv_id)}, {"$set": {"status": "paid"}})
+    elif t == "invoice.payment_succeeded":
+        sub_id = obj.get("subscription")
+        if sub_id and obj.get("billing_reason") == "subscription_cycle":
+            sub = await db.subscriptions.find_one({"billing.stripeSubscriptionId": sub_id})
+            if sub:
+                await _billing_success(sub)
+    elif t == "invoice.payment_failed":
+        sub_id = obj.get("subscription")
+        if sub_id:
+            sub = await db.subscriptions.find_one({"billing.stripeSubscriptionId": sub_id})
+            if sub:
+                await _billing_failed(sub)
     return {"status": "ok"}
+
+
+# ------------------------- app settings (DB) -------------------------
+async def get_app_settings():
+    s = await db.app_settings.find_one({"_id": "config"})
+    if not s:
+        s = {"_id": "config", "autoApprove": False, "setupFee": 0.0,
+             "reminderDays": BILLING_REMINDER_DAYS, "maxFailed": BILLING_MAX_FAILED,
+             "created": now_iso()}
+        await db.app_settings.insert_one(s)
+    return s
+
+
+@api.get("/admin/settings")
+async def admin_settings_get(request: Request):
+    await require_admin(request)
+    s = await get_app_settings()
+    s.pop("_id", None)
+    return s
+
+
+@api.put("/admin/settings")
+async def admin_settings_put(body: AppSettingsBody, request: Request):
+    await require_admin(request)
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        await db.app_settings.update_one({"_id": "config"}, {"$set": updates}, upsert=True)
+    s = await get_app_settings()
+    s.pop("_id", None)
+    await log_event("system", "info", f"Configuración actualizada: {', '.join(updates.keys())}")
+    return s
+
+
+# ------------------------- system events / alerts -------------------------
+@api.get("/events")
+async def list_events(request: Request, source: Optional[str] = None,
+                      level: Optional[str] = None, unread: Optional[bool] = None):
+    await require_admin(request)
+    q = {}
+    if source:
+        q["source"] = source
+    if level:
+        q["level"] = level
+    if unread:
+        q["read"] = False
+    events = await db.system_events.find(q).sort("created_at", -1).to_list(300)
+    unread_count = await db.system_events.count_documents({"read": False})
+    return {"events": [clean(e) for e in events], "unreadCount": unread_count}
+
+
+@api.get("/events/unread-count")
+async def events_unread(request: Request):
+    await require_admin(request)
+    return {"unreadCount": await db.system_events.count_documents({"read": False})}
+
+
+@api.post("/events/{event_id}/read")
+async def mark_event_read(event_id: str, request: Request):
+    from bson import ObjectId
+    await require_admin(request)
+    await db.system_events.update_one({"_id": ObjectId(event_id)}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.post("/events/read-all")
+async def mark_all_read(request: Request):
+    await require_admin(request)
+    await db.system_events.update_many({"read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.get("/system/health")
+async def system_health(request: Request):
+    await require_admin(request)
+    active_subs = await db.subscriptions.count_documents({"billing.enabled": True})
+    failing = await db.subscriptions.count_documents({"billing.status": "past_due"})
+    errors = await db.system_events.count_documents({"level": "error", "read": False})
+    return {
+        "likes": {"live": likes_client.CONNECTION_STATE["live"],
+                  "error": likes_client.CONNECTION_STATE["last_error"],
+                  "outboundIpHint": os.environ.get("OUTBOUND_IP_HINT", "")},
+        "stripe": {"ok": True, "mode": os.environ.get("STRIPE_MODE", "test")},
+        "email": {"configured": emailer.is_configured(), "sender": os.environ.get("SENDER_EMAIL", "")},
+        "billing": {"activeSubscriptions": active_subs, "pastDue": failing},
+        "unreadErrors": errors,
+    }
+
+
+# ------------------------- Solicitudes (application review) -------------------------
+@api.get("/applications")
+async def list_applications(request: Request, status: Optional[str] = None):
+    await require_admin(request)
+    q = {}
+    if status:
+        q["reviewStatus"] = status
+    apps = await db.applications.find(q).sort("createdAt", -1).to_list(500)
+    return [{"token": a["token"], "contractCode": a.get("contractCode"),
+             "name": f"{a.get('name','')} {a.get('firstSurname','')}".strip(),
+             "fiscalId": a.get("fiscalId"), "email": a.get("email"),
+             "productName": a.get("productName"), "family": a.get("family"),
+             "price": a.get("price"), "status": a.get("status"),
+             "reviewStatus": a.get("reviewStatus", "PENDING_REVIEW"),
+             "paymentStatus": a.get("paymentStatus", "pending"),
+             "paymentMethod": a.get("paymentMethod", "sepa"),
+             "simType": a.get("simType", "esim"),
+             "lineNumber": a.get("lineNumber"), "createdAt": a.get("createdAt")}
+            for a in apps]
+
+
+@api.get("/applications/{token}/detail")
+async def application_detail(token: str, request: Request):
+    await require_admin(request)
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return clean(a)
+
+
+async def _do_activate_order(order):
+    """Activa la línea de una orden, envía email de bienvenida (+QR eSIM) y gestiona envío de SIM física."""
+    await db.orders.update_one({"orderId": order["orderId"]},
+                               {"$set": {"status": "COMPLETED", "activatedAt": now_iso()}})
+    line = await db.lines.find_one({"lineNumber": order.get("lineNumber")})
+    if line:
+        await db.lines.update_one({"lineNumber": line["lineNumber"]},
+                                  {"$set": {"status": "ACTIVE"}})
+    cust = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+    to = cust.get("email") if cust else None
+    pins = (line or {}).get("pins") or {}
+    body = (f"Hola {order.get('customerName', '')},<br><br>¡Tu línea ya está <b>activada</b>! "
+            f"Ya puedes disfrutar de <b>{order.get('productName', '')}</b>.<br><br>"
+            "<b>Datos de tu línea:</b><br>"
+            f"• Número: <b>{order.get('lineNumber', '')}</b><br>"
+            f"• PIN: <b>{pins.get('pin', '—')}</b> · PUK: <b>{pins.get('puk', '—')}</b><br>"
+            f"• PIN2: {pins.get('pin2', '—')} · PUK2: {pins.get('puk2', '—')}<br>"
+            f"• ICC (SIM): {(line or {}).get('icc', '—')}<br>")
+    if line and line.get("eSim") and line.get("esimData"):
+        e = line["esimData"]
+        body += ("<br><b>Instalación de tu eSIM:</b><br>"
+                 f"Escanea este QR desde tu móvil:<br><br>"
+                 f"<img src='{e.get('qrUrl')}' alt='QR eSIM' width='200' height='200' /><br>"
+                 f"Código de activación: <b>{e.get('activationCode')}</b><br>"
+                 f"SM-DP+: {e.get('smdpAddress')}<br>")
+    body += "<br>Gracias por confiar en GoRoky. 🎉"
+    await _send_mail_safe("email", to, "¡Bienvenido a GoRoky! Tu línea está activada",
+                          emailer.base_template("¡Bienvenido a GoRoky! Tu línea ya está activada", body))
+    await log_event("order", "success",
+                    f"Línea {order.get('lineNumber')} activada · {order.get('customerName')}",
+                    {"orderId": order["orderId"]})
+    # SIM física → crear envío
+    if line and line.get("family") == "Mobile" and not line.get("eSim"):
+        exists = await db.shipments.find_one({"lineNumber": line["lineNumber"]})
+        if not exists:
+            await db.shipments.insert_one({
+                "shipmentId": str(uuid.uuid4().int)[:10], "fiscalId": order["fiscalId"],
+                "customerName": order.get("customerName"), "lineNumber": line["lineNumber"],
+                "address": (cust.get("billingAddress") or {}).get("street", "") if cust else "",
+                "status": "PENDING", "carrier": None, "tracking": None, "created": now_iso()})
+            await log_event("order", "info",
+                            f"Envío de SIM física pendiente · línea {line['lineNumber']}")
+
+
+@api.post("/applications/{token}/approve")
+async def approve_application(token: str, request: Request):
+    await require_admin(request)
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
+    if not order:
+        raise HTTPException(status_code=400, detail="La solicitud aún no tiene orden (contrato sin firmar)")
+    await _do_activate_order(order)
+    await db.applications.update_one({"token": token},
+                                    {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso()}})
+    return {"ok": True, "reviewStatus": "APPROVED"}
+
+
+@api.post("/applications/{token}/reject")
+async def reject_application(token: str, body: RejectBody, request: Request):
+    await require_admin(request)
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    await db.applications.update_one({"token": token},
+        {"$set": {"reviewStatus": "REJECTED", "rejectReason": body.reason, "rejectedAt": now_iso()}})
+    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
+    if order:
+        await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {"status": "CANCELLED"}})
+        if order.get("lineNumber"):
+            await db.lines.update_one({"lineNumber": order["lineNumber"]}, {"$set": {"status": "SUSPENDED"}})
+    await _send_mail_safe("email", a.get("email"), "Sobre tu solicitud en GoRoky",
+        emailer.base_template("No hemos podido completar tu alta",
+            f"Hola {a.get('name','')},<br><br>Lamentamos informarte de que tu solicitud no ha podido "
+            f"ser aprobada.<br><br>Motivo: {body.reason or 'documentación incompleta'}.<br><br>"
+            "Contacta con soporte para más información."))
+    await log_event("order", "warning", f"Solicitud rechazada · {a.get('name')} ({a.get('fiscalId')})")
+    return {"ok": True, "reviewStatus": "REJECTED"}
+
+
+# ------------------------- recurring billing (card / SEPA) -------------------------
+async def _ensure_stripe_customer(customer):
+    if customer.get("stripeCustomerId"):
+        return customer["stripeCustomerId"]
+    sc = stripe.Customer.create(
+        name=f"{customer.get('name','')} {customer.get('firstSurname','')}".strip(),
+        email=customer.get("email"),
+        metadata={"fiscalId": customer["fiscalId"]})
+    await db.customers.update_one({"fiscalId": customer["fiscalId"]},
+                                 {"$set": {"stripeCustomerId": sc.id}})
+    return sc.id
+
+
+async def _create_recurring_checkout(customer, product, method, origin_url, meta):
+    """Crea una sesión de Checkout en modo suscripción (card|sepa) con cuota de alta + mensual."""
+    cid = await _ensure_stripe_customer(customer)
+    settings = await get_app_settings()
+    setup_fee = float(settings.get("setupFee") or 0)
+    pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+    monthly = float(product["price"])
+    line_items = [{
+        "price_data": {"currency": "eur",
+                       "product_data": {"name": f"{product['productName']} (cuota mensual)"},
+                       "unit_amount": int(round(monthly * 100)),
+                       "recurring": {"interval": "month"}},
+        "quantity": 1,
+    }]
+    if setup_fee > 0:
+        line_items.append({
+            "price_data": {"currency": "eur",
+                           "product_data": {"name": "Cuota de alta"},
+                           "unit_amount": int(round(setup_fee * 100))},
+            "quantity": 1,
+        })
+    sub_data = {"metadata": meta, "trial_period_days": 30}
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        customer=cid,
+        payment_method_types=pm_types,
+        line_items=line_items,
+        subscription_data=sub_data,
+        success_url=f"{origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{origin_url}/payment/cancel",
+        metadata=meta,
+    )
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "fiscalId": customer["fiscalId"],
+        "kind": "subscription", "method": method, "amount": setup_fee + monthly,
+        "currency": "eur", "status": "initiated", "payment_status": "pending",
+        "meta": meta, "created_at": now_iso(), "updated_at": now_iso()})
+    return session
+
+
+@api.post("/public/applications/{token}/checkout")
+async def public_recurring_checkout(token: str, body: RecurringCheckoutBody):
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    customer = await db.customers.find_one({"fiscalId": a["fiscalId"]})
+    if not customer:
+        raise HTTPException(status_code=400, detail="Firma el contrato antes de pagar")
+    product = await _get_tariff(a["productId"])
+    meta = {"fiscalId": a["fiscalId"], "applicationToken": token,
+            "contractCode": a.get("contractCode", ""), "purpose": "onboarding"}
+    session = await _create_recurring_checkout(customer, product, body.method or a.get("paymentMethod", "sepa"),
+                                               body.origin_url, meta)
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+@api.post("/subscriptions/{subscriptionId}/billing-checkout")
+async def admin_recurring_checkout(subscriptionId: str, body: RecurringCheckoutBody, request: Request):
+    await require_admin(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    customer = await db.customers.find_one({"fiscalId": sub["fiscalId"]})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    prod = sub["products"][0]
+    product = {"productName": prod["productName"], "price": prod["price"]}
+    meta = {"fiscalId": sub["fiscalId"], "subscriptionId": subscriptionId, "purpose": "admin_billing"}
+    session = await _create_recurring_checkout(customer, product, body.method, body.origin_url, meta)
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+async def _on_subscription_checkout(obj):
+    """Se ejecuta al completar el Checkout de suscripción: guarda datos de cobro recurrente."""
+    from bson import ObjectId
+    meta = obj.get("metadata", {}) or {}
+    fiscalId = meta.get("fiscalId")
+    stripe_sub_id = obj.get("subscription")
+    method = "sepa" if "sepa_debit" in (obj.get("payment_method_types") or []) else "card"
+    await db.payment_transactions.update_one(
+        {"session_id": obj["id"]},
+        {"$set": {"status": "completed", "payment_status": "paid",
+                  "stripe_subscription_id": stripe_sub_id, "updated_at": now_iso()}})
+    # obtener método de pago / próxima fecha de cobro
+    next_charge = None
+    last4 = None
+    try:
+        ss = stripe.Subscription.retrieve(stripe_sub_id)
+        if getattr(ss, "current_period_end", None):
+            next_charge = datetime.fromtimestamp(ss.current_period_end, tz=timezone.utc).isoformat()
+        elif getattr(ss, "trial_end", None):
+            next_charge = datetime.fromtimestamp(ss.trial_end, tz=timezone.utc).isoformat()
+        pm_id = getattr(ss, "default_payment_method", None)
+        if pm_id:
+            pm = stripe.PaymentMethod.retrieve(pm_id)
+            if method == "sepa" and getattr(pm, "sepa_debit", None):
+                last4 = pm.sepa_debit.last4
+            elif getattr(pm, "card", None):
+                last4 = pm.card.last4
+    except Exception as e:  # noqa
+        logger.warning("subscription retrieve failed: %s", e)
+    if not next_charge:
+        next_charge = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+
+    billing = {"enabled": True, "stripeSubscriptionId": stripe_sub_id, "status": "active",
+               "method": method, "last4": last4, "failedAttempts": 0,
+               "nextChargeDate": next_charge, "remindersSent": [],
+               "amount": (await db.payment_transactions.find_one({"session_id": obj["id"]}) or {}).get("amount")}
+    # localizar suscripción
+    sub = None
+    if meta.get("subscriptionId"):
+        sub = await db.subscriptions.find_one({"subscriptionId": meta["subscriptionId"]})
+    if not sub and fiscalId:
+        sub = await db.subscriptions.find_one({"fiscalId": fiscalId}, sort=[("created", -1)])
+    if sub:
+        billing["amount"] = sum(p.get("price", 0) for p in sub.get("products", [])) or billing["amount"]
+        await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
+                                          {"$set": {"billing": billing}})
+    if fiscalId:
+        await db.customers.update_one({"fiscalId": fiscalId}, {"$set": {
+            "paymentMethod": "SEPA CORE" if method == "sepa" else "CARD",
+            "recurring": {"method": method, "last4": last4, "stripeSubscriptionId": stripe_sub_id}}})
+    # marcar solicitud como pagada
+    token = meta.get("applicationToken")
+    if token:
+        await db.applications.update_one({"token": token}, {"$set": {"paymentStatus": "paid"}})
+    label = "tarjeta" if method == "card" else "domiciliación SEPA"
+    await log_event("stripe", "success",
+                    f"Cobro recurrente configurado ({label}) · {fiscalId} · próx. cobro {next_charge[:10]}",
+                    {"fiscalId": fiscalId})
+    # auto-aprobación
+    settings = await get_app_settings()
+    if settings.get("autoApprove") and token:
+        order = None
+        if meta.get("contractCode"):
+            order = await db.orders.find_one({"contractNumber": meta["contractCode"]})
+        if order:
+            await _do_activate_order(order)
+            await db.applications.update_one({"token": token},
+                {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso(), "autoApproved": True}})
+            await log_event("order", "info", f"Solicitud auto-aprobada · {fiscalId}")
+
+
+# ------------------------- dunning core (reminders / retries / suspension) -------------------------
+async def _billing_success(sub):
+    customer = await db.customers.find_one({"fiscalId": sub["fiscalId"]})
+    amount = sub.get("billing", {}).get("amount") or sum(p.get("price", 0) for p in sub.get("products", []))
+    product = {"productName": sub["products"][0]["productName"], "price": amount}
+    inv = await _create_invoice(customer, product, status="paid") if customer else None
+    next_charge = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
+        {"$set": {"billing.failedAttempts": 0, "billing.status": "active",
+                  "billing.nextChargeDate": next_charge, "billing.remindersSent": []}})
+    # reactivar líneas suspendidas por impago
+    await db.lines.update_many({"fiscalId": sub["fiscalId"], "suspendReason": "non_payment"},
+                              {"$set": {"status": "ACTIVE"}, "$unset": {"suspendReason": ""}})
+    name = f"{customer.get('name','')} {customer.get('firstSurname','')}".strip() if customer else sub["fiscalId"]
+    await log_event("billing", "success", f"Cobro correcto · {name} · {amount:.2f} €",
+                    {"fiscalId": sub["fiscalId"]})
+    if customer:
+        await _send_mail_safe("email", customer.get("email"), "Pago recibido · GoRoky",
+            _mail_payment_success(customer.get("name", ""), amount,
+                                  inv["invoiceNumber"] if inv else "", inv.get("period", "") if inv else ""))
+    return {"ok": True}
+
+
+async def _billing_failed(sub):
+    settings = await get_app_settings()
+    max_failed = int(settings.get("maxFailed") or BILLING_MAX_FAILED)
+    attempts = (sub.get("billing", {}).get("failedAttempts", 0)) + 1
+    amount = sub.get("billing", {}).get("amount") or sum(p.get("price", 0) for p in sub.get("products", []))
+    customer = await db.customers.find_one({"fiscalId": sub["fiscalId"]})
+    name = customer.get("name", "") if customer else sub["fiscalId"]
+    await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
+        {"$set": {"billing.failedAttempts": attempts, "billing.status": "past_due"}})
+    email = customer.get("email") if customer else None
+    if attempts >= max_failed:
+        await db.lines.update_many({"fiscalId": sub["fiscalId"], "status": {"$ne": "SUSPENDED"}},
+                                  {"$set": {"status": "SUSPENDED", "suspendReason": "non_payment"}})
+        await log_event("billing", "error",
+                        f"⛔ Líneas SUSPENDIDAS por impago · {name} (intento {attempts}/{max_failed})",
+                        {"fiscalId": sub["fiscalId"]})
+        await _send_mail_safe("email", email, "Tu línea ha sido suspendida · GoRoky",
+                              _mail_suspended(name, amount))
+    elif attempts == max_failed - 1:
+        await log_event("billing", "warning",
+                        f"⚠️ Aviso de suspensión enviado · {name} (intento {attempts}/{max_failed})",
+                        {"fiscalId": sub["fiscalId"]})
+        await _send_mail_safe("email", email, "⚠️ Mañana tu línea será suspendida · GoRoky",
+                              _mail_suspension_warning(name, amount))
+    else:
+        await log_event("billing", "warning",
+                        f"Cobro fallido · {name} (intento {attempts}/{max_failed})",
+                        {"fiscalId": sub["fiscalId"]})
+        await _send_mail_safe("email", email, "No hemos podido cobrar tu cuota · GoRoky",
+                              _mail_payment_failed(name, amount, attempts, max_failed))
+    return {"ok": True, "attempts": attempts}
+
+
+@api.post("/billing/simulate/{subscriptionId}")
+async def simulate_charge(subscriptionId: str, body: SimulateBody, request: Request):
+    """Simula un cobro (para probar reintentos/suspensión/emails sin esperar a SEPA)."""
+    await require_admin(request)
+    sub = await db.subscriptions.find_one({"subscriptionId": subscriptionId})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    if not sub.get("billing", {}).get("enabled"):
+        raise HTTPException(status_code=400, detail="Esta suscripción no tiene cobro recurrente activo")
+    if body.outcome == "success":
+        return await _billing_success(sub)
+    return await _billing_failed(sub)
+
+
+@api.get("/billing/subscriptions")
+async def billing_subscriptions(request: Request):
+    await require_admin(request)
+    subs = await db.subscriptions.find({"billing.enabled": True}).to_list(1000)
+    out = []
+    for s in subs:
+        cust = await db.customers.find_one({"fiscalId": s["fiscalId"]})
+        b = s.get("billing", {})
+        out.append({"subscriptionId": s["subscriptionId"], "fiscalId": s["fiscalId"],
+                    "customerName": f"{cust.get('name','')} {cust.get('firstSurname','')}".strip() if cust else s["fiscalId"],
+                    "productName": s["products"][0]["productName"] if s.get("products") else "",
+                    "method": b.get("method"), "last4": b.get("last4"), "amount": b.get("amount"),
+                    "status": b.get("status"), "failedAttempts": b.get("failedAttempts", 0),
+                    "nextChargeDate": b.get("nextChargeDate")})
+    return out
+
+
+# ------------------------- SIM shipments -------------------------
+@api.get("/shipments")
+async def list_shipments(request: Request):
+    await require_admin(request)
+    ships = await db.shipments.find().sort("created", -1).to_list(500)
+    return [clean(s) for s in ships]
+
+
+@api.put("/shipments/{shipment_id}")
+async def update_shipment(shipment_id: str, body: ShipmentUpdate, request: Request):
+    await require_admin(request)
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    r = await db.shipments.update_one({"shipmentId": shipment_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Envío no encontrado")
+    ship = await db.shipments.find_one({"shipmentId": shipment_id})
+    if body.status == "SHIPPED":
+        cust = await db.customers.find_one({"fiscalId": ship["fiscalId"]})
+        await _send_mail_safe("email", cust.get("email") if cust else None,
+            "Tu SIM está en camino · GoRoky",
+            emailer.base_template("Tu SIM ya ha sido enviada",
+                f"Hola {ship.get('customerName','')},<br><br>Tu tarjeta SIM para la línea "
+                f"<b>{ship.get('lineNumber')}</b> ya ha sido enviada.<br><br>"
+                + (f"Transportista: <b>{ship.get('carrier','')}</b><br>Seguimiento: <b>{ship.get('tracking','')}</b><br>" if ship.get('tracking') else "")
+                + "<br>La recibirás en breve."))
+        await log_event("order", "info", f"SIM enviada · línea {ship.get('lineNumber')}")
+    return clean(ship)
+
+
+# ------------------------- scheduler jobs -------------------------
+_likes_last_live = None
+
+
+async def likes_health_job():
+    global _likes_last_live
+    likes_client.get_token()
+    live = likes_client.CONNECTION_STATE["live"]
+    if live != _likes_last_live:
+        _likes_last_live = live
+        if live:
+            await log_event("likes", "success", "Conexión con Likes Telecom restablecida (datos reales)")
+        else:
+            await log_event("likes", "error",
+                f"Sin conexión con Likes Telecom: {likes_client.CONNECTION_STATE['last_error']}",
+                {"hint": "Autoriza la IP de salida en Likes Telecom"})
+
+
+async def billing_daily_job():
+    settings = await get_app_settings()
+    reminder_days = settings.get("reminderDays") or BILLING_REMINDER_DAYS
+    today = datetime.now(timezone.utc).date()
+    subs = await db.subscriptions.find({"billing.enabled": True}).to_list(2000)
+    for sub in subs:
+        b = sub.get("billing", {})
+        ncd = b.get("nextChargeDate")
+        if not ncd:
+            continue
+        try:
+            due = datetime.fromisoformat(ncd).date()
+        except Exception:
+            continue
+        days = (due - today).days
+        sent = b.get("remindersSent", [])
+        if days in reminder_days and days not in sent:
+            customer = await db.customers.find_one({"fiscalId": sub["fiscalId"]})
+            amount = b.get("amount") or sum(p.get("price", 0) for p in sub.get("products", []))
+            if customer:
+                await _send_mail_safe("email", customer.get("email"),
+                    f"Recordatorio de pago · GoRoky",
+                    _mail_payment_reminder(customer.get("name", ""), amount, days,
+                                           _period_label(datetime.now(timezone.utc))))
+            await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
+                {"$push": {"billing.remindersSent": days}})
+            await log_event("billing", "info",
+                f"Recordatorio de pago ({days} días) enviado · {sub['fiscalId']}")
+
+
+@api.post("/billing/run-cycle")
+async def run_billing_cycle(request: Request):
+    await require_admin(request)
+    await billing_daily_job()
+    await likes_health_job()
+    return {"ok": True}
 
 
 # ------------------------- settings & email -------------------------
@@ -1326,6 +1904,8 @@ async def create_application(body: ApplicationCreate):
         "province": body.province, "iban": body.iban, "bank": body.bank,
         "contactPhone": body.contactPhone, "email": body.email.lower(),
         "acceptedTerms": True, "fileIds": {"front": front, "back": back, "selfie": selfie},
+        "paymentMethod": body.paymentMethod, "simType": body.simType,
+        "paymentStatus": "pending", "reviewStatus": "PENDING_REVIEW",
         "createdAt": now_iso(),
     }
     await db.applications.insert_one(doc)
@@ -1348,7 +1928,10 @@ def _app_public_view(app_doc):
             "family": app_doc["family"], "price": app_doc["price"],
             "name": app_doc["name"], "fiscalId": app_doc["fiscalId"],
             "address": app_doc["address"], "city": app_doc["city"],
-            "email": app_doc["email"], "signerName": app_doc.get("signerName")}
+            "email": app_doc["email"], "signerName": app_doc.get("signerName"),
+            "paymentMethod": app_doc.get("paymentMethod", "sepa"),
+            "simType": app_doc.get("simType", "esim"),
+            "paymentStatus": app_doc.get("paymentStatus", "pending")}
 
 
 @api.get("/public/applications/{token}")
@@ -1396,6 +1979,7 @@ async def sign_application(token: str, body: SignBody):
     sig_id = await _save_file("signature", body.signatureImage, app_doc["fiscalId"]) if body.signatureImage else None
 
     is_mobile = app_doc["family"] == "Mobile"
+    is_esim = is_mobile and app_doc.get("simType", "esim") == "esim"
     line_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
     product = await _get_tariff(app_doc["productId"])
 
@@ -1423,7 +2007,8 @@ async def sign_application(token: str, body: SignBody):
     line = {"lineNumber": line_number, "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
             "status": "PROVISIONING", "productId": product["productId"], "productName": product["productName"],
             "price": product["price"], "icc": icc, "spn": "GOROKY", "pins": _sim_pins(),
-            "eSim": is_mobile, "esimData": likes_client.esim_data(icc) if is_mobile else None,
+            "eSim": is_esim, "simType": app_doc.get("simType", "esim"),
+            "esimData": likes_client.esim_data(icc) if is_esim else None,
             "totalGB": 50 if is_mobile else 0, "usedGB": 0, "creditLimit": 30,
             "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
             "cdrs": _gen_cdrs() if is_mobile else [], "created": now_iso()}
@@ -1515,6 +2100,17 @@ async def startup():
     await seed_admin(db)
     await seed_tariffs(db)
     await seed_demo(db)
+    # scheduler: recordatorios de pago + salud de integraciones
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        global scheduler
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(billing_daily_job, "interval", hours=12, id="billing_daily", replace_existing=True)
+        scheduler.add_job(likes_health_job, "interval", minutes=15, id="likes_health", replace_existing=True)
+        scheduler.start()
+    except Exception as e:  # noqa
+        logger.warning("scheduler start failed: %s", e)
+    await likes_health_job()
 
 
 @app.on_event("shutdown")

@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ShoppingCart, FileText, Send, FileSignature, PenLine } from "lucide-react";
+import { ShoppingCart, FileText, Send, FileSignature, PenLine, CheckCircle2, XCircle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Orders() {
@@ -41,6 +41,24 @@ export default function Orders() {
   const sign = async (o) => {
     try { await api.post(`/orders/${o.orderId}/contract/sign`); toast.success("Contrato firmado"); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const activate = async (o) => {
+    try { await api.post(`/orders/${o.orderId}/activate`); toast.success("Línea activada · email de bienvenida enviado"); loadOrders(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const cancel = async (o) => {
+    try { await api.post(`/orders/${o.orderId}/cancel`); toast.success("Orden cancelada · línea suspendida"); loadOrders(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const showPins = async (o) => {
+    if (!o.lineNumber) return toast.error("Esta orden no tiene línea");
+    try {
+      const { data } = await api.get(`/lines/${o.lineNumber}/sim`);
+      toast.info(`PIN ${data.pin} · PUK ${data.puk} · PIN2 ${data.pin2} · PUK2 ${data.puk2}`, { duration: 10000 });
+    } catch (e) { toast.error(apiErr(e)); }
   };
 
   const submit = async () => {
@@ -122,6 +140,7 @@ export default function Orders() {
               <th className="px-4 py-3 font-medium hidden md:table-cell">Línea</th>
               <th className="px-4 py-3 font-medium">Importe</th>
               <th className="px-4 py-3 font-medium">Estado</th>
+              <th className="px-4 py-3 font-medium">Gestión</th>
               <th className="px-4 py-3 font-medium">Factura</th>
               <th className="px-4 py-3 font-medium">Contrato</th>
             </tr>
@@ -134,6 +153,29 @@ export default function Orders() {
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{o.lineNumber}</td>
                 <td className="px-4 py-3 font-semibold">{o.price?.toFixed(2)} €</td>
                 <td className="px-4 py-3"><StatusPill status={o.status} /></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    {o.status === "PROVISIONING" && (
+                      <>
+                        <button data-testid={`order-activate-${o.orderId}`} onClick={() => activate(o)} title="Activar línea"
+                          className="inline-flex items-center gap-1 rounded-full border border-success/30 text-success px-2 py-0.5 text-xs hover:bg-success/10">
+                          <CheckCircle2 size={13} /> Activar
+                        </button>
+                        <button data-testid={`order-cancel-${o.orderId}`} onClick={() => cancel(o)} title="Cancelar orden"
+                          className="inline-flex items-center gap-1 rounded-full border border-destructive/30 text-destructive px-2 py-0.5 text-xs hover:bg-destructive/10">
+                          <XCircle size={13} /> Cancelar
+                        </button>
+                      </>
+                    )}
+                    {o.family === "Mobile" && o.lineNumber && (
+                      <button data-testid={`order-pins-${o.orderId}`} onClick={() => showPins(o)} title="Ver PIN/PUK"
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary text-xs">
+                        <KeyRound size={13} /> PIN/PUK
+                      </button>
+                    )}
+                    {o.status === "COMPLETED" && o.family !== "Mobile" && <span className="text-xs text-success">✓ Activa</span>}
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <button data-testid={`order-pdf-${o.orderId}`} onClick={() => openInvoicePdf(o.invoiceId)} className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -159,7 +201,7 @@ export default function Orders() {
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">Aún no hay contrataciones.</td></tr>}
+            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">Aún no hay contrataciones.</td></tr>}
           </tbody>
         </table>
       </div>

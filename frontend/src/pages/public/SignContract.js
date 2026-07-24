@@ -43,8 +43,20 @@ export default function SignContract() {
         signatureType: mode, signerName: mode === "text" ? typedName : (appDoc.name || ""),
         signatureImage: mode === "draw" ? sigImage : null,
       });
-      setCode(data.contractCode); setDone(true);
-      toast.success("Contrato firmado");
+      setCode(data.contractCode);
+      toast.success("Contrato firmado · redirigiendo al pago");
+      // Redirigir a Stripe Checkout (suscripción con el método elegido)
+      try {
+        const { data: co } = await api.post(`/public/applications/${token}/checkout`, {
+          method: appDoc.paymentMethod || "sepa",
+          origin_url: window.location.origin,
+        });
+        window.location.href = co.checkout_url;
+        return;
+      } catch (payErr) {
+        setDone(true);
+        toast.error("Contrato firmado, pero no se pudo iniciar el pago. Contacta con soporte.");
+      }
     } catch (e) { toast.error(apiErr(e)); } finally { setSaving(false); }
   };
 

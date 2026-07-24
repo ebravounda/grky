@@ -26,6 +26,7 @@ export default function SignupWizard() {
     docType: "DNI", fiscalId: "", name: "", firstSurname: "", lastSurname: "", dob: "",
     contactPhone: "", email: "", address: "", city: "", postalCode: "", province: "",
     iban: "", bank: "", acceptedTerms: false, docFront: null, docBack: null, selfie: null,
+    paymentMethod: "sepa", simType: "esim",
   });
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
 
@@ -38,7 +39,7 @@ export default function SignupWizard() {
 
   const validStep = () => {
     if (step === 0) return f.fiscalId && f.name && f.email && f.contactPhone && f.dob;
-    if (step === 1) return f.address && f.city && f.postalCode && f.iban;
+    if (step === 1) return f.address && f.city && f.postalCode && (f.paymentMethod === "card" || f.iban);
     if (step === 2) return f.docFront && f.docBack && f.selfie;
     if (step === 3) return f.acceptedTerms;
     return true;
@@ -112,8 +113,47 @@ export default function SignupWizard() {
               <div className="space-y-1.5"><Label>Ciudad *</Label><Input data-testid="w-city" value={f.city} onChange={(e) => set("city", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Código postal *</Label><Input data-testid="w-postal" value={f.postalCode} onChange={(e) => set("postalCode", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Provincia</Label><Input data-testid="w-province" value={f.province} onChange={(e) => set("province", e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Banco</Label><Input data-testid="w-bank" value={f.bank} onChange={(e) => set("bank", e.target.value)} /></div>
-              <div className="space-y-1.5 col-span-2"><Label>IBAN (cuenta bancaria) *</Label><Input data-testid="w-iban" value={f.iban} onChange={(e) => set("iban", e.target.value)} placeholder="ES.." /></div>
+
+              <div className="col-span-2 mt-2">
+                <Label className="mb-2 block">Método de pago *</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" data-testid="pay-sepa" onClick={() => set("paymentMethod", "sepa")}
+                    className={`rounded-lg border p-3 text-left transition ${f.paymentMethod === "sepa" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                    <p className="font-medium text-sm">🏦 Domiciliación SEPA</p>
+                    <p className="text-xs text-muted-foreground">Cobro mensual en tu cuenta bancaria</p>
+                  </button>
+                  <button type="button" data-testid="pay-card" onClick={() => set("paymentMethod", "card")}
+                    className={`rounded-lg border p-3 text-left transition ${f.paymentMethod === "card" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                    <p className="font-medium text-sm">💳 Tarjeta</p>
+                    <p className="text-xs text-muted-foreground">Cobro mensual automático a tu tarjeta</p>
+                  </button>
+                </div>
+              </div>
+
+              {f.paymentMethod === "sepa" && (
+                <>
+                  <div className="space-y-1.5"><Label>Banco</Label><Input data-testid="w-bank" value={f.bank} onChange={(e) => set("bank", e.target.value)} /></div>
+                  <div className="space-y-1.5 col-span-2"><Label>IBAN (cuenta bancaria) *</Label><Input data-testid="w-iban" value={f.iban} onChange={(e) => set("iban", e.target.value)} placeholder="ES.." /></div>
+                </>
+              )}
+
+              {product.family === "Mobile" && (
+                <div className="col-span-2 mt-1">
+                  <Label className="mb-2 block">Tipo de SIM *</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button type="button" data-testid="sim-esim" onClick={() => set("simType", "esim")}
+                      className={`rounded-lg border p-3 text-left transition ${f.simType === "esim" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                      <p className="font-medium text-sm">📱 eSIM</p>
+                      <p className="text-xs text-muted-foreground">Activación inmediata por QR (email)</p>
+                    </button>
+                    <button type="button" data-testid="sim-physical" onClick={() => set("simType", "physical")}
+                      className={`rounded-lg border p-3 text-left transition ${f.simType === "physical" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                      <p className="font-medium text-sm">📇 SIM física</p>
+                      <p className="text-xs text-muted-foreground">Te la enviamos a tu domicilio</p>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {step === 2 && (
@@ -139,7 +179,8 @@ export default function SignupWizard() {
                 <Info l="Email" v={f.email} />
                 <Info l="Dirección" v={`${f.address}, ${f.postalCode} ${f.city}`} />
                 <Info l="IBAN" v={f.iban} />
-                <Info l="Banco" v={f.bank} />
+                <Info l="Método de pago" v={f.paymentMethod === "card" ? "Tarjeta" : "Domiciliación SEPA"} />
+                {product.family === "Mobile" && <Info l="Tipo SIM" v={f.simType === "physical" ? "SIM física" : "eSIM"} />}
               </div>
               <label className="flex items-start gap-3 rounded-md border border-border p-3 cursor-pointer">
                 <Checkbox data-testid="accept-terms" checked={f.acceptedTerms} onCheckedChange={(v) => set("acceptedTerms", !!v)} className="mt-0.5" />

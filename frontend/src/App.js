@@ -13,6 +13,10 @@ import Catalog from "@/pages/admin/Catalog";
 import Tariffs from "@/pages/admin/Tariffs";
 import Settings from "@/pages/admin/Settings";
 import Orders from "@/pages/admin/Orders";
+import Alerts from "@/pages/admin/Alerts";
+import Solicitudes from "@/pages/admin/Solicitudes";
+import Billing from "@/pages/admin/Billing";
+import Shipments from "@/pages/admin/Shipments";
 import Installations from "@/pages/admin/Installations";
 import Portabilities from "@/pages/admin/Portabilities";
 import Resources from "@/pages/admin/Resources";
@@ -67,6 +71,8 @@ function App() {
 
           <Route path="/app" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
             <Route index element={<Dashboard />} />
+            <Route path="alerts" element={<Alerts />} />
+            <Route path="solicitudes" element={<Solicitudes />} />
             <Route path="customers" element={<Customers />} />
             <Route path="customers/:fiscalId" element={<CustomerDetail />} />
             <Route path="lines" element={<Lines />} />
@@ -75,6 +81,8 @@ function App() {
             <Route path="tariffs" element={<Tariffs />} />
             <Route path="settings" element={<Settings />} />
             <Route path="orders" element={<Orders />} />
+            <Route path="billing" element={<Billing />} />
+            <Route path="shipments" element={<Shipments />} />
             <Route path="installations" element={<Installations />} />
             <Route path="portabilities" element={<Portabilities />} />
             <Route path="resources" element={<Resources />} />

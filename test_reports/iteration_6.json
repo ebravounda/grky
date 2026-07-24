@@ -1,0 +1,47 @@
+{
+  "summary": "Iteración 6 verificada: Alertas + Solicitudes + Cobros recurrentes (Stripe) + Envíos SIM + Config altas/cobros + wizard público con selector método pago y tipo SIM. Backend 19/21 tests pytest OK (2 fallos no críticos: race condition en test paralelo de events, y aplicaciones legacy sin campos paymentMethod/simType). Frontend todas las páginas nuevas se cargan y responden (Alertas semáforos+banner+filtros+marcar leídas; Solicitudes revisar/rechazar; Cobros simulate fail x3 → past_due, sim-ok → active; Ejecutar ciclo; Envíos gestionar; Settings autoApprove+setupFee; Orders PIN/PUK). Se detectó y RESOLVIÓ un bundle JS de frontend obsoleto: el wizard servido no incluía los nuevos selectors pay-sepa/pay-card/sim-esim/sim-physical hasta reiniciar el servicio frontend.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/applications/{token}/detail", "issue": "Aplicaciones antiguas (creadas antes de esta iteración) no tienen los campos paymentMethod y simType; la UI de Solicitudes las trata como SEPA/eSIM por defecto pero podría inducir a error al operador. Considerar backfill o mostrar '—' explícito cuando falten."},
+      {"endpoint": "POST /api/events/read-all", "issue": "Test flakiness en modo paralelo (background run-cycle genera eventos entre el POST read-all y el GET unread-count). No es bug real."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Solicitudes / DocThumb (KYC review dialog)", "issue": "Las miniaturas KYC (DNI anverso/reverso/selfie) se renderizan con <img src='/api/files/{id}'> pero ese endpoint requiere Authorization Bearer. El navegador no envía la cabecera con img tags → las imágenes salen en blanco (401). CustomerDetail.js ya usa el patrón correcto (api.get responseType blob + createObjectURL en KycImage). Reutilizar KycImage en Solicitudes.js DocThumb.", "selector": "[data-testid^=\\\"doc-\\\"] img", "priority": "HIGH"},
+      {"component": "AdminLayout / nav-alerts-badge", "issue": "El badge de no leídas en la barra lateral solo se refresca con polling cada 30s. Al pulsar «Marcar leídas» desde la página Alertas, el badge no se actualiza inmediatamente. Idealmente el estado unread debería ser compartido (Context o event) o refetch on-focus.", "selector": "[data-testid=\\\"nav-alerts-badge\\\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Envío de emails con Resend", "issue": "Se genera evento de error «Invalid `to` field ... use testing address instead of example.com» al notificar clientes con emails @example.com (bandera de seed). No bloquea el flujo pero contamina el log de Alertas. Filtrar dominios de prueba o cambiar sender/testing en Resend.", "affected_selectors": ["[data-testid=\\\"alerts-page\\\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_new_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "HIGH: Arreglar Solicitudes.js DocThumb para cargar imágenes KYC via api.get({responseType:'blob'}) igual que KycImage de CustomerDetail.js. En su forma actual las miniaturas se ven en blanco al abrir «Revisar» y el operador no puede validar el KYC.",
+    "LOW: Refrescar unread badge en AdminLayout tras acciones (compartir estado o expo global).",
+    "INFO: El bundle frontend estaba obsoleto (no incluía los selectores pay-sepa/pay-card/sim-esim/sim-physical del SignupWizard). Se resolvió reiniciando el servicio frontend. Si vuelve a ocurrir, comprobar hot-reload.",
+    "OPCIONAL: Backfill applications antiguas con paymentMethod:'sepa' y simType:'esim' por defecto para evitar campos undefined en la UI."
+  ],
+  "critical_code_review_comments": [
+    "Solicitudes.js DocThumb rompe autenticación al usar <img src>; extraer el componente KycImage de CustomerDetail.js a un archivo compartido.",
+    "server.py sigue creciendo (~2228 líneas). Recomendado dividir en routers/módulos (billing, events, applications, public).",
+    "Endpoint /events/{id}/read acepta cualquier ObjectId sin comprobar existencia — retorna 200 aunque no exista. Sumar comprobación y 404.",
+    "SignupWizard.js validStep no exige simType para móviles (aunque hay default 'esim' + Mobile family, la validación no lo hace explícito).",
+    "Las miniaturas KYC de Solicitudes deberían compartir componente con CustomerDetail (DRY)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_new_features.py"
+  ],
+  "success_rate": {"backend": "90%", "frontend": "90%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! ; cliente@goroky.com / Cliente2026!",
+  "seed_data_creation": "Se modificó el envío del cliente Test Prueba (línea 667444676) a SHIPPED + Correos + TESTTRK-UI-001. Se toggled auto-approve y setupFee (después restaurados via toggle en la propia UI). Se simuló ciclo fallido→éxito en Juan García (12345678A) que quedó en active.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "El bundle JS del frontend puede quedar desactualizado sin dar error de compilación; si al testear un data-testid nuevo aparece como no visible, verificar con `curl -s <BACKEND>/static/js/bundle.js | grep <testid>` y reiniciar `sudo supervisorctl restart frontend` con 20-25s de espera. En Solicitudes hay 3 apps PENDING_REVIEW+COMPLETED aprobables (Playwright T848558B, Testy T993123452, Lucía 99887766Z). En Cobros solo el fiscalId 12345678A tiene subscription con billing.enabled. Wizard público accesible en /contratar; buttons contract-{productId}. Selectores clave: pay-sepa, pay-card, sim-esim, sim-physical. Backend: 21 tests en test_iter6_new_features.py; 19 pasan; los 2 fallos son ambientales/legacy.",
+  "rca of the issue": "Bug HIGH (KYC images 401): src/pages/admin/Solicitudes.js línea 189 usa <img src={fileUrl(id)}> donde fileUrl retorna `${API}/files/${id}`. El endpoint /api/files/{file_id} (server.py línea 2053) llama a require_admin(request) que exige Authorization: Bearer <token>. Los navegadores NO envían headers custom con etiquetas <img>, por lo que la request recibe 401 y la imagen queda en blanco. Reproducción: login admin → Solicitudes → Revisar (fiscalId T848558B) → miniaturas DNI/Selfie aparecen en blanco. Verificado con curl retornando HTTP 401 al hacer request sin auth. Fix: reutilizar el componente KycImage de CustomerDetail.js (líneas 275-288) que usa api.get(`/files/${id}`, {responseType:'blob'}) + URL.createObjectURL(blob) para obtener un blob URL renderizable."
+}

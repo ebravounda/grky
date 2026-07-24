@@ -44,6 +44,12 @@ function Loading() {
 
 const STAFF = ["admin", "agent", "reseller"];
 
+function PermGuard({ perm, children }) {
+  const { hasPerm } = useAuth();
+  if (!hasPerm(perm)) return <Navigate to="/app" replace />;
+  return children;
+}
+
 function RequireRole({ role, children }) {
   const { user, loading } = useAuth();
   if (loading || user === null) return <Loading />;
@@ -80,26 +86,26 @@ function App() {
 
           <Route path="/app" element={<RequireRole role="staff"><AdminLayout /></RequireRole>}>
             <Route index element={<Dashboard />} />
-            <Route path="alerts" element={<Alerts />} />
-            <Route path="solicitudes" element={<Solicitudes />} />
-            <Route path="customers" element={<Customers />} />
-            <Route path="customers/:fiscalId" element={<CustomerDetail />} />
-            <Route path="lines" element={<Lines />} />
-            <Route path="lines/:lineNumber" element={<LineDetail />} />
-            <Route path="catalog" element={<Catalog />} />
-            <Route path="tariffs" element={<Tariffs />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="orders" element={<Orders />} />
-            <Route path="billing" element={<Billing />} />
-            <Route path="shipments" element={<Shipments />} />
-            <Route path="promotions" element={<Promociones />} />
-            <Route path="installations" element={<Installations />} />
-            <Route path="portabilities" element={<Portabilities />} />
-            <Route path="resources" element={<Resources />} />
-            <Route path="invoices" element={<Invoices />} />
-            <Route path="tickets" element={<Tickets />} />
-            <Route path="users" element={<Users />} />
-            <Route path="commissions" element={<Commissions />} />
+            <Route path="alerts" element={<PermGuard perm="alerts.view"><Alerts /></PermGuard>} />
+            <Route path="solicitudes" element={<PermGuard perm="solicitudes.manage"><Solicitudes /></PermGuard>} />
+            <Route path="customers" element={<PermGuard perm="customers.view"><Customers /></PermGuard>} />
+            <Route path="customers/:fiscalId" element={<PermGuard perm="customers.view"><CustomerDetail /></PermGuard>} />
+            <Route path="lines" element={<PermGuard perm="lines.view"><Lines /></PermGuard>} />
+            <Route path="lines/:lineNumber" element={<PermGuard perm="lines.view"><LineDetail /></PermGuard>} />
+            <Route path="catalog" element={<PermGuard perm="catalog.view"><Catalog /></PermGuard>} />
+            <Route path="tariffs" element={<PermGuard perm="tariffs.manage"><Tariffs /></PermGuard>} />
+            <Route path="settings" element={<PermGuard perm="settings.manage"><Settings /></PermGuard>} />
+            <Route path="orders" element={<PermGuard perm="orders.manage"><Orders /></PermGuard>} />
+            <Route path="billing" element={<PermGuard perm="billing.manage"><Billing /></PermGuard>} />
+            <Route path="shipments" element={<PermGuard perm="shipments.manage"><Shipments /></PermGuard>} />
+            <Route path="promotions" element={<PermGuard perm="promotions.manage"><Promociones /></PermGuard>} />
+            <Route path="installations" element={<PermGuard perm="installations.manage"><Installations /></PermGuard>} />
+            <Route path="portabilities" element={<PermGuard perm="portabilities.manage"><Portabilities /></PermGuard>} />
+            <Route path="resources" element={<PermGuard perm="resources.view"><Resources /></PermGuard>} />
+            <Route path="invoices" element={<PermGuard perm="invoices.view"><Invoices /></PermGuard>} />
+            <Route path="tickets" element={<PermGuard perm="tickets.manage"><Tickets /></PermGuard>} />
+            <Route path="users" element={<PermGuard perm="users.manage"><Users /></PermGuard>} />
+            <Route path="commissions" element={<PermGuard perm="commissions.view"><Commissions /></PermGuard>} />
           </Route>
 
           <Route path="/portal" element={<RequireRole role="client"><ClientLayout /></RequireRole>}>

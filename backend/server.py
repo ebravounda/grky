@@ -430,17 +430,30 @@ async def coverage(body: CoverageRequest, request: Request):
 # ------------------------- dashboard -------------------------
 @api.get("/dashboard/stats")
 async def dashboard_stats(request: Request):
-    await require_admin(request)
-    customers = await db.customers.count_documents({})
-    active_lines = await db.lines.count_documents({"status": "ACTIVE"})
-    total_lines = await db.lines.count_documents({})
-    open_tickets = await db.tickets.count_documents({"status": {"$ne": "CLOSED"}})
-    paid = await db.invoices.find({"status": "paid"}).to_list(1000)
-    revenue = round(sum(i["total"] for i in paid), 2)
-    pending_inv = await db.invoices.count_documents({"status": "pending"})
-    recent_orders = await db.orders.find().sort("created", -1).to_list(6)
-    # revenue by family
-    lines = await db.lines.find().to_list(2000)
+    user = await require_perm(request, "dashboard.view")
+    is_reseller = user.get("role") == "reseller"
+    if is_reseller:
+        owned = await db.customers.find({"ownerId": str(user["_id"])}).to_list(3000)
+        fids = [c["fiscalId"] for c in owned]
+        cust_q = {"ownerId": str(user["_id"])}
+        line_q = {"fiscalId": {"$in": fids}}
+        order_q = {"ownerId": str(user["_id"])}
+    else:
+        cust_q, line_q, order_q = {}, {}, {}
+    customers = await db.customers.count_documents(cust_q)
+    active_lines = await db.lines.count_documents({**line_q, "status": "ACTIVE"})
+    total_lines = await db.lines.count_documents(line_q)
+    open_tickets = await db.tickets.count_documents({"status": {"$ne": "CLOSED"}}) if not is_reseller else 0
+    recent_orders = await db.orders.find(order_q).sort("created", -1).to_list(6)
+    if is_reseller:
+        comms = await db.commissions.find({"resellerId": str(user["_id"])}).to_list(5000)
+        revenue = round(sum(c.get("amount", 0) for c in comms), 2)
+        pending_inv = 0
+    else:
+        paid = await db.invoices.find({"status": "paid"}).to_list(1000)
+        revenue = round(sum(i["total"] for i in paid), 2)
+        pending_inv = await db.invoices.count_documents({"status": "pending"})
+    lines = await db.lines.find(line_q).to_list(2000)
     by_family = {}
     for l in lines:
         by_family[l["family"]] = by_family.get(l["family"], 0) + 1
@@ -450,6 +463,7 @@ async def dashboard_stats(request: Request):
         "totalLines": total_lines,
         "openTickets": open_tickets,
         "revenue": revenue,
+        "revenueLabel": "Comisiones" if is_reseller else "Ingresos",
         "pendingInvoices": pending_inv,
         "recentOrders": [clean(o) for o in recent_orders],
         "linesByFamily": [{"name": k, "value": v} for k, v in by_family.items()],

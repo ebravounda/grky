@@ -42,6 +42,18 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Popup** en el login del cliente: se muestra en cada entrada hasta que pulsa "No volver a mostrar" (persistente por cliente vía `dismissedBy`).
 - Probado: iteración 7 → backend 12/12, frontend 100%.
 
+### Iteración 2026-07 (RBAC + control avanzado de líneas)
+- **RBAC** (roles admin/agent/reseller/client): matriz de permisos editable (`role_permissions`), `require_perm`, `/api/access/me`, `/api/roles`, gestión de staff `/api/users`. Página admin "Usuarios y permisos" + guards de ruta por permiso (`PermGuard`) y nav filtrado por `hasPerm`.
+- **Revendedores**: aislamiento de datos por `ownerId` (solo ven sus clientes/líneas/órdenes), **comisión por SIM activada** (`commissionPerSim`), colección `commissions`, página "Comisiones". Dashboard con scope por revendedor.
+- **Agente de soporte**: acceso a soporte de líneas + tickets + clientes, sin cobros/config/usuarios/promos.
+- **Control avanzado de líneas** (admin/agente, card "Gestión avanzada" en LinePanel): bono de datos, límite de gasto, roaming, restricciones de llamadas (barring), desvío/buzón, suspensión/reactivación, cambio de titular, cambio de número, baja definitiva. Endpoints `/api/lines/{ln}/bono|spend-limit|roaming|barring|call-forward|suspend|reactivate|terminate|transfer|change-number`.
+- **Alertas de consumo** por email (80%/100%) en el scheduler diario.
+- Probado: iteración 8 → backend 29/29, frontend 100% (+ fix guards de ruta y dashboard por rol).
+
+## Cuentas staff (RBAC)
+- Revendedor: revendedor@goroky.com / Revende2026! (5€/SIM)
+- Agente: soporte@goroky.com / Soporte2026!
+
 ## Estado de integración Likes
 403 Forbidden persistente = IP no autorizada. **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
 

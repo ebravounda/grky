@@ -17,6 +17,7 @@ import Alerts from "@/pages/admin/Alerts";
 import Solicitudes from "@/pages/admin/Solicitudes";
 import Billing from "@/pages/admin/Billing";
 import Shipments from "@/pages/admin/Shipments";
+import Promociones from "@/pages/admin/Promociones";
 import Installations from "@/pages/admin/Installations";
 import Portabilities from "@/pages/admin/Portabilities";
 import Resources from "@/pages/admin/Resources";
@@ -83,6 +84,7 @@ function App() {
             <Route path="orders" element={<Orders />} />
             <Route path="billing" element={<Billing />} />
             <Route path="shipments" element={<Shipments />} />
+            <Route path="promotions" element={<Promociones />} />
             <Route path="installations" element={<Installations />} />
             <Route path="portabilities" element={<Portabilities />} />
             <Route path="resources" element={<Resources />} />

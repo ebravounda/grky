@@ -20,7 +20,7 @@ export default function ClientInvoices() {
   };
 
   return (
-    <div data-testid="client-invoices">
+    <div data-testid="client-invoices" className="px-5 py-6">
       <PageHeader overline="Facturación" title="Mis facturas" subtitle="Consulta y paga tus facturas." />
       <div className="space-y-3">
         {invoices.map((i) => (

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteración 7 verificada: nueva feature Promociones (banner/popup/offer) admin+cliente. Backend 12/12 pytest OK. Frontend: Admin /app/promotions crea/edita/elimina promos con live preview + audiencia por servicio; cliente /portal muestra rediseño mobile-app con greeting, hero banner, cards swipeables con dots, CTAs, ofertas para ti, bottom tabs (Inicio/Facturas/Tienda/Asistencia), campana con badge (8 facturas pendientes) y popup modal con 'Aprovechar oferta' + 'No volver a mostrar' que persiste tras logout/login. Regresiones OK (Cambiar tarifa, Detalle línea).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Promociones (admin)", "issue": "Al editar una promoción con imagen previamente vacía, la vista previa emite warning React: 'An empty string was passed to the src attribute'. Cosmético. Fix: en <img src={fullImg(p.imageUrl)}> del listado y en fullImg() devolver undefined en vez de '' cuando no hay URL.", "selector": "[data-testid^='promo-row-'] img", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_promotions.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "LOW/COSMETIC: reemplazar src='' por src={url || undefined} o condicional para eliminar el warning de React en <img> cuando la promo no tiene imagen todavía. Se ve tanto en el listado como en la preview cuando el form está vacío."
+  ],
+  "critical_code_review_comments": [
+    "server.py sigue creciendo (~2392 líneas). Recomendado dividir en routers por dominio (promotions, billing, applications, etc.) para mantenibilidad.",
+    "dismiss_promotion no valida existencia del promoId; devuelve 200 aunque no exista. Es idempotente pero podría 404.",
+    "En /api/me/promotions un cliente sin fiscalId (usuario admin, por ejemplo) recibiría todos los banners/offers filtrados por audiencia='service' como fuera (services={} vacío). No es problema porque los admin no llaman al endpoint, pero conviene documentarlo o restringirlo a rol client.",
+    "ClientDashboard.js: los data-testid como client-line-<lineNumber> pueden colisionar si dos clientes tuvieran mismo número (imposible en la práctica). OK.",
+    "Los seed promo IDs son estáticos (promo0001..promo0004); si se re-ejecuta seed_promotions con la colección vacía tras un drop, mantendrá los mismos IDs. Correcto."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_promotions.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! ; cliente@goroky.com / Cliente2026!",
+  "seed_data_creation": "Se reseteó dismissedBy=[] del popup promo0004 en Mongo para volver a testear el popup (queda reseteado al terminar).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "El popup (promo0004) se dismissea persistentemente por fiscalId=12345678A al pulsar 'No volver a mostrar'. Si necesitas volver a verlo desde el cliente Juan, resetea dismissedBy vía Mongo: `db.promotions.update_one({'promoId':'promo0004'}, {'$set':{'dismissedBy':[]}})`. El endpoint /api/public/promo-image/{file_id} NO requiere auth (correcto para renderizar imgs en <img src>). Bottom tabs data-testid: client-tab-inicio/facturas/tienda/asistencia. Tienda es <a> a /contratar (external). data-testids del admin: promo-title, promo-subtitle, promo-cta-text, promo-cta-link, promo-image-url, promo-image-file, promo-placement, promo-audience, promo-service, promo-badge, promo-active, save-promo-btn, edit-promo-<id>, delete-promo-<id>. En cliente: client-hero-banner, client-line-<num>, cta-add-line, cta-invoices, offer-<id>, promo-popup, popup-close, popup-cta, popup-dismiss, client-bell, client-logout-btn.",
+  "rca of the issue": "Sin bugs críticos. El único warning cosmético detectado: en Promociones.js línea 165 <img src={fullImg(p.imageUrl)} ...> — cuando p.imageUrl='' fullImg() retorna '' y React emite el warning `An empty string was passed to the src attribute`. Solución trivial: `<img src={fullImg(p.imageUrl) || undefined} ...>` o condicional del <img>."
+}

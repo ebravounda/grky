@@ -336,6 +336,21 @@ class ShipmentUpdate(BaseModel):
     tracking: Optional[str] = None
 
 
+class PromotionBody(BaseModel):
+    title: str
+    subtitle: Optional[str] = ""
+    imageUrl: Optional[str] = ""
+    imageData: Optional[str] = None     # data URL para subir imagen
+    ctaText: Optional[str] = "Ver más"
+    ctaLink: Optional[str] = ""
+    placement: str = "banner"           # banner | popup | offer
+    audience: str = "all"               # all | specific | service
+    audienceFiscalIds: Optional[List[str]] = []
+    audienceService: Optional[str] = ""  # Mobile | Fiber | Satellite | TV
+    priceBadge: Optional[str] = ""
+    active: bool = True
+
+
 # ------------------------- catalog / utility -------------------------
 @api.get("/products")
 async def products(family: Optional[str] = None, request: Request = None):
@@ -1547,6 +1562,111 @@ async def run_billing_cycle(request: Request):
     return {"ok": True}
 
 
+# ------------------------- promotions (banners / popups / offers) -------------------------
+def _promo_out(p):
+    d = clean(p)
+    d["dismissedBy"] = p.get("dismissedBy", [])
+    return d
+
+
+async def _resolve_promo_image(body: PromotionBody, owner="admin"):
+    if body.imageData and body.imageData.startswith("data:"):
+        fid = await _save_file("promo", body.imageData, owner)
+        return f"/api/public/promo-image/{fid}"
+    return body.imageUrl or ""
+
+
+@api.post("/promotions")
+async def create_promotion(body: PromotionBody, request: Request):
+    await require_admin(request)
+    image = await _resolve_promo_image(body)
+    doc = {"promoId": str(uuid.uuid4().int)[:10], "title": body.title, "subtitle": body.subtitle,
+           "imageUrl": image, "ctaText": body.ctaText, "ctaLink": body.ctaLink,
+           "placement": body.placement, "audience": body.audience,
+           "audienceFiscalIds": body.audienceFiscalIds or [], "audienceService": body.audienceService,
+           "priceBadge": body.priceBadge, "active": body.active,
+           "dismissedBy": [], "created": now_iso()}
+    await db.promotions.insert_one(doc)
+    await log_event("system", "info", f"Promoción creada: «{body.title}» ({body.placement})")
+    return _promo_out(doc)
+
+
+@api.get("/promotions")
+async def list_promotions(request: Request):
+    await require_admin(request)
+    promos = await db.promotions.find().sort("created", -1).to_list(500)
+    return [_promo_out(p) for p in promos]
+
+
+@api.put("/promotions/{promo_id}")
+async def update_promotion(promo_id: str, body: PromotionBody, request: Request):
+    await require_admin(request)
+    image = await _resolve_promo_image(body)
+    updates = {"title": body.title, "subtitle": body.subtitle, "imageUrl": image,
+               "ctaText": body.ctaText, "ctaLink": body.ctaLink, "placement": body.placement,
+               "audience": body.audience, "audienceFiscalIds": body.audienceFiscalIds or [],
+               "audienceService": body.audienceService, "priceBadge": body.priceBadge,
+               "active": body.active}
+    r = await db.promotions.update_one({"promoId": promo_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Promoción no encontrada")
+    p = await db.promotions.find_one({"promoId": promo_id})
+    return _promo_out(p)
+
+
+@api.delete("/promotions/{promo_id}")
+async def delete_promotion(promo_id: str, request: Request):
+    await require_admin(request)
+    await db.promotions.delete_one({"promoId": promo_id})
+    return {"ok": True}
+
+
+@api.get("/public/promo-image/{file_id}")
+async def public_promo_image(file_id: str):
+    try:
+        f = await db.files.find_one({"_id": _OID(file_id)})
+    except Exception:
+        f = None
+    if not f:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+    data_url = f["dataUrl"]
+    if isinstance(data_url, str) and data_url.startswith("data:"):
+        header, b64 = data_url.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
+        return StreamingResponse(io.BytesIO(base64.b64decode(b64)), media_type=mime)
+    return {"dataUrl": data_url}
+
+
+@api.get("/me/promotions")
+async def my_promotions(request: Request):
+    user = await current_user(request)
+    fiscalId = user.get("fiscalId")
+    lines = await db.lines.find({"fiscalId": fiscalId}).to_list(100) if fiscalId else []
+    services = {l.get("family") for l in lines}
+    promos = await db.promotions.find({"active": True}).sort("created", -1).to_list(500)
+    out = {"banner": [], "popup": [], "offer": []}
+    for p in promos:
+        aud = p.get("audience", "all")
+        if aud == "specific" and fiscalId not in (p.get("audienceFiscalIds") or []):
+            continue
+        if aud == "service" and p.get("audienceService") not in services:
+            continue
+        placement = p.get("placement", "banner")
+        if placement == "popup" and fiscalId in (p.get("dismissedBy") or []):
+            continue
+        if placement in out:
+            out[placement].append(_promo_out(p))
+    return out
+
+
+@api.post("/me/promotions/{promo_id}/dismiss")
+async def dismiss_promotion(promo_id: str, request: Request):
+    user = await current_user(request)
+    fiscalId = user.get("fiscalId")
+    await db.promotions.update_one({"promoId": promo_id}, {"$addToSet": {"dismissedBy": fiscalId}})
+    return {"ok": True}
+
+
 # ------------------------- settings & email -------------------------
 @api.get("/settings")
 async def get_settings(request: Request):
@@ -2110,6 +2230,7 @@ async def startup():
     await seed_admin(db)
     await seed_tariffs(db)
     await seed_demo(db)
+    await seed_promotions(db)
     # scheduler: recordatorios de pago + salud de integraciones
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -2234,4 +2355,37 @@ async def seed_demo(db):
             "type": "IN", "donorOperatorId": "003",
             "status": ["IN_PROGRESS", "COMPLETED"][idx % 2], "created": now_iso()})
     await db.counters.update_one({"_id": "invoice"}, {"$set": {"seq": inv_seq}}, upsert=True)
+
+    logger.info("Demo data seeded")
+
+
+async def seed_promotions(db):
+    if await db.promotions.count_documents({}) == 0:
+        await db.promotions.insert_many([
+            {"promoId": "promo0001", "title": "Tus favoritos, ¡ahora en rebajas!",
+             "subtitle": "Móviles, smartwatches y accesorios con hasta -40%.",
+             "imageUrl": "https://images.unsplash.com/photo-1662858557337-48c9ecf07ee0?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+             "ctaText": "Ir a la Tienda", "ctaLink": "/contratar", "placement": "banner",
+             "audience": "all", "audienceFiscalIds": [], "audienceService": "",
+             "priceBadge": "", "active": True, "dismissedBy": [], "created": now_iso()},
+            {"promoId": "promo0002", "title": "Fibra 1Gb + Móvil Ilimitado",
+             "subtitle": "Todo tu hogar conectado desde 38€/mes.",
+             "imageUrl": "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+             "ctaText": "Lo quiero", "ctaLink": "/contratar", "placement": "offer",
+             "audience": "all", "audienceFiscalIds": [], "audienceService": "",
+             "priceBadge": "Desde 38€", "active": True, "dismissedBy": [], "created": now_iso()},
+            {"promoId": "promo0003", "title": "GoRoky TV incluida",
+             "subtitle": "+80 canales y las mejores series.",
+             "imageUrl": "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+             "ctaText": "Añadir TV", "ctaLink": "/contratar", "placement": "offer",
+             "audience": "all", "audienceFiscalIds": [], "audienceService": "",
+             "priceBadge": "-50%", "active": True, "dismissedBy": [], "created": now_iso()},
+            {"promoId": "promo0004", "title": "🎁 Regalo de bienvenida",
+             "subtitle": "Contrata una segunda línea y llévate 3 meses gratis. ¡Solo esta semana!",
+             "imageUrl": "https://images.unsplash.com/photo-1607082349566-187342175e2f?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+             "ctaText": "Aprovechar oferta", "ctaLink": "/contratar", "placement": "popup",
+             "audience": "all", "audienceFiscalIds": [], "audienceService": "",
+             "priceBadge": "", "active": True, "dismissedBy": [], "created": now_iso()},
+        ])
+
     logger.info("Demo data seeded")

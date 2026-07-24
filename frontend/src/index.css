@@ -122,3 +122,7 @@ code {
 ::selection {
     background: hsl(var(--primary) / 0.2);
 }
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }

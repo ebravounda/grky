@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature, CreditCard,
+  ShieldCheck, FileSignature, CreditCard, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,6 +46,7 @@ export default function CustomerDetail() {
   const [chargeOpen, setChargeOpen] = useState(false);
   const [charge, setCharge] = useState({ concept: "", amount: "", method: "card" });
   const [charging, setCharging] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
@@ -71,6 +72,19 @@ export default function CustomerDetail() {
       setChargeOpen(false); setCharge({ concept: "", amount: "", method: "card" });
       load();
     } catch (e) { toast.error(apiErr(e)); } finally { setCharging(false); }
+  };
+
+  const syncLikes = async () => {
+    setSyncing(true);
+    try {
+      const { data: res } = await api.post(`/customers/${fiscalId}/sync-likes`);
+      if (res.synced) {
+        toast.success(`Alta sincronizada con Likes${res.likesOrderId ? ` · Orden ${res.likesOrderId}` : ""}`);
+      } else {
+        toast.warning("Likes respondió pero el alta no se completó. Revisa el log.");
+      }
+      if (res.log?.length) console.log("Likes sync log:", res.log);
+    } catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
   };
 
   const onFile = (e) => {
@@ -122,9 +136,14 @@ export default function CustomerDetail() {
       <Link to="/app/customers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-4"><ArrowLeft size={15} /> Clientes</Link>
       <PageHeader overline={customer.customerType} title={`${customer.name} ${customer.firstSurname || ""}`} subtitle={`NIF/NIE: ${customer.fiscalId}`}
         action={hasPerm("billing.manage") && (
-          <Button data-testid="open-charge-btn" className="rounded-full gap-2" onClick={() => setChargeOpen(true)}>
-            <CreditCard size={16} /> Cobrar servicio
-          </Button>
+          <div className="flex gap-2">
+            <Button data-testid="sync-likes-btn" variant="outline" className="rounded-full gap-2" onClick={syncLikes} disabled={syncing}>
+              <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando…" : "Sincronizar con Likes"}
+            </Button>
+            <Button data-testid="open-charge-btn" className="rounded-full gap-2" onClick={() => setChargeOpen(true)}>
+              <CreditCard size={16} /> Cobrar servicio
+            </Button>
+          </div>
         )}
       />
 

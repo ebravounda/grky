@@ -17,6 +17,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import stripe
 import likes_client
+import likes_sync
 import emailer
 import base64
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
@@ -974,6 +975,112 @@ async def _get_contract_template():
         return dict(DEFAULT_CONTRACT_TEMPLATE)
     doc.pop("_id", None)
     return doc
+
+
+async def _trigger_likes_sync(contract_code):
+    """Sincroniza un alta (por su nº de contrato) con Likes: cliente + DNI + orden + contrato."""
+    order = await db.orders.find_one({"contractNumber": contract_code})
+    if not order:
+        return {"synced": False, "reason": "order_not_found"}
+    app_doc = await db.applications.find_one({"contractCode": contract_code})
+    customer = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+    if not customer:
+        return {"synced": False, "reason": "customer_not_found"}
+    tariff = await db.tariffs.find_one({"productId": order.get("productId")})
+    likes_product_id = (tariff or {}).get("likesProductId") or order.get("productId")
+    # Generar el contrato firmado (PDF) con la plantilla editable
+    tpl = await _get_contract_template()
+    try:
+        ct = _app_to_contract(app_doc) if app_doc else await _build_contract(order)
+        contract_pdf = generate_contract_pdf(ct, tpl)
+    except Exception:  # noqa
+        contract_pdf = None
+    result = await likes_sync.sync_alta_to_likes(db, app_doc or {}, customer, order, contract_pdf, likes_product_id)
+    await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {
+        "likesSync": {"synced": result.get("synced"), "likesOrderId": result.get("likesOrderId"),
+                      "log": result.get("log", []), "at": now_iso(), "reason": result.get("reason")}}})
+    if result.get("likesOrderId"):
+        await db.customers.update_one({"fiscalId": customer["fiscalId"]},
+                                      {"$set": {"likesOrderId": result["likesOrderId"], "likesSynced": True}})
+    await log_event("likes", "success" if result.get("synced") else "warning",
+                    f"Sync Likes alta {contract_code}: {'OK' if result.get('synced') else result.get('reason')}",
+                    {"fiscalId": order["fiscalId"]})
+    return result
+
+
+@api.post("/customers/{fiscalId}/sync-likes")
+async def sync_customer_likes(fiscalId: str, request: Request):
+    await require_perm(request, "orders.manage")
+    order = await db.orders.find_one({"fiscalId": fiscalId, "contractNumber": {"$exists": True}},
+                                     sort=[("created", -1)])
+    if not order:
+        raise HTTPException(status_code=404, detail="El cliente no tiene ningún alta con contrato")
+    result = await _trigger_likes_sync(order["contractNumber"])
+    if not result.get("synced") and result.get("reason") == "not_connected":
+        raise HTTPException(status_code=503, detail="Likes no está conectado (IP no autorizada / entorno preview)")
+    return result
+
+
+@api.get("/likes/status")
+async def likes_status(request: Request):
+    await current_user(request)
+    likes_client.get_token()  # refresca estado
+    return {"live": likes_client.CONNECTION_STATE.get("live"),
+            "lastError": likes_client.CONNECTION_STATE.get("last_error")}
+
+
+@api.post("/orders/{order_id}/sync-likes")
+async def sync_order_likes(order_id: str, request: Request):
+    await require_perm(request, "orders.manage")
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if not order.get("contractNumber"):
+        raise HTTPException(status_code=400, detail="La orden no tiene contrato asociado")
+    result = await _trigger_likes_sync(order["contractNumber"])
+    if not result.get("synced") and result.get("reason") == "not_connected":
+        raise HTTPException(status_code=503, detail="Likes no está conectado (IP no autorizada / entorno preview)")
+    return result
+
+
+@api.get("/customers/{fiscalId}/likes")
+async def customer_likes_mirror(fiscalId: str, request: Request):
+    """Vista espejo en vivo desde Likes: órdenes, suscripciones y portabilidades del cliente."""
+    await require_perm(request, "customers.view")
+    if not likes_client.get_token():
+        return {"live": False, "orders": [], "subscriptions": [], "portabilities": []}
+    subs = likes_client.get_subscriptions(fiscalId)
+    orders = likes_client.get_customer_orders(fiscalId)
+    ports = [p for p in likes_client.get_portabilities() if p.get("fiscalId") == fiscalId]
+    return {"live": True, "orders": orders, "subscriptions": subs, "portabilities": ports}
+
+
+@api.post("/likes/sync-catalog")
+async def sync_catalog_from_likes(request: Request):
+    """Trae los productos reales de Likes y los upserta en tarifas, conservando coste/precio editados."""
+    await require_perm(request, "tariffs.manage")
+    if not likes_client.get_token():
+        raise HTTPException(status_code=503, detail="Likes no conectado (IP no autorizada / preview)")
+    real = likes_client.get_products()
+    n = 0
+    for p in real:
+        pid = p.get("productId")
+        if not pid:
+            continue
+        existing = await db.tariffs.find_one({"likesProductId": pid}) or await db.tariffs.find_one({"productId": pid})
+        base = {"likesProductId": pid, "productName": p.get("productName"),
+                "family": p.get("family"), "type": p.get("type", "Main"),
+                "marketingText": p.get("marketingText", []), "pvpr": p.get("price"),
+                "imageUrl": p.get("imageUrl")}
+        if existing:
+            await db.tariffs.update_one({"_id": existing["_id"]}, {"$set": base})
+        else:
+            base.update({"productId": pid, "price": round((p.get("price") or 0) * 1.21, 2),
+                         "costPrice": p.get("price") or 0, "active": True, "created": now_iso()})
+            await db.tariffs.insert_one(base)
+        n += 1
+    await log_event("likes", "success", f"Catálogo sincronizado desde Likes: {n} productos")
+    return {"synced": n}
 
 
 @api.get("/contract-template")
@@ -2725,10 +2832,17 @@ async def sign_application(token: str, body: SignBody):
              "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip(),
              "status": "PROVISIONING", "channel": "WEB", "price": product["price"],
              "productName": product["productName"], "family": app_doc["family"],
+             "productId": product["productId"],
              "lineNumber": line_number, "portability": False, "donorOperatorId": None,
              "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
              "contractNumber": app_doc["contractCode"], "signed": True, "signedAt": now_iso(),
              "created": now_iso()})
+
+    # Sincronización real con Likes (no bloqueante: en preview/MOCK es no-op)
+    try:
+        await _trigger_likes_sync(app_doc["contractCode"])
+    except Exception as e:  # noqa
+        logger.warning("Likes sync (sign) failed: %s", e)
 
     await db.applications.update_one({"token": token}, {"$set": {
         "status": "COMPLETED", "signerName": body.signerName, "signatureType": body.signatureType,

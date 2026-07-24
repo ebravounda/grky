@@ -57,6 +57,102 @@ def _live_get(path, params=None):
     return None
 
 
+def _live_post(path, payload):
+    """POST autenticado a la API real. Devuelve (data, error). data=None si no live/falla."""
+    token = get_token()
+    if not token:
+        return None, "Likes no conectado (IP no autorizada / MOCK)"
+    try:
+        r = requests.post(f"{LIKES_API_URL}{path}", json=payload,
+                          headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        if r.status_code in (200, 201):
+            return (r.json() if r.text else {}), None
+        return None, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:  # noqa
+        return None, str(e)[:200]
+
+
+def _live_put(path, payload):
+    token = get_token()
+    if not token:
+        return None, "Likes no conectado"
+    try:
+        r = requests.put(f"{LIKES_API_URL}{path}", json=payload,
+                         headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        if r.status_code in (200, 201):
+            return (r.json() if r.text else {}), None
+        return None, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:  # noqa
+        return None, str(e)[:200]
+
+
+def upload_file_to_url(upload_url, file_bytes, content_type):
+    """Sube un fichero (bytes) a una URL S3 prefirmada (PUT). Devuelve (ok, error)."""
+    try:
+        r = requests.put(upload_url, data=file_bytes,
+                         headers={"Content-Type": content_type}, timeout=30)
+        if r.status_code in (200, 201, 204):
+            return True, None
+        return False, f"HTTP {r.status_code}: {r.text[:150]}"
+    except Exception as e:  # noqa
+        return False, str(e)[:200]
+
+
+# ---- Escritura (alta real en Likes) ----
+def create_customer(payload):
+    """POST /customer → crea cliente y devuelve documentation[] con uploadURLs."""
+    return _live_post("/customer", payload)
+
+
+def create_order(payload):
+    """POST /signupv2 → crea la orden/alta. Devuelve {orderId}."""
+    return _live_post("/signupv2", payload)
+
+
+def get_order_draft(order_id):
+    """GET /draft-order-v2?orderId= → detalle de orden (documentation, status, products…)."""
+    return _live_get("/draft-order-v2", {"orderId": order_id})
+
+
+# ---- Lectura en vivo (espejo del panel de Likes) ----
+def get_customer_orders(fiscal_id):
+    live = _live_get("/orders", {"fiscalId": fiscal_id})
+    return live if live is not None else []
+
+
+def get_subscriptions(fiscal_id):
+    live = _live_get("/subscriptions", {"fiscalId": fiscal_id})
+    return live if live is not None else []
+
+
+def get_line_info(line_number):
+    return _live_get("/line", {"lineNumber": line_number, "withSims": "true",
+                               "withBonuses": "true", "withSimsInfo": "true"})
+
+
+def get_line_gb(line_number):
+    return _live_get("/line/gb", {"lineNumber": line_number})
+
+
+def get_line_svas(line_number):
+    return _live_get("/line/svas", {"lineNumber": line_number})
+
+
+def get_line_cdrs(line_number):
+    live = _live_get("/line/cdrs", {"lineNumber": line_number})
+    return live if live is not None else []
+
+
+def get_portabilities():
+    live = _live_get("/portabilities")
+    return live if live is not None else []
+
+
+def get_installations():
+    live = _live_get("/installations")
+    return live if live is not None else []
+
+
 # --------------------------------------------------------------------------
 # Catálogo de productos (mock que replica GET /products/brand)
 # --------------------------------------------------------------------------

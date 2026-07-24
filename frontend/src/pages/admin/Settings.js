@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Building2, Wifi, Mail, CreditCard, CheckCircle2, AlertTriangle, Send, ShieldCheck, Euro } from "lucide-react";
 import { toast } from "sonner";
 import ContractTemplateCard from "./ContractTemplateCard";
+import LikesCard from "./LikesCard";
 
 function StatusRow({ ok, okText, koText }) {
   return (
@@ -119,6 +120,8 @@ export default function Settings() {
             </>
           )}
         </div>
+
+        <LikesCard />
 
         <ContractTemplateCard />
 

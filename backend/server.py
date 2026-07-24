@@ -461,12 +461,12 @@ async def dashboard_stats(request: Request):
 # ------------------------- customers -------------------------
 @api.get("/customers")
 async def list_customers(request: Request, q: Optional[str] = None):
-    await require_admin(request)
-    query = {}
+    user = await require_perm(request, "customers.view")
+    query = dict(_scope(user))
     if q:
-        query = {"$or": [{"name": {"$regex": q, "$options": "i"}},
-                         {"fiscalId": {"$regex": q, "$options": "i"}},
-                         {"email": {"$regex": q, "$options": "i"}}]}
+        query["$or"] = [{"name": {"$regex": q, "$options": "i"}},
+                        {"fiscalId": {"$regex": q, "$options": "i"}},
+                        {"email": {"$regex": q, "$options": "i"}}]
     customers = await db.customers.find(query).sort("created", -1).to_list(500)
     out = []
     for c in customers:
@@ -478,7 +478,7 @@ async def list_customers(request: Request, q: Optional[str] = None):
 
 @api.post("/customers")
 async def create_customer(body: CustomerCreate, request: Request):
-    await require_admin(request)
+    user = await require_perm(request, "customers.edit")
     if await db.customers.find_one({"fiscalId": body.fiscalId}):
         raise HTTPException(status_code=400, detail="Ya existe un cliente con ese NIF/NIE")
     doc = {
@@ -489,6 +489,7 @@ async def create_customer(body: CustomerCreate, request: Request):
         "billingAddress": {"street": body.street, "streetNumber": body.streetNumber,
                            "postalCode": body.postalCode, "cityName": body.cityName,
                            "provinceName": body.provinceName},
+        "ownerId": str(user["_id"]) if user.get("role") == "reseller" else None,
         "created": now_iso(),
     }
     await db.customers.insert_one(doc)
@@ -521,8 +522,12 @@ async def get_customer(fiscalId: str, request: Request):
 # ------------------------- lines -------------------------
 @api.get("/lines")
 async def list_lines(request: Request):
-    await require_admin(request)
-    lines = await db.lines.find().sort("created", -1).to_list(1000)
+    user = await require_perm(request, "lines.view")
+    query = {}
+    if user.get("role") == "reseller":
+        owned = await db.customers.find({"ownerId": str(user["_id"])}).to_list(2000)
+        query = {"fiscalId": {"$in": [c["fiscalId"] for c in owned]}}
+    lines = await db.lines.find(query).sort("created", -1).to_list(1000)
     return [clean(l) for l in lines]
 
 
@@ -565,6 +570,123 @@ async def update_svas(lineNumber: str, body: SvaUpdate, request: Request):
             s["status"] = updates[s["code"]]
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"svas": svas}})
     return {"success": True, "svas": svas}
+
+
+# ------------------------- gestión avanzada de líneas (admin/agente) -------------------------
+async def _get_line_admin(lineNumber, request, perm="lines.support"):
+    await require_perm(request, perm)
+    line = await db.lines.find_one({"lineNumber": lineNumber})
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    return line
+
+
+@api.post("/lines/{lineNumber}/bono")
+async def add_bono(lineNumber: str, body: dict, request: Request):
+    line = await _get_line_admin(lineNumber, request)
+    gb = float(body.get("gb", 0))
+    if gb <= 0:
+        raise HTTPException(status_code=400, detail="Indica los GB del bono")
+    new_total = (line.get("totalGB") or 0) + gb
+    bonos = line.get("bonos", [])
+    bonos.append({"gb": gb, "date": now_iso()})
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"totalGB": new_total, "bonos": bonos}})
+    await log_event("order", "success", f"Bono de {gb:.0f}GB añadido a la línea {lineNumber}")
+    return {"lineNumber": lineNumber, "totalGB": new_total}
+
+
+@api.put("/lines/{lineNumber}/spend-limit")
+async def set_spend_limit(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    limit = float(body.get("limit", 0))
+    auto_cut = bool(body.get("autoCut", False))
+    await db.lines.update_one({"lineNumber": lineNumber},
+                              {"$set": {"spendLimit": limit, "autoCut": auto_cut}})
+    return {"lineNumber": lineNumber, "spendLimit": limit, "autoCut": auto_cut}
+
+
+@api.put("/lines/{lineNumber}/roaming")
+async def set_roaming(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    enabled = bool(body.get("enabled", False))
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"roaming": enabled}})
+    await log_event("order", "info", f"Roaming {'activado' if enabled else 'desactivado'} · línea {lineNumber}")
+    return {"lineNumber": lineNumber, "roaming": enabled}
+
+
+@api.put("/lines/{lineNumber}/barring")
+async def set_barring(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    barrings = {"premium": bool(body.get("premium", False)),
+                "international": bool(body.get("international", False)),
+                "dataRoaming": bool(body.get("dataRoaming", False)),
+                "voicemail": bool(body.get("voicemail", False))}
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"barrings": barrings}})
+    return {"lineNumber": lineNumber, "barrings": barrings}
+
+
+@api.put("/lines/{lineNumber}/call-forward")
+async def set_call_forward(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    cf = {"enabled": bool(body.get("enabled", False)), "number": body.get("number", ""),
+          "voicemail": bool(body.get("voicemail", False))}
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"callForward": cf}})
+    return {"lineNumber": lineNumber, "callForward": cf}
+
+
+@api.post("/lines/{lineNumber}/suspend")
+async def suspend_line(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    reason = body.get("reason", "temporal")
+    await db.lines.update_one({"lineNumber": lineNumber},
+                              {"$set": {"status": "SUSPENDED", "suspendReason": reason}})
+    await log_event("order", "warning", f"Línea {lineNumber} suspendida ({reason})")
+    return {"lineNumber": lineNumber, "status": "SUSPENDED"}
+
+
+@api.post("/lines/{lineNumber}/reactivate")
+async def reactivate_line(lineNumber: str, request: Request):
+    await _get_line_admin(lineNumber, request)
+    await db.lines.update_one({"lineNumber": lineNumber},
+                              {"$set": {"status": "ACTIVE"}, "$unset": {"suspendReason": ""}})
+    await log_event("order", "success", f"Línea {lineNumber} reactivada")
+    return {"lineNumber": lineNumber, "status": "ACTIVE"}
+
+
+@api.post("/lines/{lineNumber}/terminate")
+async def terminate_line(lineNumber: str, body: dict, request: Request):
+    await _get_line_admin(lineNumber, request)
+    await db.lines.update_one({"lineNumber": lineNumber},
+                              {"$set": {"status": "TERMINATED", "terminateReason": body.get("reason", ""),
+                                        "terminatedAt": now_iso()}})
+    await log_event("order", "warning", f"Baja de línea {lineNumber}")
+    return {"lineNumber": lineNumber, "status": "TERMINATED"}
+
+
+@api.post("/lines/{lineNumber}/transfer")
+async def transfer_line(lineNumber: str, body: dict, request: Request):
+    line = await _get_line_admin(lineNumber, request)
+    new_fiscal = body.get("newFiscalId", "").strip()
+    dest = await db.customers.find_one({"fiscalId": new_fiscal})
+    if not dest:
+        raise HTTPException(status_code=404, detail="El nuevo titular no existe como cliente")
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"fiscalId": new_fiscal}})
+    await db.subscriptions.update_many({"products.lineNumber": lineNumber}, {"$set": {"fiscalId": new_fiscal}})
+    await log_event("order", "info", f"Cambio de titular línea {lineNumber} → {new_fiscal}")
+    return {"lineNumber": lineNumber, "fiscalId": new_fiscal}
+
+
+@api.post("/lines/{lineNumber}/change-number")
+async def change_number(lineNumber: str, request: Request):
+    line = await _get_line_admin(lineNumber, request)
+    is_mobile = line.get("family") == "Mobile"
+    new_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
+    await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"lineNumber": new_number}})
+    await db.subscriptions.update_many({"products.lineNumber": lineNumber},
+                                       {"$set": {"products.$[e].lineNumber": new_number}},
+                                       array_filters=[{"e.lineNumber": lineNumber}])
+    await log_event("order", "info", f"Cambio de número {lineNumber} → {new_number}")
+    return {"oldNumber": lineNumber, "lineNumber": new_number}
 
 
 # ------------------------- subscriptions -------------------------
@@ -646,14 +768,15 @@ async def _create_invoice(customer, product, status="pending"):
 
 @api.get("/orders")
 async def list_orders(request: Request):
-    await require_admin(request)
-    orders = await db.orders.find().sort("created", -1).to_list(500)
+    user = await require_perm(request, "orders.manage")
+    orders = await db.orders.find(dict(_scope(user))).sort("created", -1).to_list(500)
     return [clean(o) for o in orders]
 
 
 @api.post("/orders")
 async def create_order(body: OrderCreate, request: Request):
-    await require_admin(request)
+    user = await require_perm(request, "orders.manage")
+    is_reseller = user.get("role") == "reseller"
     customer = await db.customers.find_one({"fiscalId": body.fiscalId})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -704,6 +827,7 @@ async def create_order(body: OrderCreate, request: Request):
         "donorOperatorId": body.donorOperatorId,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
         "contractNumber": contract_number, "signed": False,
+        "ownerId": str(user["_id"]) if is_reseller else None,
         "created": now_iso(),
     }
     await db.orders.insert_one(order)
@@ -711,6 +835,12 @@ async def create_order(body: OrderCreate, request: Request):
     await log_event("order", "success",
                     f"Orden creada · {order['customerName']} · {product['productName']} · línea {line_number}",
                     {"orderId": order_id, "channel": "WD"})
+    if is_reseller and (user.get("commissionPerSim") or 0) > 0:
+        await db.commissions.insert_one({
+            "commissionId": str(uuid.uuid4().int)[:10], "resellerId": str(user["_id"]),
+            "resellerName": user.get("name"), "lineNumber": line_number,
+            "customerName": order["customerName"], "amount": user["commissionPerSim"],
+            "created": now_iso()})
     # instalación (fibra) o portabilidad (si aplica)
     if product["family"] in ("Fiber", "TV"):
         await db.installations.insert_one({
@@ -1189,6 +1319,18 @@ async def _do_activate_order(order):
                 "status": "PENDING", "carrier": None, "tracking": None, "created": now_iso()})
             await log_event("order", "info",
                             f"Envío de SIM física pendiente · línea {line['lineNumber']}")
+    # comisión de revendedor por SIM activada
+    owner_id = order.get("ownerId")
+    if owner_id:
+        owner = await db.users.find_one({"_id": _OID(owner_id)})
+        if owner and owner.get("role") == "reseller" and (owner.get("commissionPerSim") or 0) > 0:
+            await db.commissions.insert_one({
+                "commissionId": str(uuid.uuid4().int)[:10], "resellerId": owner_id,
+                "resellerName": owner.get("name"), "lineNumber": order.get("lineNumber"),
+                "customerName": order.get("customerName"), "amount": owner["commissionPerSim"],
+                "created": now_iso()})
+            await log_event("order", "success",
+                            f"Comisión {owner['commissionPerSim']:.2f}€ para {owner.get('name')} · línea {order.get('lineNumber')}")
 
 
 @api.post("/applications/{token}/approve")
@@ -1553,6 +1695,29 @@ async def billing_daily_job():
             await log_event("billing", "info",
                 f"Recordatorio de pago ({days} días) enviado · {sub['fiscalId']}")
 
+    # alertas de consumo de datos (80% / 100%)
+    lines = await db.lines.find({"family": "Mobile", "status": "ACTIVE", "totalGB": {"$gt": 0}}).to_list(5000)
+    for l in lines:
+        pct = round((l.get("usedGB", 0) / l["totalGB"]) * 100) if l["totalGB"] else 0
+        sent = l.get("usageAlertsSent", [])
+        customer = None
+        for threshold in (80, 100):
+            if pct >= threshold and threshold not in sent:
+                customer = customer or await db.customers.find_one({"fiscalId": l["fiscalId"]})
+                if customer:
+                    msg = ("Has consumido todos tus datos" if threshold == 100
+                           else f"Has consumido el {threshold}% de tus datos")
+                    await _send_mail_safe("email", customer.get("email"),
+                        f"Aviso de consumo · línea {l['lineNumber']}",
+                        emailer.base_template("Aviso de consumo de datos",
+                            f"Hola {customer.get('name','')},<br><br>{msg} de la línea "
+                            f"<b>{l['lineNumber']}</b> ({l.get('usedGB')}GB de {l['totalGB']}GB).<br><br>"
+                            + ("Puedes contratar un bono de datos para seguir navegando." if threshold == 100 else "")))
+                await db.lines.update_one({"lineNumber": l["lineNumber"]},
+                                          {"$push": {"usageAlertsSent": threshold}})
+                await log_event("billing", "info",
+                    f"Alerta de consumo {threshold}% enviada · línea {l['lineNumber']}")
+
 
 @api.post("/billing/run-cycle")
 async def run_billing_cycle(request: Request):
@@ -1665,6 +1830,152 @@ async def dismiss_promotion(promo_id: str, request: Request):
     fiscalId = user.get("fiscalId")
     await db.promotions.update_one({"promoId": promo_id}, {"$addToSet": {"dismissedBy": fiscalId}})
     return {"ok": True}
+
+
+# ------------------------- RBAC (roles y permisos) -------------------------
+ALL_PERMISSIONS = [
+    "dashboard.view", "alerts.view", "solicitudes.manage", "customers.view", "customers.edit",
+    "lines.view", "lines.support", "lines.activate", "docs.upload", "tariffs.manage",
+    "catalog.view", "orders.manage", "billing.manage", "installations.manage",
+    "portabilities.manage", "shipments.manage", "promotions.manage", "invoices.view",
+    "resources.view", "tickets.manage", "settings.manage", "users.manage", "commissions.view",
+]
+DEFAULT_ROLE_PERMS = {
+    "admin": list(ALL_PERMISSIONS),
+    "agent": ["dashboard.view", "alerts.view", "customers.view", "customers.edit", "lines.view",
+              "lines.support", "tickets.manage", "invoices.view", "catalog.view"],
+    "reseller": ["dashboard.view", "solicitudes.manage", "customers.view", "customers.edit",
+                 "lines.view", "lines.activate", "docs.upload", "orders.manage", "catalog.view",
+                 "invoices.view", "commissions.view"],
+    "client": [],
+}
+
+
+async def seed_roles(db):
+    for role, perms in DEFAULT_ROLE_PERMS.items():
+        if not await db.role_permissions.find_one({"_id": role}):
+            await db.role_permissions.insert_one({"_id": role, "permissions": perms})
+
+
+async def get_role_perms(role):
+    doc = await db.role_permissions.find_one({"_id": role})
+    return set(doc["permissions"]) if doc else set(DEFAULT_ROLE_PERMS.get(role, []))
+
+
+async def require_perm(request, perm):
+    user = await current_user(request)
+    if user.get("role") == "admin":
+        return user
+    perms = await get_role_perms(user.get("role"))
+    if perm not in perms:
+        raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
+    return user
+
+
+def _scope(user):
+    """Filtro de datos: revendedor solo ve lo suyo."""
+    if user.get("role") == "reseller":
+        return {"ownerId": str(user["_id"])}
+    return {}
+
+
+@api.get("/access/me")
+async def access_me(request: Request):
+    user = await current_user(request)
+    perms = list(ALL_PERMISSIONS) if user.get("role") == "admin" else list(await get_role_perms(user.get("role")))
+    return {"role": user.get("role"), "permissions": perms,
+            "commissionPerSim": user.get("commissionPerSim", 0), "name": user.get("name")}
+
+
+@api.get("/roles")
+async def list_roles(request: Request):
+    await require_perm(request, "users.manage")
+    roles = {}
+    for r in ["admin", "agent", "reseller", "client"]:
+        roles[r] = list(await get_role_perms(r))
+    return {"allPermissions": ALL_PERMISSIONS, "roles": roles}
+
+
+@api.put("/roles/{role}")
+async def update_role(role: str, body: dict, request: Request):
+    await require_perm(request, "users.manage")
+    if role == "admin":
+        raise HTTPException(status_code=400, detail="El rol Administrador no se puede modificar")
+    perms = [p for p in (body.get("permissions") or []) if p in ALL_PERMISSIONS]
+    await db.role_permissions.update_one({"_id": role}, {"$set": {"permissions": perms}}, upsert=True)
+    return {"role": role, "permissions": perms}
+
+
+class StaffCreate(BaseModel):
+    email: str
+    name: str
+    password: str
+    role: str
+    commissionPerSim: Optional[float] = 0
+
+
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    commissionPerSim: Optional[float] = None
+    active: Optional[bool] = None
+    password: Optional[str] = None
+
+
+@api.get("/users")
+async def list_users(request: Request):
+    await require_perm(request, "users.manage")
+    users = await db.users.find({"role": {"$in": ["admin", "agent", "reseller"]}}).to_list(500)
+    return [{"id": str(u["_id"]), "email": u["email"], "name": u.get("name"), "role": u.get("role"),
+             "commissionPerSim": u.get("commissionPerSim", 0), "active": u.get("active", True),
+             "created_at": u.get("created_at")} for u in users]
+
+
+@api.post("/users")
+async def create_user(body: StaffCreate, request: Request):
+    await require_perm(request, "users.manage")
+    if body.role not in ["admin", "agent", "reseller"]:
+        raise HTTPException(status_code=400, detail="Rol no válido")
+    email = body.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Este email ya existe")
+    doc = {"email": email, "password_hash": hash_password(body.password), "name": body.name,
+           "role": body.role, "fiscalId": None, "commissionPerSim": body.commissionPerSim or 0,
+           "active": True, "created_at": now_iso()}
+    res = await db.users.insert_one(doc)
+    await log_event("system", "info", f"Usuario staff creado: {body.name} ({body.role})")
+    return {"id": str(res.inserted_id), "email": email, "name": body.name, "role": body.role}
+
+
+@api.put("/users/{user_id}")
+async def update_user(user_id: str, body: StaffUpdate, request: Request):
+    await require_perm(request, "users.manage")
+    updates = {}
+    for k in ["name", "role", "commissionPerSim", "active"]:
+        v = getattr(body, k)
+        if v is not None:
+            updates[k] = v
+    if body.password:
+        updates["password_hash"] = hash_password(body.password)
+    await db.users.update_one({"_id": _OID(user_id)}, {"$set": updates})
+    return {"ok": True}
+
+
+@api.delete("/users/{user_id}")
+async def delete_user(user_id: str, request: Request):
+    await require_perm(request, "users.manage")
+    await db.users.delete_one({"_id": _OID(user_id), "role": {"$ne": "admin"}})
+    return {"ok": True}
+
+
+# ------------------------- comisiones de revendedores -------------------------
+@api.get("/commissions")
+async def list_commissions(request: Request):
+    user = await require_perm(request, "commissions.view")
+    q = {} if user.get("role") == "admin" else {"resellerId": str(user["_id"])}
+    comms = await db.commissions.find(q).sort("created", -1).to_list(1000)
+    total = sum(c.get("amount", 0) for c in comms)
+    return {"total": round(total, 2), "count": len(comms), "commissions": [clean(c) for c in comms]}
 
 
 # ------------------------- settings & email -------------------------
@@ -2231,6 +2542,7 @@ async def startup():
     await seed_tariffs(db)
     await seed_demo(db)
     await seed_promotions(db)
+    await seed_roles(db)
     # scheduler: recordatorios de pago + salud de integraciones
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

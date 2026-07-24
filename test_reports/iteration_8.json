@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 8 verified: RBAC (admin/agent/reseller) + advanced line control. Backend 29/29 pytest passed. Frontend UI: admin sees all nav sections incl. Usuarios y permisos + Comisiones, can create/delete staff users, toggle+save reseller permission matrix. Agent has restricted nav (Panel/Alertas/Clientes/Líneas/Catálogo/Soporte/Facturas only) and backend correctly returns 403 for /api/users, /api/billing/subscriptions and /api/commissions. Reseller sees only own customer 55667788R (not 12345678A) and 15€ commission total from 3 SIMs. Reseller order creation generates a new commission (5€). Line advanced card renders all controls (roaming/bono/barring/callforward/transfer/change-number/terminate); bono adds GB, roaming toggles, barring saves, transfer validates NIF. Client portal regression OK.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminLayout/RequireRole", "issue": "Rutas del admin (/app/users, /app/billing, /app/commissions, etc.) NO están protegidas por permiso en el cliente: aunque la barra lateral las oculta correctamente, un agente/revendedor que navegue directamente a la URL carga la página; el backend devuelve 403 y el ErrorBoundary/react-dev-overlay muestra 'Uncaught runtime errors: AxiosError 403'. Recomendación: envolver cada <Route> admin en una comprobación de hasPerm() y redirigir a /app si no procede, y/o capturar 403 en el interceptor de axios para mostrar toast en lugar de propagar.", "selector": "React dev overlay (visible en dev, invisible en build)", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_rbac_lines.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [
+    "MEDIUM: agregar filtro de permisos en el frontend a nivel de <Route> para evitar overlay de dev cuando un agente/revendedor navega manualmente a /app/users o /app/billing (backend ya responde 403 correctamente). Alternativa: capturar 403 en el interceptor axios (src/lib/api.js) y redirigir a /app con toast.",
+    "LOW: el interceptor axios podría también hacer que las páginas negadas rendericen un empty-state ('no autorizado') en vez de mostrar tabla vacía silenciosa (caso /app/users cuando entra agente)."
+  ],
+  "critical_code_review_comments": [
+    "server.py sigue creciendo (~2700 líneas). Recomendable dividir en routers por dominio (rbac, lines_control, orders, promotions).",
+    "En /api/roles PUT no se valida que role in ['agent','reseller','client']; se puede crear un role inventado. Impacto bajo (get_role_perms cae al default vacío) pero conviene validar.",
+    "El transfer titular sólo modifica lines.fiscalId y subscriptions.fiscalId; no crea trazabilidad (historial de titulares). Aceptable para MVP.",
+    "change-number genera new_number con uuid.uuid4().int[:8] sin verificar colisión en db.lines. Colisión estadísticamente improbable pero para producción conviene loop+unique check.",
+    "delete_user hace delete_one({..., role: {$ne: admin}}) devolviendo 200 igualmente si intentas borrar admin (no-op silencioso). Sería mejor devolver 400 explícito."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_rbac_lines.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com/Goroky2026! ; soporte@goroky.com/Soporte2026! ; revendedor@goroky.com/Revende2026! ; cliente@goroky.com/Cliente2026!",
+  "seed_data_creation": "Se creó una orden de reseller adicional (línea Mobile) que genera +5€ de comisión; ahora el reseller tiene ~4 comisiones (=20€). Si necesitas revertir, borra manualmente comisiones con fecha del día en MongoDB (colección commissions) y la línea/orden asociada.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "data-testids RBAC admin: new-user-btn, user-dialog, user-name, user-email, user-password, user-role, user-commission, save-user-btn, user-row-<email>, delete-user-<email>, role-card-<role>, perm-<role>-<perm>, save-role-<role>. Commissions: commissions-page, commission-<commissionId>. LinePanel avanzado: line-advanced-card, roaming-switch, bono-btn+bono-input+save-bono-btn, barring-btn+bar-premium/bar-international/bar-dataRoaming/bar-voicemail+save-barring-btn, callforward-btn+cf-enabled+cf-number+save-cf-btn, transfer-btn+titular-input+save-titular-btn, change-number-btn (sin diálogo, cambia y redirige), terminate-btn (sin diálogo, confirma con window.confirm). Endpoint que sí existe: /api/products (NO /api/catalog en backend, aunque el nav dice 'Catálogo'). Reseller comisión seed: 5€ por SIM en usuario Revendedor Uno. Cliente demo fiscalId=55667788R está asignado (ownerId=<resellerId>). Backend enforcement de permisos es sólido (require_perm devuelve 403); frontend guard por rutas está solo a nivel de nav sidebar, no en <Route>.",
+  "rca of the issue": "N/A - todas las features funcionan según especificación. Único hallazgo menor: el frontend no bloquea rutas admin cuando un agente/revendedor navega manualmente por URL; se apoya sólo en que el sidebar oculte los enlaces y en la enforcement del backend (403). En modo dev el ErrorBoundary de react-dev-server muestra el axios error 403 como overlay; en producción build no se vería. Mitigación: guardas por permiso en <Route> admin o interceptor axios que capture 403 y redirija/toast."
+}

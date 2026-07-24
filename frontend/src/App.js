@@ -23,6 +23,8 @@ import Portabilities from "@/pages/admin/Portabilities";
 import Resources from "@/pages/admin/Resources";
 import Invoices from "@/pages/admin/Invoices";
 import Tickets from "@/pages/admin/Tickets";
+import Users from "@/pages/admin/Users";
+import Commissions from "@/pages/admin/Commissions";
 import ClientDashboard from "@/pages/client/ClientDashboard";
 import ClientLineDetail from "@/pages/client/ClientLineDetail";
 import ClientInvoices from "@/pages/client/ClientInvoices";
@@ -40,12 +42,18 @@ function Loading() {
   );
 }
 
+const STAFF = ["admin", "agent", "reseller"];
+
 function RequireRole({ role, children }) {
   const { user, loading } = useAuth();
   if (loading || user === null) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
+  if (role === "staff") {
+    if (!STAFF.includes(user.role)) return <Navigate to="/portal" replace />;
+    return children;
+  }
   if (role && user.role !== role) {
-    return <Navigate to={user.role === "admin" ? "/app" : "/portal"} replace />;
+    return <Navigate to={STAFF.includes(user.role) ? "/app" : "/portal"} replace />;
   }
   return children;
 }
@@ -54,7 +62,7 @@ function RootRedirect() {
   const { user, loading } = useAuth();
   if (loading || user === null) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === "admin" ? "/app" : "/portal"} replace />;
+  return <Navigate to={STAFF.includes(user.role) ? "/app" : "/portal"} replace />;
 }
 
 function App() {
@@ -70,7 +78,7 @@ function App() {
           <Route path="/contratar/:productId" element={<SignupWizard />} />
           <Route path="/firmar/:token" element={<SignContract />} />
 
-          <Route path="/app" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
+          <Route path="/app" element={<RequireRole role="staff"><AdminLayout /></RequireRole>}>
             <Route index element={<Dashboard />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="solicitudes" element={<Solicitudes />} />
@@ -90,6 +98,8 @@ function App() {
             <Route path="resources" element={<Resources />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="tickets" element={<Tickets />} />
+            <Route path="users" element={<Users />} />
+            <Route path="commissions" element={<Commissions />} />
           </Route>
 
           <Route path="/portal" element={<RequireRole role="client"><ClientLayout /></RequireRole>}>

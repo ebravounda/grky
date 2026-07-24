@@ -6,36 +6,38 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
-  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone,
+  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { to: "/app", label: "Panel", icon: LayoutDashboard, end: true, id: "panel" },
-  { to: "/app/alerts", label: "Alertas", icon: Bell, id: "alertas", badge: true },
-  { to: "/app/solicitudes", label: "Solicitudes", icon: ClipboardCheck, id: "solicitudes" },
-  { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes" },
-  { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas" },
-  { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas" },
-  { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo" },
-  { to: "/app/orders", label: "Contratación", icon: ShoppingCart, id: "contratacion" },
-  { to: "/app/billing", label: "Cobros", icon: Banknote, id: "cobros" },
-  { to: "/app/installations", label: "Instalaciones", icon: Wrench, id: "instalaciones" },
-  { to: "/app/portabilities", label: "Portabilidades", icon: ArrowRightLeft, id: "portabilidades" },
-  { to: "/app/shipments", label: "Envíos de SIM", icon: Truck, id: "envios" },
-  { to: "/app/promotions", label: "Promociones", icon: Megaphone, id: "promociones" },
-  { to: "/app/invoices", label: "Facturas", icon: ReceiptText, id: "facturas" },
-  { to: "/app/resources", label: "Recursos", icon: FolderDown, id: "recursos" },
-  { to: "/app/tickets", label: "Soporte", icon: LifeBuoy, id: "soporte" },
-  { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion" },
+  { to: "/app", label: "Panel", icon: LayoutDashboard, end: true, id: "panel", perm: "dashboard.view" },
+  { to: "/app/alerts", label: "Alertas", icon: Bell, id: "alertas", badge: true, perm: "alerts.view" },
+  { to: "/app/solicitudes", label: "Solicitudes", icon: ClipboardCheck, id: "solicitudes", perm: "solicitudes.manage" },
+  { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes", perm: "customers.view" },
+  { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas", perm: "lines.view" },
+  { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas", perm: "tariffs.manage" },
+  { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo", perm: "catalog.view" },
+  { to: "/app/orders", label: "Contratación", icon: ShoppingCart, id: "contratacion", perm: "orders.manage" },
+  { to: "/app/billing", label: "Cobros", icon: Banknote, id: "cobros", perm: "billing.manage" },
+  { to: "/app/commissions", label: "Comisiones", icon: Wallet, id: "comisiones", perm: "commissions.view" },
+  { to: "/app/installations", label: "Instalaciones", icon: Wrench, id: "instalaciones", perm: "installations.manage" },
+  { to: "/app/portabilities", label: "Portabilidades", icon: ArrowRightLeft, id: "portabilidades", perm: "portabilities.manage" },
+  { to: "/app/shipments", label: "Envíos de SIM", icon: Truck, id: "envios", perm: "shipments.manage" },
+  { to: "/app/promotions", label: "Promociones", icon: Megaphone, id: "promociones", perm: "promotions.manage" },
+  { to: "/app/invoices", label: "Facturas", icon: ReceiptText, id: "facturas", perm: "invoices.view" },
+  { to: "/app/resources", label: "Recursos", icon: FolderDown, id: "recursos", perm: "resources.view" },
+  { to: "/app/tickets", label: "Soporte", icon: LifeBuoy, id: "soporte", perm: "tickets.manage" },
+  { to: "/app/users", label: "Usuarios y permisos", icon: ShieldCheck, id: "usuarios", perm: "users.manage" },
+  { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion", perm: "settings.manage" },
 ];
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 
-function NavItems({ onNavigate, unread }) {
+function NavItems({ onNavigate, unread, hasPerm }) {
   return (
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-      {nav.map((n) => (
+      {nav.filter((n) => hasPerm(n.perm)).map((n) => (
         <NavLink
           key={n.to}
           to={n.to}
@@ -73,26 +75,27 @@ function Brand() {
 }
 
 export default function AdminLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPerm } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const doLogout = () => logout().then(() => navigate("/login"));
 
   useEffect(() => {
+    if (!hasPerm("alerts.view")) return;
     const fetchUnread = () => api.get("/events/unread-count").then((r) => setUnread(r.data.unreadCount)).catch(() => {});
     fetchUnread();
     const iv = setInterval(fetchUnread, 30000);
     window.addEventListener("focus", fetchUnread);
     window.addEventListener("events-updated", fetchUnread);
     return () => { clearInterval(iv); window.removeEventListener("focus", fetchUnread); window.removeEventListener("events-updated", fetchUnread); };
-  }, []);
+  }, [hasPerm]);
 
   return (
     <div className="min-h-screen flex bg-background">
       <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))]">
         <Brand />
-        <NavItems unread={unread} />
+        <NavItems unread={unread} hasPerm={hasPerm} />
         <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
           <div className="px-3 py-2 mb-1">
             <p className="text-sm font-semibold truncate text-white">{user?.name}</p>
@@ -116,7 +119,7 @@ export default function AdminLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="p-0 w-72 flex flex-col bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] border-0" data-testid="mobile-menu-sheet">
                 <Brand />
-                <NavItems unread={unread} onNavigate={() => setOpen(false)} />
+                <NavItems unread={unread} hasPerm={hasPerm} onNavigate={() => setOpen(false)} />
                 <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
                   <div className="px-3 py-2 mb-1">
                     <p className="text-sm font-semibold truncate text-white">{user?.name}</p>

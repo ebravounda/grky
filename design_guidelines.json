@@ -1,136 +1,190 @@
 {
-  "project_name": "Goroky Telecom CRM & Client Portal",
-  "theme_strategy": "hybrid_fullstack",
-  "theme": "Light mode by default for admin dashboard to ensure data readability, dark mode option available. Client portal has a slightly more consumer-friendly vibrant look.",
-  "colors": {
-    "archetype": "The Performance Pro (Deep Obsidian + White + Volt Blue)",
-    "primary": {
-      "DEFAULT": "hsl(230, 100%, 50%)",
-      "foreground": "hsl(0, 0%, 100%)",
-      "hover": "hsl(230, 100%, 45%)"
-    },
-    "background": {
-      "light": "hsl(220, 20%, 98%)",
-      "dark": "hsl(224, 71%, 4%)"
-    },
-    "card": {
-      "light": "hsl(0, 0%, 100%)",
-      "dark": "hsl(224, 71%, 7%)"
-    },
-    "border": {
-      "light": "hsl(220, 13%, 91%)",
-      "dark": "hsl(224, 71%, 15%)"
-    },
-    "success": "hsl(142, 71%, 45%)",
-    "warning": "hsl(38, 92%, 50%)",
-    "destructive": "hsl(348, 100%, 61%)",
-    "rules": [
-      "Never use pure #000000 or #808080. Tint grays slightly blue.",
-      "Ensure contrast ratios are 4.5:1 for normal text.",
-      "Limit use of primary color strictly to CTAs.",
-      "DO NOT use complete transparent background in header, overlays, any surface that has content under it."
-    ]
-  },
   "typography": {
-    "headings": {
-      "font_family": "'Outfit', sans-serif",
-      "weights": [400, 500, 600, 700],
-      "rules": "Tracking-tight on sizes above 32px. Never center headings by default."
+    "fonts": {
+      "heading": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
     },
-    "body": {
-      "font_family": "'Manrope', sans-serif",
-      "weights": [400, 500],
-      "rules": "High legibility, leading-relaxed for body copy, tight for data."
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-bold",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-semibold",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground",
+      "tiny": "text-xs font-medium uppercase tracking-[0.2em]"
     },
-    "banned_fonts": ["Inter", "Roboto", "Open Sans", "Lato", "Space Grotesk"],
-    "hierarchy_rules": "H1 max text-5xl on desktop. Use tracking-[0.2em] uppercase for overlines/labels."
+    "pairing_strategy": "Modern SaaS Tech: Outfit provides a geometric, friendly yet professional structure for headings, while Manrope offers exceptional legibility for dense CRM data tables and client dashboards."
   },
-  "grids": {
-    "dashboard": "High Density Grid (grid-cols-1 md:grid-cols-3 lg:grid-cols-4), gap-4 or gap-6. Direct children must be grid items.",
-    "client_portal": "Bento Grid (grid-cols-1 md:grid-cols-2 lg:grid-cols-3), gap-6 or gap-8."
+  "colors": {
+    "brand": {
+      "primary": "hsl(216, 100%, 52%)", 
+      "accent": "hsl(25, 100%, 50%)", 
+      "dark_blue": "hsl(216, 85%, 13%)"
+    },
+    "theme_tokens": {
+      "light": {
+        "--background": "0 0% 100%",
+        "--foreground": "216 85% 13%",
+        "--card": "0 0% 100%",
+        "--card-foreground": "216 85% 13%",
+        "--popover": "0 0% 100%",
+        "--popover-foreground": "216 85% 13%",
+        "--primary": "216 100% 52%",
+        "--primary-foreground": "0 0% 100%",
+        "--secondary": "210 40% 96%",
+        "--secondary-foreground": "216 85% 13%",
+        "--muted": "210 40% 96%",
+        "--muted-foreground": "215 16% 47%",
+        "--accent": "25 100% 50%",
+        "--accent-foreground": "0 0% 100%",
+        "--destructive": "0 84.2% 60.2%",
+        "--destructive-foreground": "0 0% 100%",
+        "--success": "142 71% 45%",
+        "--warning": "48 96% 53%",
+        "--info": "216 100% 52%",
+        "--border": "214 32% 91%",
+        "--input": "214 32% 91%",
+        "--ring": "216 100% 52%",
+        "--radius": "0.5rem",
+        "--sidebar-background": "216 85% 13%",
+        "--sidebar-foreground": "210 40% 96%",
+        "--sidebar-primary": "216 100% 52%",
+        "--sidebar-primary-foreground": "0 0% 100%",
+        "--sidebar-accent": "216 60% 20%",
+        "--sidebar-accent-foreground": "0 0% 100%",
+        "--sidebar-border": "216 60% 20%",
+        "--sidebar-ring": "216 100% 52%"
+      },
+      "dark": {
+        "--background": "216 85% 8%",
+        "--foreground": "210 40% 98%",
+        "--card": "216 60% 12%",
+        "--card-foreground": "210 40% 98%",
+        "--popover": "216 60% 12%",
+        "--popover-foreground": "210 40% 98%",
+        "--primary": "216 100% 52%",
+        "--primary-foreground": "0 0% 100%",
+        "--secondary": "216 40% 18%",
+        "--secondary-foreground": "210 40% 98%",
+        "--muted": "216 40% 18%",
+        "--muted-foreground": "215 20% 65%",
+        "--accent": "25 100% 50%",
+        "--accent-foreground": "0 0% 100%",
+        "--destructive": "0 62.8% 30.6%",
+        "--destructive-foreground": "210 40% 98%",
+        "--success": "142 71% 45%",
+        "--warning": "48 96% 53%",
+        "--info": "216 100% 52%",
+        "--border": "216 40% 18%",
+        "--input": "216 40% 18%",
+        "--ring": "216 100% 52%",
+        "--sidebar-background": "216 85% 8%",
+        "--sidebar-foreground": "210 40% 98%",
+        "--sidebar-primary": "216 100% 52%",
+        "--sidebar-primary-foreground": "0 0% 100%",
+        "--sidebar-accent": "216 40% 18%",
+        "--sidebar-accent-foreground": "210 40% 98%",
+        "--sidebar-border": "216 40% 18%",
+        "--sidebar-ring": "216 100% 52%"
+      }
+    },
+    "status_pills": {
+      "Activa": "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400 border-green-200",
+      "Suspendida": "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200",
+      "Pendiente": "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 border-amber-200",
+      "Completada": "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border-blue-200",
+      "Aprovisionando": "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border-purple-200",
+      "Cancelada": "bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-400 border-slate-200",
+      "Pagada": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200"
+    },
+    "semaphores": {
+      "health_ok": "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]",
+      "health_warning": "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
+      "health_error": "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+    },
+    "gradient_usage": "CRITICAL: Avoid muddy gradients by never blending #FF6A00 directly into #0A6BFF for large surfaces. If a brand gradient is needed (e.g. for text or a thin active border), use a tricolor approach: from-[#FF6A00] via-[#B2367F] to-[#0A6BFF] or use them independently (Orange for primary CTA actions like 'Pagar', Blue for structural buttons and links)."
   },
   "layouts": {
-    "spacing_strategy": "Generous Spacing Philosophy. Use p-6, p-8 in containers. For cards with borders, ensure padding prevents text collision.",
-    "navigation": "Every page MUST have a visible nav bar. No transparent headers over hero images - use glassmorphism or solid background.",
-    "alignment": "Optical alignment over geometrical. Left-align data and forms."
+    "admin_dashboard": {
+      "structure": "Sidebar (Dark Blue #051C3F on desktop) + Topbar (White/Dark) + Gray/Off-white Main Content area.",
+      "sidebar": "Fixed width on desktop (w-64), collapsible to icon-only. Must include unread badge (Orange) for 'Alertas'. Logo at the top.",
+      "tables": "CRITICAL: Wrap all data tables in a div with `className='w-full overflow-x-auto rounded-md border'`. Add horizontal scrolling to prevent breaking layout on mobile. Columns should use whitespace-nowrap."
+    },
+    "client_portal": {
+      "structure": "Modern Premium SaaS look. Floating Topbar or subtle Sidebar. Max-width container (`max-w-7xl mx-auto`) for the dashboard.",
+      "line_cards": "Glassmorphic or crisp soft-shadow cards. Must feature 'Consumption Progress Bars' mapping gigabytes/minutes. Use primary blue for the progress fill, accent orange for warnings (e.g. > 80% usage).",
+      "spacing": "Generous spacing. Use `gap-6` or `gap-8` for dashboard grids."
+    },
+    "onboarding_wizard": {
+      "structure": "Split screen or centered massive card. Left side: Brand presence + dynamic abstract image/pattern. Right side: Multi-step form (Datos, Dirección, Pago, KYC, Confirmar).",
+      "kyc": "File upload zones must look interactive (dashed borders, hover states).",
+      "e_signature": "Canvas block for signature + explicit accept checkboxes."
+    }
   },
-  "component_name": {
-    "cards": "Cardless or subtle roundness (max 8px). Flat solid surfaces with 1px border. Hover: -translate-y-1 and shadow-lg.",
-    "buttons": "Pill-shaped or rounded-md. Sharp focus rings.",
-    "inputs": "Shadcn components heavily customized. Left aligned labels.",
-    "charts": "Shadcn charts/Recharts. Use semantic colors for data. Accessible tooltips.",
-    "tables": "Dense rows for Admin, more spacious for Client portal. 1px borders.",
-    "toasts": "Sonner for notifications."
+  "grids": {
+    "dashboard_stats": "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6",
+    "client_lines": "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
   },
   "visual_enhancers": {
-    "glassmorphism": "Only for sticky headers/floating navs. bg-white/70 or bg-black/60, backdrop-blur-xl, 1px delicate inner stroke.",
-    "neumorphism": "Do not use. Stick to flat and crisp (Grid Borders technical look).",
-    "status_pills": "Use vibrant backgrounds with high contrast text for Active/Inactive/Pending statuses."
+    "borders": "1px solid border-border (subtle).",
+    "shadows": {
+      "card": "shadow-sm hover:shadow-md transition-shadow duration-200",
+      "dropdown": "shadow-lg shadow-black/5"
+    },
+    "glassmorphism": "Used for sticky client portal header: `bg-background/80 backdrop-blur-xl border-b border-border`."
+  },
+  "components": {
+    "StatCard": "Must include title, numeric value, an icon (Lucide) in a rounded badge (bg-primary/10 text-primary), and an optional delta (+/- %) indicator.",
+    "ProgressBar": "For consumption. `h-2 rounded-full bg-secondary overflow-hidden`. Inner div `bg-primary transition-all duration-500`.",
+    "AlertsFeed": "Timeline layout with severity colors mapping to semaphores.",
+    "SidebarNav": "Accordion or standard list. Active state: `bg-sidebar-accent text-sidebar-accent-foreground border-r-2 border-accent`."
   },
   "motion": {
-    "transitions": "transition: transform 0.2s ease, opacity 0.2s ease (Never transition: all).",
-    "interactions": "Hover states must darken/lighten distinctly. Click/press states scale down slightly (scale-95).",
-    "entrance": "Staggered fade-up for list items (Framer Motion)."
+    "page_transitions": "Framer motion `<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} />`",
+    "hover_states": "Buttons must have `hover:-translate-y-0.5 hover:shadow-md transition-all`.",
+    "progress_bars": "Must animate from 0 to actual value on mount."
   },
   "accessibility": {
-    "contrast": "Minimum 4.5:1 ratio for text (APCA). Use text shadows over images.",
-    "testing": "All interactive and key informational elements MUST include a data-testid attribute.",
-    "focus": "focus:ring-2 focus:ring-primary focus:outline-none"
+    "contrast": "Ensure text over brand blue and brand orange is white (`text-white`). Avoid orange text on white backgrounds unless it is bold and large.",
+    "focus": "All interactables must have `focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2`.",
+    "data_testids": "MANDATORY: Every button, input, row action, and navigation link must have a descriptive kebab-case `data-testid`."
   },
   "media": {
-    "images": "Max height 80vh on mobile. Never use placeholder URLs.",
-    "icons": "Use @phosphor-icons/react. Phosphor icons for dense dashboards."
-  },
-  "3d_libraries_and_steps": {
-    "decision": "Not mandatory for data-heavy CRM, but React Recharts is MANDATORY for data visualization (data consumption gauges, revenue charts).",
-    "data_viz": "Use Recharts for line, bar, and donut charts. Add custom tooltips."
+    "logo_strategy": "Use the provided URL. In the dark admin sidebar, ensure the image is cleanly rendered. In public headers, size appropriately (e.g., h-8 or h-10). Use in onboarding wizard header, client portal header, and email templates.",
+    "pdf_invoices": "CRITICAL: Do not restyle existing PDF layouts."
   },
   "image_urls": {
-    "marketing_client": [
-      {
-        "url": "https://images.pexels.com/photos/11749490/pexels-photo-11749490.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Woman enjoying smartphone in sunny day",
-        "category": "Client Portal Welcome / Empty State"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1670272505340-d906d8d77d03?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxwZXJzb24lMjB1c2luZyUyMHNtYXJ0cGhvbmUlMjBzbWlsaW5nfGVufDB8fHx8MTc4NDgxMjMzN3ww&ixlib=rb-4.1.0&q=85",
-        "description": "Woman at table using smartphone",
-        "category": "Client Portal Profile/Dashboard Header"
-      }
-    ],
-    "admin_dashboard": [
-      {
-        "url": "https://images.unsplash.com/photo-1604869515882-4d10fa4b0492?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwY2FibGVzJTIwYWJzdHJhY3R8ZW58MHx8fHwxNzg0ODEyMzM3fDA&ixlib=rb-4.1.0&q=85",
-        "description": "Abstract fiber optic cables (white/blue)",
-        "category": "Admin Login Background or Network Status Header"
-      },
-      {
-        "url": "https://images.pexels.com/photos/8640331/pexels-photo-8640331.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Neon blue optical fibers",
-        "category": "Telecom Cover/Background"
-      }
-    ]
+    "logo": {
+      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png",
+      "description": "GoRoky Corporate Logo (Orange to Blue wordmark)",
+      "usage": "Global branding, Admin Sidebar header, Client Portal top bar, Onboarding Wizard, Login screen."
+    },
+    "onboarding_background": {
+      "url": "https://images.pexels.com/photos/33676090/pexels-photo-33676090.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Abstract modern connectivity blue and orange flowing lines",
+      "usage": "Use as a high-end visual background for the left pane in the public Onboarding Wizard/Login to establish a premium telecom vibe."
+    }
   },
   "instructions_to_main_agent": [
-    "Install required fonts: Outfit and Manrope via Google Fonts in index.html.",
-    "Install @phosphor-icons/react for icons.",
-    "Install recharts for consumption and revenue KPIs.",
-    "Structure the app to support two layouts based on auth role: Admin (dense sidebar) vs Client (bento grid, top nav).",
-    "Configure Tailwind config colors to match the guidelines provided above.",
-    "DO NOT USE INTER FONT.",
-    "Ensure all JS components use .js extensions as requested."
+    "You are building a hybrid full-stack application for a Spanish telecom distributor (Admin CRM + Client SaaS + Public Onboarding). All UI copy must be in Spanish.",
+    "IMPLEMENT THE THEME IN `.css` FILE EXACTLY AS PROVIDED IN `colors.theme_tokens`. Do not invent random colors. Map Recharts colors to the theme.",
+    "Data Tables are critical: Use Shadcn Table but YOU MUST wrap `<Table>` inside a `<div className='w-full overflow-x-auto rounded-md border'>` to prevent mobile view breakage.",
+    "Build a clear Client Portal layout distinct from the Admin CRM. Make it feel premium (use the defined line cards with progress bars for telecom consumption).",
+    "Never combine #FF6A00 and #0A6BFF into a linear gradient background. Keep them separate for functional meaning, or use the tricolor text-clip workaround if you need the brand gradient visually on text.",
+    "Implement Semantic Status Pills exactly matching the color mappings provided.",
+    "Include a 'data-testid' on all interactive elements (buttons, inputs, tabs, table rows) for robust E2E testing."
   ],
-  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "You tend to converge toward generic, 'on distribution' outputs. Avoid the 'AI slop' aesthetic.",
-    "Create depth through layered design elements with z-index hierarchy.",
-    "Use glass-morphism effects with backdrop filters (12-24px blur) where appropriate.",
-    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements.",
-    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
-    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
-    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations.",
-    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
-    "Use sonner for toasts.",
-    "Prioritize using pre-existing components from src/components/ui when applicable."
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not converge toward generic, 'on distribution' outputs. Avoid the 'AI slop' aesthetic.",
+    "Create depth through layered design elements with z-index hierarchy and crisp soft shadows.",
+    "Do not use dark colors as gradients.",
+    "Do not center align the app container. Do not add `.App { text-align: center; }`.",
+    "Never apply `transition: all`. Target specific properties like `transition-colors`, `transition-transform`.",
+    "Use modern pill-shaped or rounded-md buttons with clear hover states.",
+    "Never use AI assistant emojis (🤖, 💡, 🔮) as icons. Use lucide-react exclusively.",
+    "Ensure every interaction has micro-animations. Static = dead.",
+    "Use `sonner` for toast notifications (located in `/app/src/components/ui/sonner.jsx`).",
+    "Always check contrast and ensure accessibility standards."
   ]
 }

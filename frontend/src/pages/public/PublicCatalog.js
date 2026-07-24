@@ -6,7 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import { RadioTower, Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2 } from "lucide-react";
+import { Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 const TABS = [
@@ -26,8 +26,8 @@ export default function PublicCatalog() {
     <div className="min-h-screen bg-background" data-testid="public-catalog">
       <header className="border-b border-border glass sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center gap-2.5">
-          <div className="grid place-items-center h-9 w-9 rounded-md bg-primary text-primary-foreground"><RadioTower size={20} /></div>
-          <div className="leading-tight"><p className="font-heading font-700">Goroky Telecom</p><p className="text-[10px] text-muted-foreground overline">Contrata online</p></div>
+          <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-7 w-auto" />
+          <div className="leading-tight"><p className="text-[10px] text-muted-foreground overline mt-0.5">Contrata online</p></div>
         </div>
       </header>
 

@@ -32,8 +32,8 @@ export default function Invoices() {
   return (
     <div data-testid="invoices-page">
       <PageHeader overline="Facturación" title="Facturas" subtitle="Facturas generadas y cobros con Stripe." />
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">
             <tr>
               <th className="px-4 py-3 font-medium">Nº</th>

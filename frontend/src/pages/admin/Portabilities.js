@@ -36,8 +36,8 @@ export default function Portabilities() {
   return (
     <div data-testid="portabilities-page">
       <PageHeader overline="Provisión" title="Portabilidades" subtitle="Portabilidades entrantes y salientes. Cancela las entrantes en curso." />
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">
             <tr>
               <th className="px-4 py-3 font-medium">ID</th>

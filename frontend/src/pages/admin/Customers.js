@@ -118,8 +118,8 @@ export default function Customers() {
         <Input data-testid="customer-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, NIF o email…" className="pl-9" />
       </div>
 
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground">
             <tr className="text-left">
               <th className="px-4 py-3 font-medium">Cliente</th>

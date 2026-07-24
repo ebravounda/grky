@@ -26,12 +26,12 @@ async def send_email(to: str, subject: str, html: str, attachments=None):
     return result
 
 
-GOROKY_LOGO = os.environ.get("GOROKY_LOGO_URL", "")
+GOROKY_LOGO = os.environ.get("GOROKY_LOGO_URL", "") or "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png"
 
 
 def base_template(title: str, body_html: str) -> str:
-    logo = (f"<img src='{GOROKY_LOGO}' alt='GoRoky' style='height:40px' />"
-            if GOROKY_LOGO else "<span style='color:#ffffff;font-size:22px;font-weight:bold'>GoRoky<span style='color:#ff7a00'>.com</span></span>")
+    logo = (f"<img src='{GOROKY_LOGO}' alt='GoRoky' style='height:38px' />"
+            if GOROKY_LOGO else "<span style='color:#0A6BFF;font-size:22px;font-weight:bold'>GoRoky<span style='color:#FF6A00'>.com</span></span>")
     return f"""
     <div style="font-family:Arial,Helvetica,sans-serif;background:#f1f3f7;padding:24px">
       <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">

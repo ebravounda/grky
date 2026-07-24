@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { RadioTower, FileText, CheckCircle2, PenLine, Download } from "lucide-react";
+import { FileText, CheckCircle2, PenLine, Download } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -117,8 +117,7 @@ function Shell({ children }) {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border glass">
         <div className="max-w-2xl mx-auto px-5 h-16 flex items-center gap-2.5">
-          <div className="grid place-items-center h-9 w-9 rounded-md bg-primary text-primary-foreground"><RadioTower size={20} /></div>
-          <span className="font-heading font-700">Goroky Telecom</span>
+          <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-7 w-auto" />
         </div>
       </header>
       <div className="max-w-2xl mx-auto px-5 py-10">{children}</div>

@@ -29,6 +29,8 @@ const nav = [
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion" },
 ];
 
+const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
+
 function NavItems({ onNavigate, unread }) {
   return (
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -43,14 +45,14 @@ function NavItems({ onNavigate, unread }) {
             cn(
               "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
               isActive
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-white"
             )
           }
         >
           <n.icon size={18} /> <span className="flex-1">{n.label}</span>
           {n.badge && unread > 0 && (
-            <span data-testid="nav-alerts-badge" className="grid place-items-center min-w-5 h-5 px-1 rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold">{unread}</span>
+            <span data-testid="nav-alerts-badge" className="grid place-items-center min-w-5 h-5 px-1 rounded-full bg-accent text-accent-foreground text-[11px] font-bold">{unread}</span>
           )}
         </NavLink>
       ))}
@@ -60,14 +62,11 @@ function NavItems({ onNavigate, unread }) {
 
 function Brand() {
   return (
-    <div className="h-16 flex items-center gap-2.5 px-6 border-b border-border">
-      <div className="grid place-items-center h-9 w-9 rounded-md bg-primary text-primary-foreground">
-        <RadioTower size={20} />
+    <div className="h-16 flex items-center gap-2.5 px-5 border-b border-[hsl(var(--sidebar-accent))]">
+      <div className="bg-white rounded-md px-2.5 py-1.5 flex items-center">
+        <img src={LOGO} alt="GoRoky" className="h-6 w-auto" />
       </div>
-      <div className="leading-tight">
-        <p className="font-heading font-700 tracking-tight">Goroky</p>
-        <p className="text-[10px] text-muted-foreground overline">Telecom CRM</p>
-      </div>
+      <span className="text-[10px] text-[hsl(var(--sidebar-muted))] overline">Telecom CRM</span>
     </div>
   );
 }
@@ -90,16 +89,16 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <aside className="hidden lg:flex flex-col w-64 shrink-0 border-r border-border bg-card">
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))]">
         <Brand />
         <NavItems unread={unread} />
-        <div className="p-3 border-t border-border">
+        <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
           <div className="px-3 py-2 mb-1">
-            <p className="text-sm font-semibold truncate">{user?.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            <p className="text-sm font-semibold truncate text-white">{user?.name}</p>
+            <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{user?.email}</p>
           </div>
           <button data-testid="logout-btn" onClick={doLogout}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-[hsl(var(--sidebar-muted))] hover:bg-destructive/20 hover:text-white transition-colors">
             <LogOut size={18} /> Cerrar sesión
           </button>
         </div>
@@ -114,22 +113,22 @@ export default function AdminLayout() {
                   <Menu size={20} />
                 </button>
               </SheetTrigger>
-              <SheetContent side="left" className="p-0 w-72 flex flex-col" data-testid="mobile-menu-sheet">
+              <SheetContent side="left" className="p-0 w-72 flex flex-col bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] border-0" data-testid="mobile-menu-sheet">
                 <Brand />
                 <NavItems unread={unread} onNavigate={() => setOpen(false)} />
-                <div className="p-3 border-t border-border">
+                <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
                   <div className="px-3 py-2 mb-1">
-                    <p className="text-sm font-semibold truncate">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                    <p className="text-sm font-semibold truncate text-white">{user?.name}</p>
+                    <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{user?.email}</p>
                   </div>
                   <button data-testid="mobile-logout-btn" onClick={() => { setOpen(false); doLogout(); }}
-                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-[hsl(var(--sidebar-muted))] hover:bg-destructive/20 hover:text-white transition-colors">
                     <LogOut size={18} /> Cerrar sesión
                   </button>
                 </div>
               </SheetContent>
             </Sheet>
-            <span className="font-heading font-700">Goroky CRM</span>
+            <img src={LOGO} alt="GoRoky" className="h-6 w-auto" />
           </div>
           <div className="grid place-items-center h-8 w-8 rounded-md bg-primary text-primary-foreground">
             <RadioTower size={16} />

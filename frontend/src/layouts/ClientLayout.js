@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutGrid, ReceiptText, LifeBuoy, LogOut, RadioTower } from "lucide-react";
+import { LayoutGrid, ReceiptText, LifeBuoy, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -18,13 +18,8 @@ export default function ClientLayout() {
       <header className="h-16 glass sticky top-0 z-30 border-b border-border">
         <div className="max-w-[1100px] mx-auto h-full px-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="grid place-items-center h-9 w-9 rounded-md bg-primary text-primary-foreground">
-              <RadioTower size={20} />
-            </div>
-            <div className="leading-tight">
-              <p className="font-heading font-700 tracking-tight">Goroky</p>
-              <p className="text-[10px] text-muted-foreground overline">Área de clientes</p>
-            </div>
+            <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-7 w-auto" />
+            <span className="text-[10px] text-muted-foreground overline hidden sm:inline">Área de clientes</span>
           </div>
           <nav className="hidden sm:flex items-center gap-1">
             {nav.map((n) => (

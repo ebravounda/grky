@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { RadioTower, ArrowRight, ArrowLeft, IdCard, CheckCircle2, Upload } from "lucide-react";
+import { ArrowRight, ArrowLeft, IdCard, CheckCircle2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -63,7 +63,7 @@ export default function SignupWizard() {
     <div className="min-h-screen bg-background" data-testid="signup-wizard">
       <header className="border-b border-border glass sticky top-0 z-30">
         <div className="max-w-3xl mx-auto px-5 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5"><div className="grid place-items-center h-9 w-9 rounded-md bg-primary text-primary-foreground"><RadioTower size={20} /></div><span className="font-heading font-700">Goroky Telecom</span></div>
+          <div className="flex items-center gap-2.5"><img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-7 w-auto" /></div>
           <button onClick={() => navigate("/contratar")} className="text-sm text-muted-foreground hover:text-primary">Cambiar tarifa</button>
         </div>
       </header>

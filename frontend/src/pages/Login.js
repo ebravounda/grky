@@ -6,7 +6,7 @@ import { apiErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioTower, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Login() {
@@ -41,8 +41,7 @@ export default function Login() {
         <div className="absolute inset-0 bg-[hsl(224_71%_6%)]/80" />
         <div className="relative h-full flex flex-col justify-between p-12 text-white">
           <div className="flex items-center gap-2.5">
-            <div className="grid place-items-center h-10 w-10 rounded-md bg-primary"><RadioTower size={22} /></div>
-            <span className="font-heading text-xl font-700">Goroky Telecom</span>
+            <div className="bg-white rounded-md px-2.5 py-1.5"><img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-6 w-auto" /></div>
           </div>
           <div>
             <h2 className="font-heading text-4xl font-700 tracking-tight leading-tight">
@@ -58,8 +57,7 @@ export default function Login() {
       <div className="flex items-center justify-center p-6 sm:p-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="grid place-items-center h-10 w-10 rounded-md bg-primary text-primary-foreground"><RadioTower size={22} /></div>
-            <span className="font-heading text-xl font-700">Goroky Telecom</span>
+            <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png" alt="GoRoky" className="h-8 w-auto" />
           </div>
           <p className="overline text-primary mb-2">Acceso</p>
           <h1 className="font-heading text-3xl font-700 tracking-tight">Inicia sesión</h1>

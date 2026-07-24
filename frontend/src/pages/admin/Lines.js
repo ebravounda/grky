@@ -22,8 +22,8 @@ export default function Lines() {
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input data-testid="line-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por número, NIF o tarifa…" className="pl-9" />
       </div>
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">
             <tr>
               <th className="px-4 py-3 font-medium">Línea</th>

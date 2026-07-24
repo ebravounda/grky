@@ -54,7 +54,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Revendedor: revendedor@goroky.com / Revende2026! (5€/SIM)
 - Agente: soporte@goroky.com / Soporte2026!
 
-### Iteración 2026-07 (sincronización real con Likes Telecom)
+### Iteración 2026-07 (reconciliación total de estados con Likes)
+- **Motor de reconciliación** (`likes_reconcile.py`): trae de Likes órdenes (estados reales), suscripciones, líneas (estado, consumo GB, SVAs, roaming, eSIM pin/puk) y portabilidades → **upsert en las colecciones locales** (`orders`, `lines`, `subscriptions`, `portabilities`) que ya alimentan los paneles. Así GoRoky es espejo fiel del estado de Likes. Marca `source:"likes"`, `likesSyncedAt`.
+- **Job programado** cada 20 min (`likes_reconcile_job`) reconcilia todos los clientes con `likesSynced=True`; en preview/MOCK es no-op.
+- **Endpoints**: `POST /api/customers/{fiscalId}/reconcile`, `POST /api/likes/reconcile-all`. El botón "Sincronizar con Likes" de la ficha ahora hace push (alta) + reconcile + refresco del panel. Tarjeta Likes en Configuración con "Reconciliar todo".
+- Esquemas Likes confirmados vía docs: order status (PENDING_CONTRACT_SIGNATURE, PENDING_PROVIDER, COMPLETED…), subscriptions-v2 (products con status/lineNumber/eSimData), line (status/simInfo), line/gb (leftGB/totalGB/usedGB), line/svas, portabilities (status/errorDescription).
+- ⚠️ Igual que la escritura, la reconciliación **solo se valida en el VPS** (preview 403). Verificado en preview: endpoints → 503, paneles/flujos intactos, UI OK, job registrado.
 - **Conexión validada**: el VPS (IP fija autorizada) obtiene token 200 de Likes; `/products/brand` y `/admin2/donor-operators` reales coinciden con la estructura esperada. En preview la IP es dinámica → 403 (MOCK), por diseño.
 - **Escritura (alta real)** `likes_sync.py` + `_trigger_likes_sync`: al firmar (o vía botón manual) crea cliente (`POST /customer`), sube DNI/NIE anverso/reverso a las uploadURLs S3, crea la orden (`POST /signupv2`, `digitalSignature=false`) y sube el **contrato firmado** (PDF propio) al `signedContract` de la orden. Tolerante a fallos: en preview/MOCK es no-op y registra `order.likesSync`.
 - **Lectura en vivo** (`likes_client`): `get_subscriptions`, `get_customer_orders`, `get_line_gb/svas/info/cdrs`, `get_portabilities`, `get_installations`. Endpoint espejo `GET /api/customers/{fiscalId}/likes`.

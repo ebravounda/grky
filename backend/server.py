@@ -18,6 +18,7 @@ load_dotenv(ROOT_DIR / ".env")
 import stripe
 import likes_client
 import likes_sync
+import likes_reconcile
 import emailer
 import base64
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
@@ -1029,6 +1030,25 @@ async def likes_status(request: Request):
             "lastError": likes_client.CONNECTION_STATE.get("last_error")}
 
 
+@api.post("/customers/{fiscalId}/reconcile")
+async def reconcile_customer_ep(fiscalId: str, request: Request):
+    """Trae de Likes el estado real del cliente (órdenes, líneas, consumos, SVAs, portabilidades)."""
+    await require_perm(request, "customers.view")
+    result = await likes_reconcile.reconcile_customer(db, fiscalId)
+    if not result.get("reconciled") and result.get("reason") == "not_connected":
+        raise HTTPException(status_code=503, detail="Likes no está conectado (IP no autorizada / preview)")
+    return result
+
+
+@api.post("/likes/reconcile-all")
+async def reconcile_all_ep(request: Request):
+    await require_perm(request, "orders.manage")
+    result = await likes_reconcile.reconcile_all(db)
+    if not result.get("reconciled") and result.get("reason") == "not_connected":
+        raise HTTPException(status_code=503, detail="Likes no está conectado (IP no autorizada / preview)")
+    return result
+
+
 @api.post("/orders/{order_id}/sync-likes")
 async def sync_order_likes(order_id: str, request: Request):
     await require_perm(request, "orders.manage")
@@ -2029,6 +2049,18 @@ async def likes_health_job():
                 {"hint": "Autoriza la IP de salida en Likes Telecom"})
 
 
+async def likes_reconcile_job():
+    if not likes_client.get_token():
+        return
+    try:
+        res = await likes_reconcile.reconcile_all(db)
+        if res.get("reconciled"):
+            await log_event("likes", "success", f"Reconciliación Likes: {res.get('totals')}")
+    except Exception as e:  # noqa
+        logger.warning("likes_reconcile_job failed: %s", e)
+
+
+
 async def billing_daily_job():
     settings = await get_app_settings()
     reminder_days = settings.get("reminderDays") or BILLING_REMINDER_DAYS
@@ -2924,6 +2956,7 @@ async def startup():
         scheduler = AsyncIOScheduler(timezone="UTC")
         scheduler.add_job(billing_daily_job, "interval", hours=12, id="billing_daily", replace_existing=True)
         scheduler.add_job(likes_health_job, "interval", minutes=15, id="likes_health", replace_existing=True)
+        scheduler.add_job(likes_reconcile_job, "interval", minutes=20, id="likes_reconcile", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

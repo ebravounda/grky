@@ -84,6 +84,9 @@ export default function CustomerDetail() {
         toast.warning("Likes respondió pero el alta no se completó. Revisa el log.");
       }
       if (res.log?.length) console.log("Likes sync log:", res.log);
+      // traer estado real (órdenes, líneas, consumos, SVAs, portabilidades)
+      try { await api.post(`/customers/${fiscalId}/reconcile`); } catch (_) {}
+      load();
     } catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
   };
 

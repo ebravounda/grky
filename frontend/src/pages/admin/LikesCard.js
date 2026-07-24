@@ -26,6 +26,14 @@ export default function LikesCard() {
     } catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
   };
 
+  const reconcileAll = async () => {
+    setSyncing(true);
+    try {
+      const { data } = await api.post("/likes/reconcile-all");
+      toast.success(`Reconciliado con Likes: ${data.totals?.customers || 0} clientes, ${data.totals?.lines || 0} líneas`);
+    } catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
+  };
+
   const live = status?.live;
 
   return (
@@ -61,6 +69,9 @@ export default function LikesCard() {
       <div>
         <Button className="rounded-full gap-2" data-testid="likes-sync-catalog-btn" onClick={syncCatalog} disabled={syncing || !live}>
           <PackageSearch size={16} /> {syncing ? "Sincronizando…" : "Importar catálogo desde Likes"}
+        </Button>
+        <Button variant="outline" className="rounded-full gap-2 ml-2" data-testid="likes-reconcile-all-btn" onClick={reconcileAll} disabled={syncing || !live}>
+          <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> Reconciliar todo
         </Button>
         {!live && <p className="text-xs text-muted-foreground mt-2">Disponible solo cuando Likes está conectado.</p>}
       </div>

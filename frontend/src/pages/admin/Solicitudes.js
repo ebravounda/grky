@@ -17,10 +17,6 @@ const REVIEW = {
 };
 const PAY = { paid: { c: "text-success", t: "Pagado" }, pending: { c: "text-warning", t: "Pago pendiente" } };
 
-function fileUrl(id) {
-  return `${API}/files/${id}`;
-}
-
 export default function Solicitudes() {
   const [apps, setApps] = useState([]);
   const [detail, setDetail] = useState(null);
@@ -184,10 +180,22 @@ function Field({ l, v }) {
 }
 
 function DocThumb({ label, id }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    api.get(`/files/${id}`, { responseType: "blob" }).then((r) => {
+      if (active) setUrl(URL.createObjectURL(r.data));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [id]);
   return (
-    <a href={fileUrl(id)} target="_blank" rel="noreferrer" className="block group" data-testid={`doc-${label}`}>
-      <img src={fileUrl(id)} alt={label} className="h-28 w-full object-cover rounded-md border border-border group-hover:ring-2 ring-primary transition" />
+    <div className="block" data-testid={`doc-${label}`}>
+      <div className="h-28 w-full rounded-md border border-border bg-muted grid place-items-center overflow-hidden">
+        {url ? <img src={url} alt={label} className="h-full w-full object-cover" />
+          : <span className="text-[11px] text-muted-foreground">Cargando…</span>}
+      </div>
       <p className="text-[11px] text-center text-muted-foreground mt-1">{label}</p>
-    </a>
+    </div>
   );
 }

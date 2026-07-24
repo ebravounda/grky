@@ -118,10 +118,14 @@ async def log_event(source: str, level: str, message: str, meta: dict = None):
 
 async def _send_mail_safe(source: str, to: str, subject: str, html: str, attachments=None):
     """Envía email y registra un evento si falla (sin romper el flujo)."""
+    if not to:
+        return False
+    # evitar ruido con direcciones de prueba / seed
+    test_domains = ("example.com", "email.com", "test.com")
+    if any(to.lower().endswith("@" + d) for d in test_domains):
+        return False
     if not emailer.is_configured():
         await log_event("email", "warning", f"Email NO enviado (Resend sin configurar): {subject}", {"to": to})
-        return False
-    if not to:
         return False
     try:
         await emailer.send_email(to, subject, html, attachments=attachments)
@@ -1489,11 +1493,17 @@ async def likes_health_job():
     global _likes_last_live
     likes_client.get_token()
     live = likes_client.CONNECTION_STATE["live"]
-    if live != _likes_last_live:
-        _likes_last_live = live
-        if live:
-            await log_event("likes", "success", "Conexión con Likes Telecom restablecida (datos reales)")
-        else:
+    if live == _likes_last_live:
+        return
+    _likes_last_live = live
+    if live:
+        await log_event("likes", "success", "Conexión con Likes Telecom restablecida (datos reales)")
+    else:
+        # evitar duplicados: no repetir si ya hay un error de Likes en los últimos 60 min
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
+        recent = await db.system_events.find_one(
+            {"source": "likes", "level": "error", "created_at": {"$gte": cutoff}})
+        if not recent:
             await log_event("likes", "error",
                 f"Sin conexión con Likes Telecom: {likes_client.CONNECTION_STATE['last_error']}",
                 {"hint": "Autoriza la IP de salida en Likes Telecom"})

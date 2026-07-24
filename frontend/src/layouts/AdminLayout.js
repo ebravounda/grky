@@ -83,7 +83,9 @@ export default function AdminLayout() {
     const fetchUnread = () => api.get("/events/unread-count").then((r) => setUnread(r.data.unreadCount)).catch(() => {});
     fetchUnread();
     const iv = setInterval(fetchUnread, 30000);
-    return () => clearInterval(iv);
+    window.addEventListener("focus", fetchUnread);
+    window.addEventListener("events-updated", fetchUnread);
+    return () => { clearInterval(iv); window.removeEventListener("focus", fetchUnread); window.removeEventListener("events-updated", fetchUnread); };
   }, []);
 
   return (

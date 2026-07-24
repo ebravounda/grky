@@ -44,8 +44,8 @@ export default function Alerts() {
 
   useEffect(() => { load(); }, [load]);
 
-  const markAll = async () => { await api.post("/events/read-all"); toast.success("Marcadas como leídas"); load(); };
-  const markRead = async (id) => { await api.post(`/events/${id}/read`); load(); };
+  const markAll = async () => { await api.post("/events/read-all"); toast.success("Marcadas como leídas"); window.dispatchEvent(new Event("events-updated")); load(); };
+  const markRead = async (id) => { await api.post(`/events/${id}/read`); window.dispatchEvent(new Event("events-updated")); load(); };
 
   return (
     <div data-testid="alerts-page">

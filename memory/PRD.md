@@ -15,25 +15,27 @@ Crear una webapp para los clientes de un distribuidor de telecomunicaciones usan
 ## Estado de integración Likes
 La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. IP de salida a autorizar: `104.198.214.223`. Mientras tanto, catálogo/cobertura/operadores/tipologías vienen de MOCK que replica el contrato; clientes/líneas/suscripciones/facturas sembrados en MongoDB.
 
-## Implementado (2026-06)
-- **Factura PDF formato Goroky** (emisor TRAMILEX GLOBAL SERVICE SL, bloque Factura, FACTURAR A, caja PAGO Y TOTALES base/IVA/total, tabla Concepto/Detalle/Precio, página 2 legal) + **desglose de consumo por línea** (minutos nacionales, SMS, datos y listado de números llamados).
-- **Campos de consumo por línea en el CRM**: nationalMinutes, smsUsed, datos + listado CDRs (números llamados) en el detalle de línea (admin y portal).
-- **Alta de cliente ampliada**: IBAN + método de pago (SEPA CORE/B2B/CASH/NO), reflejado en la factura.
+## Implementado (2026-06 / 2026-07)
+- **Factura PDF formato Goroky** + desglose de consumo por línea.
 - Auth JWT con roles + seed admin/cliente demo.
-- Panel admin: dashboard con KPIs y gráfico, clientes (CRUD + alta portal), líneas (detalle, consumo GB, bloqueo/desbloqueo, SVAs, CDRs), catálogo + cobertura, contratación (crea línea+suscripción+**factura PDF**), facturas (listado + PDF + cobro Stripe), tickets, suscripciones.
-- Portal cliente: resumen, tarjetas de líneas con consumo, detalle de línea, **cambio de pack**, facturas (PDF + pago Stripe), tickets.
-- Facturas PDF con reportlab (IVA 21%). Pagos Stripe checkout EUR + página de resultado.
-- Scoping por rol verificado (cliente no accede a datos de otros).
-- Testing agent: backend 29/29, frontend 100% flujos críticos.
+- Panel admin completo: dashboard, clientes, líneas, catálogo+cobertura, contratación, facturas, tickets, suscripciones, instalaciones, portabilidades, recursos.
+- Portal cliente self-service (resumen, líneas, consumo, cambio de pack, facturas + pago Stripe, tickets).
+- Onboarding público con KYC (DNI/selfie/e-firma) + generación de contrato PDF.
+
+### Iteración 2026-07 (automatización de errores + cobros recurrentes)
+- **Panel de Alertas** (`/app/alerts`): eventos del sistema (`system_events`) con niveles error/aviso/ok/info, semáforos de salud (Likes/Stripe/Email/Cobros), banner de error de IP Likes, badge de no leídas en nav, filtros y marcar leídas. Endpoints: `/api/events*`, `/api/system/health`.
+- **Cobro recurrente automático (Stripe)**: el cliente elige **tarjeta o domiciliación SEPA** en el alta pública; Checkout en modo suscripción con **cuota de alta configurable** + mensual (trial 30 días). Webhooks `invoice.payment_succeeded/failed` + fallback en `/payments/status`. Endpoints: `/api/public/applications/{token}/checkout`, `/api/subscriptions/{id}/billing-checkout`, `/api/billing/*`.
+- **Morosidad/dunning**: recordatorios 5 y 3 días antes (scheduler APScheduler), 3 intentos fallidos → suspensión de líneas + email "mañana será suspendida", reactivación automática al pagar. Simulación admin en `/app/billing`.
+- **Solicitudes** (`/app/solicitudes`): revisión KYC (miniaturas vía blob autenticado) + Aprobar/Rechazar. Toggle **auto-aprobación** en Configuración.
+- **Envíos de SIM** (`/app/shipments`): gestión de SIM física (Pendiente/Enviado/Entregado + tracking + email al cliente). Se crea automáticamente al aprobar una alta móvil con SIM física.
+- **Emails automáticos (Resend)** configurado (`no-reply@goroky.es`): bienvenida+PIN/PUK+QR eSIM, recordatorios, cobro OK, cobro fallido, aviso/suspensión.
+- **Órdenes**: botones Activar/Cancelar (PROVISIONING) + ver PIN/PUK.
+
+## Estado de integración Likes
+403 Forbidden persistente = IP no autorizada. **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
 
 ## Backlog priorizado
-- **P0**: Conectar API real de Likes al autorizar la IP (sustituir mock por live en `likes_client.py` — ya intenta live automáticamente).
-- **P1**: Flujo real de alta con documentación (subida DNI/contrato a uploadURL de Likes), portabilidades e instalaciones (endpoints Likes ya documentados). Firma digital de contratos.
-- **P1**: Facturación recurrente mensual automática + remesas SEPA.
-- **P2**: Multi-marca/multi-usuario admin, notificaciones email (seguimiento de orden), eSIM QR, gestión PBX/centralitas.
-- **P2 (calidad)**: dividir server.py en routers; testids de nav explícitos.
-
-## Próximas tareas
-1. Autorizar IP en Likes y validar datos reales (token /token).
-2. Implementar alta completa con subida de documentación y contrato.
-3. Facturación recurrente + cobro automático.
+- **P0**: Autorizar IP `34.16.56.64` en Likes → pasa a datos reales automáticamente.
+- **P1**: Verificar dominio `goroky.es` en Resend (cuota actual muy baja) para envío masivo.
+- **P1**: OCR/verificación biométrica del DNI en KYC.
+- **P2**: Facturación recurrente vía integración real de envíos (courier), multi-marca admin.

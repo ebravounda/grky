@@ -57,7 +57,14 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 ## Estado de integración Likes
 403 Forbidden persistente = IP no autorizada. **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
 
+### Iteración 2026-07 (rentabilidad por tarifa + IVA)
+- **Precio de coste / cesión (Likes) por tarifa** (`costPrice`, CON IVA) editable en Tarifas. Modelo `TariffBody.costPrice`; persistido en create/update; seed y backfill (~65% del PVP como estimación editable).
+- **Panel "Tarifas y rentabilidad"** (`/app/tariffs`): por cada servicio muestra venta base (sin IVA), IVA 21%, precio final (con IVA), coste Likes (con IVA) y **ganancia** = venta_con_IVA − coste_con_IVA (+% margen). Formulario: se introduce venta SIN IVA (base) y coste CON IVA, con previsualización en vivo. Resumen superior: ingreso mensual, a pagar a Likes, ganancia mensual (totales).
+- Convención IVA: `price` guardado = venta CON IVA (compatible con facturación/Stripe existente); `costPrice` = coste CON IVA.
+- Probado: backend curl (list/update costPrice OK) + screenshot panel OK.
+
 ## Backlog priorizado
+- **P0 (SEGURIDAD, PENDIENTE)**: cerrar fuga KYC en `/api/public/promo-image/{file_id}` (debe servir solo `kind=='promo'`) + endurecer CORS (hoy `*`). El usuario aún no confirmó el plan de auditoría.
 - **P0**: Autorizar IP `34.16.56.64` en Likes → pasa a datos reales automáticamente.
 - **P1**: Verificar dominio `goroky.es` en Resend (cuota actual muy baja) para envío masivo.
 - **P1**: OCR/verificación biométrica del DNI en KYC.

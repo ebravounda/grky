@@ -16,12 +16,26 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
-const famIcon = { Mobile: Signal, Fiber: Wifi, TV: Tv };
-const famLabel = { Mobile: "Móvil", Fiber: "Fibra", TV: "TV" };
-const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", price: "", features: "", active: true };
+const IVA = 1.21;
+const famIcon = { Mobile: Signal, Fiber: Wifi, TV: Tv, Satellite: Tv };
+const famLabel = { Mobile: "Móvil", Fiber: "Fibra", TV: "TV", Satellite: "Satélite" };
+const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleBase: "", costWithIva: "", features: "", active: true };
+const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
+
+// Cálculos de rentabilidad para una tarifa (price = venta CON IVA, costPrice = coste CON IVA)
+function metrics(t) {
+  const saleWithIva = Number(t.price) || 0;
+  const costWithIva = Number(t.costPrice) || 0;
+  const saleBase = saleWithIva / IVA;
+  const saleIva = saleWithIva - saleBase;
+  const costBase = costWithIva / IVA;
+  const profit = saleWithIva - costWithIva;           // ganancia sobre total CON IVA
+  const marginPct = saleWithIva ? (profit / saleWithIva) * 100 : 0;
+  return { saleWithIva, costWithIva, saleBase, saleIva, costBase, profit, marginPct };
+}
 
 export default function Tariffs() {
   const [tariffs, setTariffs] = useState([]);
@@ -40,18 +54,31 @@ export default function Tariffs() {
     setEditing(t);
     setForm({
       productId: t.productId, productName: t.productName, family: t.family, type: t.type || "Main",
-      price: String(t.price), active: t.active !== false,
+      saleBase: (Number(t.price || 0) / IVA).toFixed(2),
+      costWithIva: (Number(t.costPrice || 0)).toFixed(2),
+      active: t.active !== false,
       features: (t.marketingText || []).map((m) => m.value).join("\n"),
     });
     setOpen(true);
   };
 
+  // Previsualización en vivo dentro del formulario
+  const pBase = parseFloat(form.saleBase) || 0;
+  const pWithIva = Math.round(pBase * IVA * 100) / 100;
+  const pIva = Math.round((pWithIva - pBase) * 100) / 100;
+  const cWithIva = parseFloat(form.costWithIva) || 0;
+  const pProfit = Math.round((pWithIva - cWithIva) * 100) / 100;
+  const pMargin = pWithIva ? (pProfit / pWithIva) * 100 : 0;
+
   const submit = async () => {
-    if (!form.productName || !form.price) return toast.error("Nombre y precio son obligatorios");
+    if (!form.productName || !form.saleBase) return toast.error("Nombre y precio de venta son obligatorios");
     setSaving(true);
     const payload = {
       productId: form.productId || undefined, productName: form.productName, family: form.family,
-      type: form.type, price: parseFloat(form.price), active: form.active,
+      type: form.type,
+      price: Math.round((parseFloat(form.saleBase) || 0) * IVA * 100) / 100, // venta CON IVA
+      costPrice: Math.round((parseFloat(form.costWithIva) || 0) * 100) / 100, // coste CON IVA
+      active: form.active,
       features: form.features.split("\n").map((s) => s.trim()).filter(Boolean),
     };
     try {
@@ -68,19 +95,27 @@ export default function Tariffs() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  // Totales (solo tarifas activas y principales cuentan para "cartera mensual")
+  const totals = tariffs.reduce((acc, t) => {
+    const m = metrics(t);
+    acc.sale += m.saleWithIva; acc.cost += m.costWithIva; acc.profit += m.profit;
+    return acc;
+  }, { sale: 0, cost: 0, profit: 0 });
+
   return (
     <div data-testid="tariffs-page">
       <PageHeader
-        overline="Catálogo" title="Tarifas" subtitle="Crea y edita las tarifas de tu CRM. Se usan en contratación y cambios de pack."
+        overline="Catálogo" title="Tarifas y rentabilidad"
+        subtitle="Fija el precio de venta (base sin IVA) y el coste de cesión (con IVA). Verás el IVA 21%, lo que pagas a Likes y tu ganancia."
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button data-testid="new-tariff-btn" className="rounded-full gap-2" onClick={openNew}><Plus size={16} /> Nueva tarifa</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>{editing ? "Editar tarifa" : "Nueva tarifa"}</DialogTitle>
-                <DialogDescription>Define nombre, familia, precio y características de la tarifa.</DialogDescription>
+                <DialogDescription>Define nombre, familia, precios y características de la tarifa.</DialogDescription>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 col-span-2"><Label>Nombre</Label><Input data-testid="tariff-name" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="Móvil 25GB" /></div>
@@ -92,6 +127,7 @@ export default function Tariffs() {
                       <SelectItem value="Mobile">Móvil</SelectItem>
                       <SelectItem value="Fiber">Fibra</SelectItem>
                       <SelectItem value="TV">TV</SelectItem>
+                      <SelectItem value="Satellite">Satélite</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -105,16 +141,32 @@ export default function Tariffs() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5"><Label>Precio (€/mes)</Label><Input data-testid="tariff-price" type="number" step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} /></div>
-                <div className="space-y-1.5 flex items-end">
-                  <div className="flex items-center justify-between w-full rounded-md border border-border p-2.5">
-                    <span className="text-sm">Activa</span>
-                    <Switch data-testid="tariff-active" checked={form.active} onCheckedChange={(v) => set("active", v)} />
-                  </div>
+                <div className="space-y-1.5">
+                  <Label>Precio de venta SIN IVA (base)</Label>
+                  <Input data-testid="tariff-sale-base" type="number" step="0.01" value={form.saleBase} onChange={(e) => set("saleBase", e.target.value)} placeholder="8.26" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Coste / cesión CON IVA</Label>
+                  <Input data-testid="tariff-cost" type="number" step="0.01" value={form.costWithIva} onChange={(e) => set("costWithIva", e.target.value)} placeholder="6.49" />
+                </div>
+
+                {/* Previsualización de rentabilidad */}
+                <div data-testid="tariff-preview" className="col-span-2 rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-1.5">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(pBase)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(pIva)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Precio final (con IVA)</span><span className="font-700 text-primary" data-testid="preview-final-price">{eur(pWithIva)}</span></div>
+                  <div className="border-t border-border my-1" />
+                  <div className="flex justify-between"><span className="text-muted-foreground">Pagas a Likes (con IVA)</span><span className="font-500">{eur(cWithIva)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Tu ganancia</span><span className={`font-700 ${pProfit >= 0 ? "text-emerald-600" : "text-destructive"}`} data-testid="preview-profit">{eur(pProfit)} <span className="text-xs font-500">({pMargin.toFixed(0)}%)</span></span></div>
+                </div>
+
+                <div className="space-y-1.5 col-span-2 flex items-center justify-between rounded-md border border-border p-2.5">
+                  <span className="text-sm">Activa</span>
+                  <Switch data-testid="tariff-active" checked={form.active} onCheckedChange={(v) => set("active", v)} />
                 </div>
                 <div className="space-y-1.5 col-span-2">
                   <Label>Características (una por línea)</Label>
-                  <Textarea data-testid="tariff-features" rows={4} value={form.features} onChange={(e) => set("features", e.target.value)} placeholder={"25 GB de datos\nLlamadas ilimitadas\n5G incluido"} />
+                  <Textarea data-testid="tariff-features" rows={3} value={form.features} onChange={(e) => set("features", e.target.value)} placeholder={"25 GB de datos\nLlamadas ilimitadas\n5G incluido"} />
                 </div>
               </div>
               <DialogFooter>
@@ -125,9 +177,26 @@ export default function Tariffs() {
         }
       />
 
+      {/* Resumen de rentabilidad */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div data-testid="summary-sale" className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><Receipt size={16} /> Ingreso mensual (con IVA)</div>
+          <p className="font-heading text-2xl font-700">{eur(totals.sale)}</p>
+        </div>
+        <div data-testid="summary-cost" className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><Wallet size={16} /> A pagar a Likes (con IVA)</div>
+          <p className="font-heading text-2xl font-700 text-orange-600">{eur(totals.cost)}</p>
+        </div>
+        <div data-testid="summary-profit" className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-center gap-2 text-emerald-700 text-sm mb-1"><TrendingUp size={16} /> Tu ganancia mensual</div>
+          <p className="font-heading text-2xl font-700 text-emerald-700">{eur(totals.profit)}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {tariffs.map((t) => {
           const Icon = famIcon[t.family] || Tag;
+          const m = metrics(t);
           return (
             <div key={t.id} data-testid={`tariff-card-${t.productId}`} className={`rounded-lg border bg-card p-5 card-hover ${t.active === false ? "border-border opacity-60" : "border-border"}`}>
               <div className="flex items-center justify-between mb-3">
@@ -138,10 +207,15 @@ export default function Tariffs() {
                 </div>
               </div>
               <h4 className="font-heading font-600">{t.productName}</h4>
-              <p className="mt-1 mb-3"><span className="font-heading text-2xl font-700">{t.price.toFixed(2)}</span><span className="text-muted-foreground text-sm"> €/mes</span></p>
-              <ul className="space-y-1 mb-4 min-h-[40px]">
-                {(t.marketingText || []).slice(0, 3).map((m, i) => <li key={i} className="text-xs text-muted-foreground">• {m.value}</li>)}
-              </ul>
+              <p className="mt-1 mb-3"><span className="font-heading text-2xl font-700">{m.saleWithIva.toFixed(2)}</span><span className="text-muted-foreground text-sm"> €/mes <span className="text-xs">con IVA</span></span></p>
+
+              <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1 mb-4" data-testid={`tariff-metrics-${t.productId}`}>
+                <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(m.saleBase)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(m.saleIva)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Coste Likes (con IVA)</span><span className="font-500 text-orange-600">{eur(m.costWithIva)}</span></div>
+                <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Ganancia</span><span className={`font-700 ${m.profit >= 0 ? "text-emerald-600" : "text-destructive"}`}>{eur(m.profit)} <span className="font-500">({m.marginPct.toFixed(0)}%)</span></span></div>
+              </div>
+
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" className="flex-1 rounded-full gap-1.5" data-testid={`edit-tariff-${t.productId}`} onClick={() => openEdit(t)}><Pencil size={13} /> Editar</Button>
                 <AlertDialog>

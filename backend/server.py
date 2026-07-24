@@ -235,7 +235,8 @@ class TariffBody(BaseModel):
     productName: str
     family: str = "Mobile"
     type: str = "Main"
-    price: float
+    price: float                       # precio de VENTA final CON IVA (21%)
+    costPrice: Optional[float] = 0     # precio de COSTE / cesión (Likes) CON IVA
     features: Optional[List[str]] = None
     active: bool = True
 
@@ -380,7 +381,8 @@ async def create_tariff(body: TariffBody, request: Request):
     if await db.tariffs.find_one({"productId": pid}):
         raise HTTPException(status_code=400, detail="Ya existe una tarifa con ese ID")
     doc = {"productId": pid, "productName": body.productName, "family": body.family,
-           "type": body.type, "price": body.price, "isRecurringPrice": True,
+           "type": body.type, "price": body.price, "costPrice": round(body.costPrice or 0, 2),
+           "isRecurringPrice": True,
            "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])],
            "active": body.active, "created": now_iso()}
     await db.tariffs.insert_one(doc)
@@ -394,7 +396,7 @@ async def update_tariff(product_id: str, body: TariffBody, request: Request):
     if not existing:
         raise HTTPException(status_code=404, detail="Tarifa no encontrada")
     upd = {"productName": body.productName, "family": body.family, "type": body.type,
-           "price": body.price, "active": body.active,
+           "price": body.price, "costPrice": round(body.costPrice or 0, 2), "active": body.active,
            "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])]}
     await db.tariffs.update_one({"productId": product_id}, {"$set": upd})
     return clean(await db.tariffs.find_one({"productId": product_id}))
@@ -2582,6 +2584,8 @@ async def seed_tariffs(db):
     for p in likes_client.MOCK_PRODUCTS:
         doc = dict(p)
         doc["active"] = True
+        # Estimación editable del precio de cesión (CON IVA) ~65% del PVP
+        doc["costPrice"] = round(p["price"] * 0.65, 2)
         doc["created"] = now_iso()
         await db.tariffs.insert_one(doc)
     logger.info("Tariffs seeded")

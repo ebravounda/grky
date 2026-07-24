@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Building2, Wifi, Mail, CreditCard, CheckCircle2, AlertTriangle, Send, ShieldCheck, Euro } from "lucide-react";
 import { toast } from "sonner";
+import ContractTemplateCard from "./ContractTemplateCard";
 
 function StatusRow({ ok, okText, koText }) {
   return (
@@ -118,6 +119,8 @@ export default function Settings() {
             </>
           )}
         </div>
+
+        <ContractTemplateCard />
 
         <div className="rounded-lg border border-border bg-card p-6 lg:col-span-2">
           <div className="flex items-center gap-2 text-primary mb-4"><Mail size={18} /><h3 className="font-heading font-600 text-foreground">Enviar email de prueba</h3></div>

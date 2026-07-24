@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import api, { apiErr, API } from "@/lib/api";
+import api, { apiErr, API, openMyContractPdf } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight } from "lucide-react";
+import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight, FileSignature, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -179,6 +179,27 @@ export default function ClientDashboard() {
           <ReceiptText size={19} /> Ver mis facturas
         </Link>
       </div>
+
+      {/* Mi contrato */}
+      {data.contract && (
+        <div className="px-5 mb-6">
+          <div data-testid="my-contract-card" className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] p-4 flex items-center gap-3">
+            <span className="grid place-items-center h-11 w-11 rounded-xl bg-primary/10 text-primary shrink-0"><FileSignature size={22} /></span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-900 text-sm">Mi contrato firmado</p>
+              <p className="text-xs text-slate-500 truncate">
+                {data.contract.code}
+                {data.contract.signedAt ? ` · firmado el ${data.contract.signedAt.slice(0, 10)}` : ""}
+              </p>
+            </div>
+            <button data-testid="download-contract-btn"
+              onClick={() => openMyContractPdf().catch((e) => toast.error(apiErr(e)))}
+              className="flex items-center gap-1.5 rounded-xl bg-primary text-white text-sm font-semibold px-3.5 py-2 hover:bg-primary/90 transition-colors active:scale-[0.98]">
+              <Download size={15} /> PDF
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Ofertas para ti */}
       {promos.offer?.length > 0 && (

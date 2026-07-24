@@ -21,7 +21,7 @@ import emailer
 import base64
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
-from contracts import generate_contract_pdf
+from contracts import generate_contract_pdf, DEFAULT_TEMPLATE as DEFAULT_CONTRACT_TEMPLATE
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -883,9 +883,17 @@ async def _build_contract(order):
     donor = None
     if order.get("donorOperatorId"):
         donor = next((d["Name"] for d in likes_client.get_donor_operators() if d.get("Code") == order["donorOperatorId"]), order["donorOperatorId"])
+    # Firma: recuperar de la solicitud (application) asociada al nº de contrato
+    sig_img, signer = None, None
+    app_doc = await db.applications.find_one({"contractCode": order.get("contractNumber")})
+    if app_doc:
+        sig_img = app_doc.get("signatureImage")
+        signer = app_doc.get("signerName")
+    if signer is None and customer:
+        signer = (customer.get("kyc") or {}).get("signerName")
     return {
         "contractNumber": order.get("contractNumber", order["orderId"]),
-        "date": order.get("created"), "customerName": order.get("customerName"),
+        "date": order.get("signedAt") or order.get("created"), "customerName": order.get("customerName"),
         "fiscalId": order["fiscalId"], "customerAddress": address,
         "customerEmail": customer.get("email") if customer else "",
         "customerPhone": customer.get("contactPhone") if customer else "",
@@ -893,7 +901,55 @@ async def _build_contract(order):
         "lineNumber": order.get("lineNumber"), "price": order.get("price", 0),
         "portability": order.get("portability", False), "donorOperator": donor,
         "signed": order.get("signed", False),
+        "signerName": signer, "signatureImage": sig_img,
     }
+
+
+# ------------------------- plantilla de contrato (editable) -------------------------
+class ClauseItem(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+class ContractTemplateBody(BaseModel):
+    title: str
+    subtitle: str = ""
+    issuerBrand: str
+    issuerLegal: str
+    issuerCif: str
+    issuerAddr: str
+    reunidosOperator: str
+    reunidosClient: str
+    clauses: List[ClauseItem]
+
+
+async def _get_contract_template():
+    doc = await db.contract_template.find_one({"_id": "main"})
+    if not doc:
+        return dict(DEFAULT_CONTRACT_TEMPLATE)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/contract-template")
+async def get_contract_template(request: Request):
+    await require_admin(request)
+    return await _get_contract_template()
+
+
+@api.put("/contract-template")
+async def put_contract_template(body: ContractTemplateBody, request: Request):
+    await require_admin(request)
+    doc = body.model_dump()
+    await db.contract_template.update_one({"_id": "main"}, {"$set": doc}, upsert=True)
+    return doc
+
+
+@api.post("/contract-template/reset")
+async def reset_contract_template(request: Request):
+    await require_admin(request)
+    await db.contract_template.delete_one({"_id": "main"})
+    return dict(DEFAULT_CONTRACT_TEMPLATE)
 
 
 @api.get("/orders/{order_id}/contract/pdf")
@@ -905,7 +961,8 @@ async def order_contract_pdf(order_id: str, request: Request):
     if user.get("role") == "client" and order["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
     ct = await _build_contract(order)
-    pdf_bytes = generate_contract_pdf(ct)
+    tpl = await _get_contract_template()
+    pdf_bytes = generate_contract_pdf(ct, tpl)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={ct['contractNumber']}.pdf"})
 
@@ -1070,10 +1127,42 @@ async def me_summary(request: Request):
     tickets = await db.tickets.find({"fiscalIds": fid}).sort("created", -1).to_list(100)
     monthly = round(sum(l.get("price", 0) for l in lines), 2)
     pending = sum(1 for i in invs if i["status"] == "pending")
+    # contrato firmado disponible para el cliente
+    contract = None
+    appc = await db.applications.find_one({"fiscalId": fid, "status": "COMPLETED"}, sort=[("signedAt", -1)])
+    if appc:
+        contract = {"code": appc.get("contractCode"), "signedAt": appc.get("signedAt"), "signed": True}
+    else:
+        order = await db.orders.find_one({"fiscalId": fid, "contractNumber": {"$exists": True}}, sort=[("created", -1)])
+        if order:
+            contract = {"code": order.get("contractNumber"), "signedAt": order.get("signedAt"),
+                        "signed": bool(order.get("signed"))}
     return {"customer": clean(cust) if cust else None,
             "lines": [clean(_enrich_line(l)) for l in lines], "subscriptions": [clean(s) for s in subs],
             "invoices": [clean(i) for i in invs], "tickets": [clean(t) for t in tickets],
-            "monthlyTotal": monthly, "pendingInvoices": pending}
+            "monthlyTotal": monthly, "pendingInvoices": pending, "contract": contract}
+
+
+@api.get("/me/contract.pdf")
+async def my_contract_pdf(request: Request):
+    user = await current_user(request)
+    fid = user.get("fiscalId")
+    if not fid:
+        raise HTTPException(status_code=400, detail="Cuenta sin cliente asociado")
+    tpl = await _get_contract_template()
+    appc = await db.applications.find_one({"fiscalId": fid, "status": "COMPLETED"}, sort=[("signedAt", -1)])
+    if appc:
+        ct = _app_to_contract(appc)
+        code = appc.get("contractCode", "contrato")
+    else:
+        order = await db.orders.find_one({"fiscalId": fid, "contractNumber": {"$exists": True}}, sort=[("created", -1)])
+        if not order:
+            raise HTTPException(status_code=404, detail="No tienes ningún contrato disponible todavía")
+        ct = await _build_contract(order)
+        code = order.get("contractNumber", "contrato")
+    pdf_bytes = generate_contract_pdf(ct, tpl)
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={code}.pdf"})
 
 
 # ------------------------- payments (Stripe) -------------------------
@@ -1808,7 +1897,9 @@ async def public_promo_image(file_id: str):
         f = await db.files.find_one({"_id": _OID(file_id)})
     except Exception:
         f = None
-    if not f:
+    # Seguridad: este endpoint es público, solo puede servir imágenes de promociones.
+    # Nunca documentos KYC (DNI/selfie/firma) ni otros ficheros sensibles.
+    if not f or f.get("kind") != "promo":
         raise HTTPException(status_code=404, detail="Imagen no encontrada")
     data_url = f["dataUrl"]
     if isinstance(data_url, str) and data_url.startswith("data:"):
@@ -2419,7 +2510,8 @@ async def public_contract_pdf(token: str):
     app_doc = await db.applications.find_one({"token": token})
     if not app_doc:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
-    pdf_bytes = generate_contract_pdf(_app_to_contract(app_doc))
+    tpl = await _get_contract_template()
+    pdf_bytes = generate_contract_pdf(_app_to_contract(app_doc), tpl)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={app_doc['contractCode']}.pdf"})
 

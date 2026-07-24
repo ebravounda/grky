@@ -54,8 +54,15 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Revendedor: revendedor@goroky.com / Revende2026! (5€/SIM)
 - Agente: soporte@goroky.com / Soporte2026!
 
-## Estado de integración Likes
-403 Forbidden persistente = IP no autorizada. **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
+### Iteración 2026-07 (seguridad + contrato editable)
+- **Fix seguridad (P0 resuelto)**: `/api/public/promo-image/{file_id}` ahora solo sirve ficheros con `kind == 'promo'`; los documentos KYC (DNI/selfie/firma) devuelven 404. Verificado por curl (promo 200 / KYC 404).
+- **Contrato PDF editable**: plantilla en colección `contract_template` (doc `main`) con título, subtítulo, datos emisor (marca/legal/CIF/dirección), textos "Reunidos" y **cláusulas** (añadir/editar/eliminar). Placeholders `{customerName}`, `{fiscalId}`, `{price}`, etc. Endpoints `GET/PUT /api/contract-template` y `POST /api/contract-template/reset`. Editor en Configuración (`ContractTemplateCard.js`). `generate_contract_pdf(ct, tpl)` refactorizado con sustitución de placeholders.
+- **Contrato firmado en el perfil del cliente**: `me_summary` devuelve `contract` (código/fecha/firmado); nuevo `GET /api/me/contract.pdf`. Tarjeta "Mi contrato firmado" con descarga PDF en el portal cliente (ClientDashboard). `_build_contract` ahora incluye la firma (imagen/nombre) desde la application → el PDF del admin (sección KYC) también muestra la firma.
+- Probado end-to-end por curl (signup→firma→descarga cliente) + screenshots (tarjeta cliente y editor admin).
+
+## Estado de seguridad
+- ✅ Fuga KYC cerrada.
+- ⚠️ CORS sigue en `*` (pendiente restringir al dominio de producción al desplegar; el usuario no confirmó restringir en preview). **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
 
 ### Iteración 2026-07 (rentabilidad por tarifa + IVA)
 - **Precio de coste / cesión (Likes) por tarifa** (`costPrice`, **SIN IVA**, Tramo 1) editable en Tarifas. El panel muestra coste SIN IVA y CON IVA (×1,21).

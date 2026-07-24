@@ -236,7 +236,7 @@ class TariffBody(BaseModel):
     family: str = "Mobile"
     type: str = "Main"
     price: float                       # precio de VENTA final CON IVA (21%)
-    costPrice: Optional[float] = 0     # precio de COSTE / cesión (Likes) CON IVA
+    costPrice: Optional[float] = 0     # precio de COSTE / cesión (Likes) SIN IVA (Tramo 1)
     features: Optional[List[str]] = None
     active: bool = True
 
@@ -2556,6 +2556,7 @@ async def startup():
     await db.lines.create_index("lineNumber", unique=True)
     await seed_admin(db)
     await seed_tariffs(db)
+    await seed_likes_tramo1(db)
     await seed_demo(db)
     await seed_promotions(db)
     await seed_roles(db)
@@ -2578,6 +2579,49 @@ async def shutdown():
 
 
 # ------------------------- demo seed -------------------------
+# Tarifa oficial Likes Telecom — TRAMO 1 (0-249 líneas). Precios SIN IVA.
+# price = PVPR sin IVA (se guarda como venta CON IVA = pvpr*1.21, editable);
+# costPrice = precio de cesión Tramo 1 SIN IVA.
+LIKES_TRAMO1 = [
+    {"productId": "LK-MOB-30",     "name": "30 GB acumulables + ilimitadas",            "pvpr": 6.95,  "cost": 4.60, "gb": "30 GB acumulables"},
+    {"productId": "LK-MOB-60",     "name": "60 GB acumulables + ilimitadas",            "pvpr": 7.95,  "cost": 5.26, "gb": "60 GB acumulables"},
+    {"productId": "LK-MOB-80",     "name": "80 GB + ilimitadas",                        "pvpr": 8.95,  "cost": 5.92, "gb": "80 GB"},
+    {"productId": "LK-MOB-100",    "name": "100 GB acumulables + ilimitadas",           "pvpr": 9.95,  "cost": 6.58, "gb": "100 GB acumulables"},
+    {"productId": "LK-MOB-150",    "name": "150 GB acumulables + ilimitadas",           "pvpr": 10.95, "cost": 7.24, "gb": "150 GB acumulables"},
+    {"productId": "LK-MOB-200",    "name": "200 GB acumulables + ilimitadas",           "pvpr": 14.95, "cost": 9.88, "gb": "200 GB acumulables"},
+    {"productId": "LK-MOB-400",    "name": "400 GB + ilimitadas",                       "pvpr": 14.95, "cost": 9.88, "gb": "400 GB"},
+    {"productId": "LK-MOB-300",    "name": "300 GB acumulables + ilimitadas",           "pvpr": 19.95, "cost": 13.19, "gb": "300 GB acumulables"},
+    {"productId": "LK-MOB-600",    "name": "600 GB + ilimitadas",                       "pvpr": 19.95, "cost": 13.19, "gb": "600 GB"},
+    {"productId": "LK-MOB-400AC",  "name": "400 GB acumulables + ilimitadas",           "pvpr": 24.95, "cost": 16.50, "gb": "400 GB acumulables"},
+    {"productId": "LK-MOB-B2B",    "name": "GB y llamadas ilimitadas (B2B)",            "pvpr": 24.95, "cost": 16.50, "gb": "Datos y llamadas ilimitadas"},
+    {"productId": "LK-MOB-80INT",  "name": "80 GB internacional (1.000 min int.)",      "pvpr": 11.95, "cost": 7.90, "gb": "80 GB · 1.000 min internacionales"},
+    {"productId": "LK-MOB-150INT", "name": "150 GB internacional (1.000 min int.)",     "pvpr": 14.95, "cost": 9.88, "gb": "150 GB · 1.000 min internacionales"},
+    {"productId": "LK-MOB-200INT", "name": "200 GB internacional (1.000 min int.)",     "pvpr": 19.95, "cost": 13.19, "gb": "200 GB · 1.000 min internacionales"},
+]
+
+
+async def seed_likes_tramo1(db):
+    """Carga (idempotente) los planes móviles de Likes Telecom con coste del Tramo 1.
+    Al importarlos por primera vez, elimina los planes móviles genéricos de demo."""
+    if await db.tariffs.find_one({"productId": "LK-MOB-30"}):
+        return
+    # limpiar planes móviles principales de demo (1411-1414) para dejar el catálogo Likes limpio
+    await db.tariffs.delete_many({"productId": {"$in": ["1411", "1412", "1413", "1414"]}})
+    for p in LIKES_TRAMO1:
+        doc = {
+            "productId": p["productId"], "productName": p["name"], "family": "Mobile", "type": "Main",
+            "isRecurringPrice": True,
+            "pvpr": p["pvpr"],                                   # PVPR recomendado (sin IVA)
+            "price": round(p["pvpr"] * 1.21, 2),                # venta CON IVA (editable)
+            "costPrice": p["cost"],                             # cesión Tramo 1 SIN IVA
+            "marketingText": [{"title": "Datos", "value": p["gb"]},
+                              {"title": "Llamadas", "value": "Ilimitadas"}],
+            "active": True, "created": now_iso(),
+        }
+        await db.tariffs.insert_one(doc)
+    logger.info("Likes Tramo 1 plans seeded")
+
+
 async def seed_tariffs(db):
     if await db.tariffs.count_documents({}) > 0:
         return

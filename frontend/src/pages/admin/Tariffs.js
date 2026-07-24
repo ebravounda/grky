@@ -22,19 +22,19 @@ import { toast } from "sonner";
 const IVA = 1.21;
 const famIcon = { Mobile: Signal, Fiber: Wifi, TV: Tv, Satellite: Tv };
 const famLabel = { Mobile: "Móvil", Fiber: "Fibra", TV: "TV", Satellite: "Satélite" };
-const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleBase: "", costWithIva: "", features: "", active: true };
+const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true };
 const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
 
-// Cálculos de rentabilidad para una tarifa (price = venta CON IVA, costPrice = coste CON IVA)
+// Cálculos de rentabilidad (price = venta CON IVA; costPrice = coste SIN IVA)
 function metrics(t) {
   const saleWithIva = Number(t.price) || 0;
-  const costWithIva = Number(t.costPrice) || 0;
   const saleBase = saleWithIva / IVA;
   const saleIva = saleWithIva - saleBase;
-  const costBase = costWithIva / IVA;
+  const costBase = Number(t.costPrice) || 0;          // cesión SIN IVA (Tramo 1)
+  const costWithIva = costBase * IVA;
   const profit = saleWithIva - costWithIva;           // ganancia sobre total CON IVA
   const marginPct = saleWithIva ? (profit / saleWithIva) * 100 : 0;
-  return { saleWithIva, costWithIva, saleBase, saleIva, costBase, profit, marginPct };
+  return { saleWithIva, saleBase, saleIva, costBase, costWithIva, profit, marginPct };
 }
 
 export default function Tariffs() {
@@ -54,8 +54,8 @@ export default function Tariffs() {
     setEditing(t);
     setForm({
       productId: t.productId, productName: t.productName, family: t.family, type: t.type || "Main",
-      saleBase: (Number(t.price || 0) / IVA).toFixed(2),
-      costWithIva: (Number(t.costPrice || 0)).toFixed(2),
+      saleWithIva: (Number(t.price || 0)).toFixed(2),
+      costBase: (Number(t.costPrice || 0)).toFixed(2),
       active: t.active !== false,
       features: (t.marketingText || []).map((m) => m.value).join("\n"),
     });
@@ -63,21 +63,22 @@ export default function Tariffs() {
   };
 
   // Previsualización en vivo dentro del formulario
-  const pBase = parseFloat(form.saleBase) || 0;
-  const pWithIva = Math.round(pBase * IVA * 100) / 100;
-  const pIva = Math.round((pWithIva - pBase) * 100) / 100;
-  const cWithIva = parseFloat(form.costWithIva) || 0;
-  const pProfit = Math.round((pWithIva - cWithIva) * 100) / 100;
-  const pMargin = pWithIva ? (pProfit / pWithIva) * 100 : 0;
+  const saleWithIva = parseFloat(form.saleWithIva) || 0;    // el cliente paga esto
+  const saleBase = Math.round((saleWithIva / IVA) * 100) / 100;
+  const saleIva = Math.round((saleWithIva - saleBase) * 100) / 100;
+  const costBase = parseFloat(form.costBase) || 0;          // cesión Tramo 1 sin IVA
+  const costWithIva = Math.round(costBase * IVA * 100) / 100;
+  const pProfit = Math.round((saleWithIva - costWithIva) * 100) / 100;
+  const pMargin = saleWithIva ? (pProfit / saleWithIva) * 100 : 0;
 
   const submit = async () => {
-    if (!form.productName || !form.saleBase) return toast.error("Nombre y precio de venta son obligatorios");
+    if (!form.productName || !form.saleWithIva) return toast.error("Nombre y precio de venta son obligatorios");
     setSaving(true);
     const payload = {
       productId: form.productId || undefined, productName: form.productName, family: form.family,
       type: form.type,
-      price: Math.round((parseFloat(form.saleBase) || 0) * IVA * 100) / 100, // venta CON IVA
-      costPrice: Math.round((parseFloat(form.costWithIva) || 0) * 100) / 100, // coste CON IVA
+      price: Math.round((parseFloat(form.saleWithIva) || 0) * 100) / 100,   // venta CON IVA
+      costPrice: Math.round((parseFloat(form.costBase) || 0) * 100) / 100,  // coste SIN IVA
       active: form.active,
       features: form.features.split("\n").map((s) => s.trim()).filter(Boolean),
     };
@@ -106,7 +107,7 @@ export default function Tariffs() {
     <div data-testid="tariffs-page">
       <PageHeader
         overline="Catálogo" title="Tarifas y rentabilidad"
-        subtitle="Fija el precio de venta (base sin IVA) y el coste de cesión (con IVA). Verás el IVA 21%, lo que pagas a Likes y tu ganancia."
+        subtitle="Introduce el precio de venta CON IVA (lo que paga el cliente) y el coste de cesión de Likes SIN IVA (Tramo 1). Verás la base sin IVA, el IVA 21%, el coste con IVA y tu ganancia."
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -142,22 +143,26 @@ export default function Tariffs() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Precio de venta SIN IVA (base)</Label>
-                  <Input data-testid="tariff-sale-base" type="number" step="0.01" value={form.saleBase} onChange={(e) => set("saleBase", e.target.value)} placeholder="8.26" />
+                  <Label>Precio de venta CON IVA (lo que paga el cliente)</Label>
+                  <Input data-testid="tariff-sale-price" type="number" step="0.01" value={form.saleWithIva} onChange={(e) => set("saleWithIva", e.target.value)} placeholder="10.00" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Coste / cesión CON IVA</Label>
-                  <Input data-testid="tariff-cost" type="number" step="0.01" value={form.costWithIva} onChange={(e) => set("costWithIva", e.target.value)} placeholder="6.49" />
+                  <Label>Coste / cesión SIN IVA (Tramo 1)</Label>
+                  <Input data-testid="tariff-cost" type="number" step="0.01" value={form.costBase} onChange={(e) => set("costBase", e.target.value)} placeholder="4.60" />
                 </div>
 
                 {/* Previsualización de rentabilidad */}
                 <div data-testid="tariff-preview" className="col-span-2 rounded-lg border border-border bg-muted/40 p-3 text-sm space-y-1.5">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(pBase)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(pIva)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Precio final (con IVA)</span><span className="font-700 text-primary" data-testid="preview-final-price">{eur(pWithIva)}</span></div>
+                  <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Venta (lo que paga el cliente)</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Base sin IVA</span><span className="font-500">{eur(saleBase)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(saleIva)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Precio final (con IVA)</span><span className="font-700 text-primary" data-testid="preview-final-price">{eur(saleWithIva)}</span></div>
                   <div className="border-t border-border my-1" />
-                  <div className="flex justify-between"><span className="text-muted-foreground">Pagas a Likes (con IVA)</span><span className="font-500">{eur(cWithIva)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Tu ganancia</span><span className={`font-700 ${pProfit >= 0 ? "text-emerald-600" : "text-destructive"}`} data-testid="preview-profit">{eur(pProfit)} <span className="text-xs font-500">({pMargin.toFixed(0)}%)</span></span></div>
+                  <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Coste (Likes · Tramo 1)</p>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Coste sin IVA</span><span className="font-500">{eur(costBase)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Coste con IVA</span><span className="font-500 text-orange-600" data-testid="preview-cost-iva">{eur(costWithIva)}</span></div>
+                  <div className="border-t border-border my-1" />
+                  <div className="flex justify-between"><span className="text-muted-foreground">Tu ganancia (con IVA)</span><span className={`font-700 ${pProfit >= 0 ? "text-emerald-600" : "text-destructive"}`} data-testid="preview-profit">{eur(pProfit)} <span className="text-xs font-500">({pMargin.toFixed(0)}%)</span></span></div>
                 </div>
 
                 <div className="space-y-1.5 col-span-2 flex items-center justify-between rounded-md border border-border p-2.5">
@@ -212,7 +217,8 @@ export default function Tariffs() {
               <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1 mb-4" data-testid={`tariff-metrics-${t.productId}`}>
                 <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(m.saleBase)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(m.saleIva)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Coste Likes (con IVA)</span><span className="font-500 text-orange-600">{eur(m.costWithIva)}</span></div>
+                <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Coste sin IVA (Tramo 1)</span><span className="font-500">{eur(m.costBase)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Coste con IVA</span><span className="font-500 text-orange-600">{eur(m.costWithIva)}</span></div>
                 <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Ganancia</span><span className={`font-700 ${m.profit >= 0 ? "text-emerald-600" : "text-destructive"}`}>{eur(m.profit)} <span className="font-500">({m.marginPct.toFixed(0)}%)</span></span></div>
               </div>
 

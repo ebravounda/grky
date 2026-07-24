@@ -58,10 +58,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 403 Forbidden persistente = IP no autorizada. **IP de salida actual: `34.16.56.64`** (antes `104.198.214.223`; cambió — debe re-autorizarse en Likes). App en MOCK hasta whitelisting.
 
 ### Iteración 2026-07 (rentabilidad por tarifa + IVA)
-- **Precio de coste / cesión (Likes) por tarifa** (`costPrice`, CON IVA) editable en Tarifas. Modelo `TariffBody.costPrice`; persistido en create/update; seed y backfill (~65% del PVP como estimación editable).
-- **Panel "Tarifas y rentabilidad"** (`/app/tariffs`): por cada servicio muestra venta base (sin IVA), IVA 21%, precio final (con IVA), coste Likes (con IVA) y **ganancia** = venta_con_IVA − coste_con_IVA (+% margen). Formulario: se introduce venta SIN IVA (base) y coste CON IVA, con previsualización en vivo. Resumen superior: ingreso mensual, a pagar a Likes, ganancia mensual (totales).
-- Convención IVA: `price` guardado = venta CON IVA (compatible con facturación/Stripe existente); `costPrice` = coste CON IVA.
-- Probado: backend curl (list/update costPrice OK) + screenshot panel OK.
+- **Precio de coste / cesión (Likes) por tarifa** (`costPrice`, **SIN IVA**, Tramo 1) editable en Tarifas. El panel muestra coste SIN IVA y CON IVA (×1,21).
+- **Precio de venta introducido CON IVA** (lo que paga el cliente); el panel calcula base sin IVA (÷1,21) e IVA 21%. En el link público el cliente solo ve el precio final (con IVA).
+- **Ganancia** = venta_con_IVA − coste_con_IVA (+% margen). Resumen superior: ingreso mensual, a pagar a Likes, ganancia mensual.
+- **Import tabla Likes Tramo 1** (`seed_likes_tramo1`): 14 planes móviles oficiales (LK-MOB-*) con PVPR y coste cesión Tramo 1 (sin IVA); precio de venta por defecto = PVPR×1,21 editable. Al importar elimina los planes móviles genéricos de demo (1411-1414). Bonos opcionales (2501/2502) y catálogo Fibra/TV/Satélite intactos.
+- Convención: `price` = venta CON IVA (compatible facturación/Stripe); `costPrice` = cesión SIN IVA.
+- Probado: backend curl (import 14 planes OK) + screenshot panel y modal OK.
 
 ## Backlog priorizado
 - **P0 (SEGURIDAD, PENDIENTE)**: cerrar fuga KYC en `/api/public/promo-image/{file_id}` (debe servir solo `kind=='promo'`) + endurecer CORS (hoy `*`). El usuario aún no confirmó el plan de auditoría.

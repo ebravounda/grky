@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
 function fullImg(url) {
-  if (!url) return "";
+  if (!url) return undefined;
   return url.startsWith("/api/") ? `${API.replace("/api", "")}${url}` : url;
 }
 

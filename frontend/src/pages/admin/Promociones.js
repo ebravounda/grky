@@ -18,7 +18,7 @@ const EMPTY = {
 };
 
 function fullImg(url) {
-  if (!url) return "";
+  if (!url) return undefined;
   return url.startsWith("/api/") ? `${API.replace("/api", "")}${url}` : url;
 }
 

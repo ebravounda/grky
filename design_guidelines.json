@@ -1,190 +1,179 @@
 {
+  "theme": "premium_mobile_telco",
   "typography": {
     "fonts": {
-      "heading": "Outfit, sans-serif",
-      "body": "Manrope, sans-serif",
-      "mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+      "headings": "Outfit, sans-serif",
+      "body": "Inter, sans-serif"
     },
     "hierarchy": {
-      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-bold",
-      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-semibold",
-      "h3": "text-xl sm:text-2xl font-semibold",
-      "h4": "text-lg sm:text-xl font-medium",
-      "body": "text-base leading-relaxed",
-      "small": "text-sm text-muted-foreground",
-      "tiny": "text-xs font-medium uppercase tracking-[0.2em]"
+      "h1": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900",
+      "h2": "text-lg font-semibold tracking-tight text-slate-900",
+      "h3": "text-base font-medium text-slate-800",
+      "body": "text-sm text-slate-600",
+      "caption": "text-xs text-slate-500",
+      "button": "text-sm font-semibold sm:text-base"
     },
-    "pairing_strategy": "Modern SaaS Tech: Outfit provides a geometric, friendly yet professional structure for headings, while Manrope offers exceptional legibility for dense CRM data tables and client dashboards."
+    "import_links": [
+      "@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');"
+    ]
   },
   "colors": {
     "brand": {
-      "primary": "hsl(216, 100%, 52%)", 
-      "accent": "hsl(25, 100%, 50%)", 
-      "dark_blue": "hsl(216, 85%, 13%)"
+      "primary": "hsl(216, 100%, 52%)",
+      "primary_hex": "#0A6BFF",
+      "accent": "hsl(25, 100%, 50%)",
+      "accent_hex": "#FF6A00"
     },
-    "theme_tokens": {
-      "light": {
-        "--background": "0 0% 100%",
-        "--foreground": "216 85% 13%",
-        "--card": "0 0% 100%",
-        "--card-foreground": "216 85% 13%",
-        "--popover": "0 0% 100%",
-        "--popover-foreground": "216 85% 13%",
-        "--primary": "216 100% 52%",
-        "--primary-foreground": "0 0% 100%",
-        "--secondary": "210 40% 96%",
-        "--secondary-foreground": "216 85% 13%",
-        "--muted": "210 40% 96%",
-        "--muted-foreground": "215 16% 47%",
-        "--accent": "25 100% 50%",
-        "--accent-foreground": "0 0% 100%",
-        "--destructive": "0 84.2% 60.2%",
-        "--destructive-foreground": "0 0% 100%",
-        "--success": "142 71% 45%",
-        "--warning": "48 96% 53%",
-        "--info": "216 100% 52%",
-        "--border": "214 32% 91%",
-        "--input": "214 32% 91%",
-        "--ring": "216 100% 52%",
-        "--radius": "0.5rem",
-        "--sidebar-background": "216 85% 13%",
-        "--sidebar-foreground": "210 40% 96%",
-        "--sidebar-primary": "216 100% 52%",
-        "--sidebar-primary-foreground": "0 0% 100%",
-        "--sidebar-accent": "216 60% 20%",
-        "--sidebar-accent-foreground": "0 0% 100%",
-        "--sidebar-border": "216 60% 20%",
-        "--sidebar-ring": "216 100% 52%"
-      },
-      "dark": {
-        "--background": "216 85% 8%",
-        "--foreground": "210 40% 98%",
-        "--card": "216 60% 12%",
-        "--card-foreground": "210 40% 98%",
-        "--popover": "216 60% 12%",
-        "--popover-foreground": "210 40% 98%",
-        "--primary": "216 100% 52%",
-        "--primary-foreground": "0 0% 100%",
-        "--secondary": "216 40% 18%",
-        "--secondary-foreground": "210 40% 98%",
-        "--muted": "216 40% 18%",
-        "--muted-foreground": "215 20% 65%",
-        "--accent": "25 100% 50%",
-        "--accent-foreground": "0 0% 100%",
-        "--destructive": "0 62.8% 30.6%",
-        "--destructive-foreground": "210 40% 98%",
-        "--success": "142 71% 45%",
-        "--warning": "48 96% 53%",
-        "--info": "216 100% 52%",
-        "--border": "216 40% 18%",
-        "--input": "216 40% 18%",
-        "--ring": "216 100% 52%",
-        "--sidebar-background": "216 85% 8%",
-        "--sidebar-foreground": "210 40% 98%",
-        "--sidebar-primary": "216 100% 52%",
-        "--sidebar-primary-foreground": "0 0% 100%",
-        "--sidebar-accent": "216 40% 18%",
-        "--sidebar-accent-foreground": "210 40% 98%",
-        "--sidebar-border": "216 40% 18%",
-        "--sidebar-ring": "216 100% 52%"
-      }
+    "surface": {
+      "background": "#F8FAFC",
+      "card": "#FFFFFF",
+      "header_glass": "rgba(255, 255, 255, 0.85)"
     },
-    "status_pills": {
-      "Activa": "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400 border-green-200",
-      "Suspendida": "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200",
-      "Pendiente": "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 border-amber-200",
-      "Completada": "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border-blue-200",
-      "Aprovisionando": "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border-purple-200",
-      "Cancelada": "bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-400 border-slate-200",
-      "Pagada": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200"
-    },
-    "semaphores": {
-      "health_ok": "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]",
-      "health_warning": "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
-      "health_error": "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-    },
-    "gradient_usage": "CRITICAL: Avoid muddy gradients by never blending #FF6A00 directly into #0A6BFF for large surfaces. If a brand gradient is needed (e.g. for text or a thin active border), use a tricolor approach: from-[#FF6A00] via-[#B2367F] to-[#0A6BFF] or use them independently (Orange for primary CTA actions like 'Pagar', Blue for structural buttons and links)."
-  },
-  "layouts": {
-    "admin_dashboard": {
-      "structure": "Sidebar (Dark Blue #051C3F on desktop) + Topbar (White/Dark) + Gray/Off-white Main Content area.",
-      "sidebar": "Fixed width on desktop (w-64), collapsible to icon-only. Must include unread badge (Orange) for 'Alertas'. Logo at the top.",
-      "tables": "CRITICAL: Wrap all data tables in a div with `className='w-full overflow-x-auto rounded-md border'`. Add horizontal scrolling to prevent breaking layout on mobile. Columns should use whitespace-nowrap."
-    },
-    "client_portal": {
-      "structure": "Modern Premium SaaS look. Floating Topbar or subtle Sidebar. Max-width container (`max-w-7xl mx-auto`) for the dashboard.",
-      "line_cards": "Glassmorphic or crisp soft-shadow cards. Must feature 'Consumption Progress Bars' mapping gigabytes/minutes. Use primary blue for the progress fill, accent orange for warnings (e.g. > 80% usage).",
-      "spacing": "Generous spacing. Use `gap-6` or `gap-8` for dashboard grids."
-    },
-    "onboarding_wizard": {
-      "structure": "Split screen or centered massive card. Left side: Brand presence + dynamic abstract image/pattern. Right side: Multi-step form (Datos, Dirección, Pago, KYC, Confirmar).",
-      "kyc": "File upload zones must look interactive (dashed borders, hover states).",
-      "e_signature": "Canvas block for signature + explicit accept checkboxes."
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#64748B",
+      "inverse": "#FFFFFF",
+      "brand": "#0A6BFF",
+      "accent": "#FF6A00"
     }
   },
-  "grids": {
-    "dashboard_stats": "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6",
-    "client_lines": "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-  },
   "visual_enhancers": {
-    "borders": "1px solid border-border (subtle).",
-    "shadows": {
-      "card": "shadow-sm hover:shadow-md transition-shadow duration-200",
-      "dropdown": "shadow-lg shadow-black/5"
+    "border_radius": {
+      "card": "rounded-2xl",
+      "button": "rounded-xl",
+      "pill": "rounded-full",
+      "modal": "rounded-3xl"
     },
-    "glassmorphism": "Used for sticky client portal header: `bg-background/80 backdrop-blur-xl border-b border-border`."
+    "shadows": {
+      "card_soft": "shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]",
+      "floating_nav": "shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]",
+      "accent_glow": "shadow-[0_4px_16px_rgba(255,106,0,0.3)]"
+    },
+    "overlays": {
+      "hero_gradient": "bg-gradient-to-r from-blue-900/90 to-blue-900/40",
+      "image_scrim": "bg-black/20"
+    }
+  },
+  "layouts_and_grids": {
+    "client_home_container": "w-full max-w-md mx-auto min-h-screen bg-slate-50 relative pb-20 shadow-2xl overflow-x-hidden md:my-8 md:rounded-[40px] md:border-[8px] md:border-slate-900",
+    "admin_dashboard_container": "w-full min-h-screen bg-slate-50 p-6",
+    "admin_two_column": "grid grid-cols-1 lg:grid-cols-12 gap-8",
+    "carousels": {
+      "container": "flex overflow-x-auto snap-x snap-mandatory hide-scrollbar gap-4 px-4 pb-4",
+      "item_large": "snap-center w-[85%] shrink-0",
+      "item_small": "snap-center w-[70%] shrink-0"
+    }
   },
   "components": {
-    "StatCard": "Must include title, numeric value, an icon (Lucide) in a rounded badge (bg-primary/10 text-primary), and an optional delta (+/- %) indicator.",
-    "ProgressBar": "For consumption. `h-2 rounded-full bg-secondary overflow-hidden`. Inner div `bg-primary transition-all duration-500`.",
-    "AlertsFeed": "Timeline layout with severity colors mapping to semaphores.",
-    "SidebarNav": "Accordion or standard list. Active state: `bg-sidebar-accent text-sidebar-accent-foreground border-r-2 border-accent`."
+    "client_header": {
+      "layout": "flex justify-between items-center px-4 py-4 sticky top-0 z-50 backdrop-blur-xl bg-white/80 border-b border-slate-100",
+      "greeting": "flex items-center gap-3",
+      "avatar": "h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold",
+      "text": "text-sm text-slate-500, user name text-base font-bold text-slate-900",
+      "notification": "relative p-2 rounded-full hover:bg-slate-100 text-slate-700",
+      "badge": "absolute top-1 right-1 h-2.5 w-2.5 bg-orange-500 rounded-full border-2 border-white"
+    },
+    "hero_banner": {
+      "wrapper": "mx-4 mt-4 relative h-48 rounded-2xl overflow-hidden shadow-md group cursor-pointer",
+      "image": "absolute inset-0 w-full h-full object-cover",
+      "overlay": "absolute inset-0 bg-gradient-to-r from-[#0A6BFF]/95 to-[#0A6BFF]/60",
+      "content": "relative h-full flex flex-col justify-center p-6 text-white",
+      "title": "text-xl font-bold mb-1",
+      "subtitle": "text-sm text-blue-100 mb-4 line-clamp-2",
+      "cta_pill": "w-fit px-4 py-1.5 bg-[#FF6A00] text-white text-sm font-semibold rounded-full shadow-lg"
+    },
+    "product_cards": {
+      "wrapper": "bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]",
+      "header": "flex justify-between items-center mb-4 pb-4 border-b border-slate-100",
+      "msisdn": "text-lg font-bold text-slate-900",
+      "plan_name": "text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-md",
+      "consumption": "space-y-2",
+      "bar": "h-2 w-full bg-slate-100 rounded-full overflow-hidden",
+      "bar_fill": "h-full bg-[#0A6BFF] rounded-full",
+      "pagination_dots": "flex justify-center gap-1.5 mt-2"
+    },
+    "offer_cards": {
+      "wrapper": "relative bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] flex flex-col h-full",
+      "image_container": "h-32 w-full relative",
+      "badge": "absolute top-2 right-2 bg-[#FF6A00] text-white text-xs font-bold px-2 py-1 rounded-md z-10 shadow-md",
+      "content": "p-4 flex flex-col flex-grow",
+      "title": "font-bold text-slate-900 mb-1",
+      "cta": "mt-auto pt-2 text-[#0A6BFF] font-semibold text-sm flex items-center gap-1"
+    },
+    "action_buttons": {
+      "container": "px-4 my-6 space-y-3",
+      "primary": "w-full py-3.5 bg-[#FF6A00] text-white rounded-xl font-bold text-base shadow-[0_4px_16px_rgba(255,106,0,0.3)] hover:bg-[#E65F00] transition-colors active:scale-[0.98]",
+      "secondary": "w-full py-3.5 bg-white border-2 border-[#0A6BFF] text-[#0A6BFF] rounded-xl font-bold text-base hover:bg-blue-50 transition-colors active:scale-[0.98]"
+    },
+    "bottom_tab_bar": {
+      "wrapper": "fixed bottom-0 w-full max-w-md bg-white border-t border-slate-200 pb-safe z-50",
+      "container": "flex justify-between px-2 pt-2 pb-1",
+      "item": "flex flex-col items-center p-2 min-w-[60px] text-slate-400 hover:text-[#0A6BFF]",
+      "item_active": "text-[#0A6BFF]",
+      "icon_size": "24",
+      "label": "text-[10px] font-medium mt-1"
+    },
+    "popup_modal": {
+      "overlay": "fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4",
+      "content": "bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative",
+      "close_btn": "absolute top-3 right-3 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full p-1.5 text-white z-10",
+      "image": "w-full h-48 object-cover",
+      "body": "p-6 text-center",
+      "title": "text-2xl font-bold text-slate-900 mb-2",
+      "cta": "w-full py-3.5 bg-[#FF6A00] text-white rounded-xl font-bold text-base mt-4 shadow-lg"
+    },
+    "admin_promociones": {
+      "form_section": "lg:col-span-7 space-y-6",
+      "preview_section": "lg:col-span-5 relative",
+      "preview_sticky": "sticky top-6 bg-slate-100 rounded-3xl p-6 border-4 border-slate-200 flex items-center justify-center min-h-[600px] overflow-hidden shadow-inner",
+      "card": "bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
+    }
   },
   "motion": {
-    "page_transitions": "Framer motion `<motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} />`",
-    "hover_states": "Buttons must have `hover:-translate-y-0.5 hover:shadow-md transition-all`.",
-    "progress_bars": "Must animate from 0 to actual value on mount."
+    "page_transition": {
+      "initial": { "opacity": 0, "y": 10 },
+      "animate": { "opacity": 1, "y": 0 },
+      "transition": { "duration": 0.3 }
+    },
+    "modal_popup": {
+      "initial": { "opacity": 0, "scale": 0.95 },
+      "animate": { "opacity": 1, "scale": 1 },
+      "exit": { "opacity": 0, "scale": 0.95 },
+      "transition": { "type": "spring", "damping": 25, "stiffness": 300 }
+    },
+    "hover_lift": "transition-transform hover:-translate-y-1 duration-200"
   },
   "accessibility": {
-    "contrast": "Ensure text over brand blue and brand orange is white (`text-white`). Avoid orange text on white backgrounds unless it is bold and large.",
-    "focus": "All interactables must have `focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2`.",
-    "data_testids": "MANDATORY: Every button, input, row action, and navigation link must have a descriptive kebab-case `data-testid`."
+    "contrast": "Ensure text over images has sufficient gradient overlay (min 60% opacity) for readable white text.",
+    "aria": "Add aria-labels to all icon-only buttons (like the notification bell and modal close button).",
+    "touch_targets": "All interactive elements in the mobile view must be at least 44x44px."
   },
   "media": {
-    "logo_strategy": "Use the provided URL. In the dark admin sidebar, ensure the image is cleanly rendered. In public headers, size appropriately (e.g., h-8 or h-10). Use in onboarding wizard header, client portal header, and email templates.",
-    "pdf_invoices": "CRITICAL: Do not restyle existing PDF layouts."
-  },
-  "image_urls": {
-    "logo": {
-      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png",
-      "description": "GoRoky Corporate Logo (Orange to Blue wordmark)",
-      "usage": "Global branding, Admin Sidebar header, Client Portal top bar, Onboarding Wizard, Login screen."
-    },
-    "onboarding_background": {
-      "url": "https://images.pexels.com/photos/33676090/pexels-photo-33676090.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-      "description": "Abstract modern connectivity blue and orange flowing lines",
-      "usage": "Use as a high-end visual background for the left pane in the public Onboarding Wizard/Login to establish a premium telecom vibe."
+    "image_urls": {
+      "mobile_lifestyle": "https://images.unsplash.com/photo-1662858557337-48c9ecf07ee0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwzfHxwZXJzb24lMjB1c2luZyUyMHNtYXJ0cGhvbmUlMjBoYXBweXxlbnwwfHx8fDE3ODQ4NTQwOTh8MA&ixlib=rb-4.1.0&q=85",
+      "streaming_tv": "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHw0fHxtb3ZpZSUyMHN0cmVhbWluZyUyMHR2fGVufDB8fHx8MTc4NDg1NDEwM3ww&ixlib=rb-4.1.0&q=85",
+      "gamer_neon": "https://images.unsplash.com/photo-1614179924047-e1ab49a0a0cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxnYW1lciUyMHBjJTIwc2V0dXAlMjBuZW9ufGVufDB8fHx8MTc4NDg1NDExNnww&ixlib=rb-4.1.0&q=85",
+      "brand_logo": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png"
     }
   },
   "instructions_to_main_agent": [
-    "You are building a hybrid full-stack application for a Spanish telecom distributor (Admin CRM + Client SaaS + Public Onboarding). All UI copy must be in Spanish.",
-    "IMPLEMENT THE THEME IN `.css` FILE EXACTLY AS PROVIDED IN `colors.theme_tokens`. Do not invent random colors. Map Recharts colors to the theme.",
-    "Data Tables are critical: Use Shadcn Table but YOU MUST wrap `<Table>` inside a `<div className='w-full overflow-x-auto rounded-md border'>` to prevent mobile view breakage.",
-    "Build a clear Client Portal layout distinct from the Admin CRM. Make it feel premium (use the defined line cards with progress bars for telecom consumption).",
-    "Never combine #FF6A00 and #0A6BFF into a linear gradient background. Keep them separate for functional meaning, or use the tricolor text-clip workaround if you need the brand gradient visually on text.",
-    "Implement Semantic Status Pills exactly matching the color mappings provided.",
-    "Include a 'data-testid' on all interactive elements (buttons, inputs, tabs, table rows) for robust E2E testing."
+    "You are redesigning the GoRoky client self-service portal to look like a premium native mobile telco app (like Mi Vodafone).",
+    "Use Light Theme as default for consumer clarity, using GoRoky Blue (#0A6BFF) for structure and GoRoky Orange (#FF6A00) for highlights/CTAs.",
+    "Do NOT change existing `data-testid` attributes. Simply apply new Tailwind styling and structure.",
+    "The client home page must be wrapped in a mobile-constrained container (`w-full max-w-md mx-auto min-h-screen relative shadow-2xl`) so it looks like a phone on desktop.",
+    "The carousels (Product lines, Ofertas) MUST use CSS scroll snapping (`overflow-x-auto snap-x snap-mandatory`) instead of complex JS carousels.",
+    "For the Admin 'Promociones' page, implement a live preview feature. The admin form should be on the left, and a simulated 'mobile view' should stick to the right side, rendering the Hero Banner, Popup, or Offer Card dynamically as the admin types.",
+    "Use Lucide-React for all icons (Bell, User, Home, Receipt, ShoppingBag, Smartphone, Headphones).",
+    "Integrate Framer Motion for the login popup modal animation.",
+    "Hide the global scrollbar inside the mobile wrapper by adding a `.hide-scrollbar::-webkit-scrollbar { display: none; }` utility class.",
+    "Use Shadcn UI components for the Admin dashboard forms (Input, Select, Switch, Calendar/Datepicker), but heavily customize the Client Portal to rely on raw Tailwind for the exact mobile app feel."
   ],
-  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
-    "Do not converge toward generic, 'on distribution' outputs. Avoid the 'AI slop' aesthetic.",
-    "Create depth through layered design elements with z-index hierarchy and crisp soft shadows.",
-    "Do not use dark colors as gradients.",
-    "Do not center align the app container. Do not add `.App { text-align: center; }`.",
-    "Never apply `transition: all`. Target specific properties like `transition-colors`, `transition-transform`.",
-    "Use modern pill-shaped or rounded-md buttons with clear hover states.",
-    "Never use AI assistant emojis (🤖, 💡, 🔮) as icons. Use lucide-react exclusively.",
-    "Ensure every interaction has micro-animations. Static = dead.",
-    "Use `sonner` for toast notifications (located in `/app/src/components/ui/sonner.jsx`).",
-    "Always check contrast and ensure accessibility standards."
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not converge toward generic outputs. Use the generous spacing and border-radii defined in visual_enhancers.",
+    "NEVER use fully transparent backgrounds on headers; always use backdrop-blur + semi-transparent white (glassmorphism).",
+    "Always use modern button styles (rounded-xl or rounded-full) with interaction animations (active:scale-[0.98]).",
+    "NEVER use AI assistant Emoji characters (🤖🧠💭) for icons.",
+    "Include data-testid on all new interactive elements.",
+    "Use sonner for toast notifications."
   ]
 }

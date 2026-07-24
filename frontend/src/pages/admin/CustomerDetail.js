@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -12,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature,
+  ShieldCheck, FileSignature, CreditCard,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,6 +29,7 @@ const DOC_TYPES = [
 
 export default function CustomerDetail() {
   const { fiscalId } = useParams();
+  const { hasPerm } = useAuth();
   const [data, setData] = useState(null);
   const [docs, setDocs] = useState([]);
   const [kyc, setKyc] = useState(null);
@@ -40,6 +43,9 @@ export default function CustomerDetail() {
   const [optSub, setOptSub] = useState(null);
   const [optList, setOptList] = useState([]);
   const [optSel, setOptSel] = useState("");
+  const [chargeOpen, setChargeOpen] = useState(false);
+  const [charge, setCharge] = useState({ concept: "", amount: "", method: "card" });
+  const [charging, setCharging] = useState(false);
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
@@ -47,6 +53,25 @@ export default function CustomerDetail() {
   if (!data) return <div className="text-muted-foreground">Cargando…</div>;
 
   const { customer, lines, subscriptions, invoices } = data;
+
+  const doCharge = async () => {
+    const amount = parseFloat(charge.amount);
+    if (!charge.concept || !amount || amount <= 0) return toast.error("Indica concepto e importe válidos");
+    setCharging(true);
+    try {
+      const { data: res } = await api.post(`/customers/${fiscalId}/charge`, {
+        concept: charge.concept, amount, method: charge.method, origin_url: window.location.origin,
+      });
+      if (res.status === "paid") {
+        toast.success(`Cobrado ${amount.toFixed(2)} € · Factura ${res.invoiceNumber} enviada por email`);
+      } else {
+        toast.success(`Factura ${res.invoiceNumber} creada y enviada. Enlace de pago generado.`);
+        if (res.checkout_url) window.open(res.checkout_url, "_blank");
+      }
+      setChargeOpen(false); setCharge({ concept: "", amount: "", method: "card" });
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setCharging(false); }
+  };
 
   const onFile = (e) => {
     const file = e.target.files?.[0];
@@ -95,7 +120,13 @@ export default function CustomerDetail() {
   return (
     <div data-testid="customer-detail">
       <Link to="/app/customers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-4"><ArrowLeft size={15} /> Clientes</Link>
-      <PageHeader overline={customer.customerType} title={`${customer.name} ${customer.firstSurname || ""}`} subtitle={`NIF/NIE: ${customer.fiscalId}`} />
+      <PageHeader overline={customer.customerType} title={`${customer.name} ${customer.firstSurname || ""}`} subtitle={`NIF/NIE: ${customer.fiscalId}`}
+        action={hasPerm("billing.manage") && (
+          <Button data-testid="open-charge-btn" className="rounded-full gap-2" onClick={() => setChargeOpen(true)}>
+            <CreditCard size={16} /> Cobrar servicio
+          </Button>
+        )}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">
@@ -260,6 +291,44 @@ export default function CustomerDetail() {
           <DialogFooter><Button data-testid="confirm-opt-btn" onClick={confirmOpt} className="rounded-full">Añadir</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={chargeOpen} onOpenChange={setChargeOpen}>
+        <DialogContent data-testid="charge-dialog">
+          <DialogHeader>
+            <DialogTitle>Cobrar servicio adicional</DialogTitle>
+            <DialogDescription>Se emite una factura y se envía por email. Con tarjeta guardada el cobro es inmediato; con SEPA/sin tarjeta se genera un enlace de pago.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Concepto</Label>
+              <Input data-testid="charge-concept" value={charge.concept} onChange={(e) => setCharge((c) => ({ ...c, concept: e.target.value }))} placeholder="Ej. Router WiFi 6, instalación, portabilidad…" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Importe (€ con IVA)</Label>
+                <Input data-testid="charge-amount" type="number" step="0.01" min="0" value={charge.amount} onChange={(e) => setCharge((c) => ({ ...c, amount: e.target.value }))} placeholder="19.99" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Método</Label>
+                <Select value={charge.method} onValueChange={(v) => setCharge((c) => ({ ...c, method: v }))}>
+                  <SelectTrigger data-testid="charge-method"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="card">Tarjeta guardada (cobro inmediato)</SelectItem>
+                    <SelectItem value="sepa">SEPA / enlace de pago</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {charge.amount > 0 && (
+              <p className="text-xs text-muted-foreground">Base sin IVA: <b>{(parseFloat(charge.amount) / 1.21).toFixed(2)} €</b> · IVA 21%: <b>{(parseFloat(charge.amount) - parseFloat(charge.amount) / 1.21).toFixed(2)} €</b></p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button data-testid="confirm-charge-btn" onClick={doCharge} disabled={charging} className="rounded-full">{charging ? "Procesando…" : "Cobrar y facturar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

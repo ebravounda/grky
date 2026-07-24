@@ -316,6 +316,13 @@ class RecurringCheckoutBody(BaseModel):
     origin_url: str
 
 
+class ServiceChargeBody(BaseModel):
+    concept: str
+    amount: float                       # importe total CON IVA a cobrar
+    method: Optional[str] = None        # "card" | "sepa" (por defecto: el guardado del cliente)
+    origin_url: Optional[str] = None    # necesario para link de pago (SEPA / sin tarjeta guardada)
+
+
 class AppSettingsBody(BaseModel):
     autoApprove: Optional[bool] = None
     setupFee: Optional[float] = None
@@ -779,7 +786,45 @@ async def _create_invoice(customer, product, status="pending"):
     }
     res = await db.invoices.insert_one(inv)
     inv["_id"] = res.inserted_id
+    await _email_invoice(inv)
     return inv
+
+
+def _mail_invoice_body(inv):
+    paid = inv.get("status") == "paid"
+    name = (inv.get("customerName") or "").title()
+    if paid:
+        title = f"Tu factura {inv['invoiceNumber']} (pagada)"
+        intro = (f"Hola {name},<br><br>Adjuntamos tu factura <b>{inv['invoiceNumber']}</b> "
+                 f"por importe de <b>{inv['total']:.2f} €</b> (periodo {inv.get('period','')}), "
+                 "que ha sido <b>abonada correctamente</b>. Gracias por confiar en GoRoky.")
+    else:
+        title = f"Nueva factura {inv['invoiceNumber']}"
+        intro = (f"Hola {name},<br><br>Se ha emitido tu factura <b>{inv['invoiceNumber']}</b> "
+                 f"por importe de <b>{inv['total']:.2f} €</b> (periodo {inv.get('period','')}). "
+                 "La tienes adjunta en este email y disponible en tu área de clientes.")
+    return emailer.base_template(title, intro)
+
+
+async def _email_invoice(inv):
+    """Envía la factura al cliente por email con el PDF adjunto (en toda creación de factura)."""
+    to = inv.get("customerEmail")
+    if not to:
+        return False
+    try:
+        pdf_bytes = generate_invoice_pdf(inv)
+        attachment = {"filename": f"{inv['invoiceNumber']}.pdf",
+                      "content": base64.b64encode(pdf_bytes).decode("utf-8")}
+    except Exception as e:  # noqa
+        await log_event("email", "error", f"No se pudo generar el PDF de {inv.get('invoiceNumber')}: {str(e)[:100]}")
+        attachment = None
+    subject = (f"Factura {inv['invoiceNumber']} pagada · GoRoky" if inv.get("status") == "paid"
+               else f"Nueva factura {inv['invoiceNumber']} · GoRoky")
+    ok = await _send_mail_safe("email", to, subject, _mail_invoice_body(inv),
+                               attachments=[attachment] if attachment else None)
+    if ok:
+        await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"emailedAt": now_iso()}})
+    return ok
 
 
 @api.get("/orders")
@@ -1560,6 +1605,116 @@ async def admin_recurring_checkout(subscriptionId: str, body: RecurringCheckoutB
     return {"checkout_url": session.url, "session_id": session.id}
 
 
+async def _get_saved_pm(customer):
+    """Devuelve el payment_method de tarjeta guardado del cliente (para cobros off-session)."""
+    cid = customer.get("stripeCustomerId")
+    rec = customer.get("recurring") or {}
+    if rec.get("stripeSubscriptionId"):
+        try:
+            ss = stripe.Subscription.retrieve(rec["stripeSubscriptionId"])
+            pm = getattr(ss, "default_payment_method", None)
+            if pm:
+                return cid, pm
+        except Exception as e:  # noqa
+            logger.warning("get_saved_pm sub failed: %s", e)
+    if cid:
+        try:
+            pms = stripe.PaymentMethod.list(customer=cid, type="card")
+            if pms and pms.data:
+                return cid, pms.data[0].id
+        except Exception as e:  # noqa
+            logger.warning("get_saved_pm list failed: %s", e)
+    return cid, None
+
+
+async def _create_service_invoice(customer, concept, amount, status):
+    number = await _next_invoice_number()
+    ba = customer.get("billingAddress", {}) or {}
+    address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    subtotal = round(amount / 1.21, 2)
+    tax = round(amount - subtotal, 2)
+    now = datetime.now(timezone.utc)
+    inv = {
+        "invoiceNumber": number, "fiscalId": customer["fiscalId"],
+        "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip().upper(),
+        "customerEmail": customer.get("email"), "customerAddress": address,
+        "items": [{"description": concept, "detail": "Servicio adicional", "quantity": 1, "amount": amount}],
+        "subtotal": subtotal, "tax": tax, "total": amount,
+        "status": status, "date": now.isoformat(), "period": _period_label(now),
+        "dueDate": (now + timedelta(days=15)).isoformat(),
+        "paymentMethod": customer.get("paymentMethod", "NO"), "consumption": [], "kind": "service",
+    }
+    res = await db.invoices.insert_one(inv)
+    inv["_id"] = res.inserted_id
+    await _email_invoice(inv)
+    return inv
+
+
+@api.post("/customers/{fiscalId}/charge")
+async def charge_service(fiscalId: str, body: ServiceChargeBody, request: Request):
+    """Cobra un servicio adicional. Con tarjeta guardada: cobro inmediato off-session.
+    Con SEPA / sin tarjeta: genera un enlace de pago (Checkout) para el cliente."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="El importe debe ser mayor que 0")
+    method = body.method or (customer.get("recurring") or {}).get("method") or "card"
+
+    # 1) Tarjeta guardada → cobro inmediato off-session
+    if method == "card":
+        cid, pm = await _get_saved_pm(customer)
+        if cid and pm:
+            try:
+                pi = stripe.PaymentIntent.create(
+                    amount=int(round(body.amount * 100)), currency="eur", customer=cid,
+                    payment_method=pm, off_session=True, confirm=True,
+                    description=f"Servicio adicional · {body.concept}",
+                    metadata={"fiscalId": fiscalId, "concept": body.concept, "kind": "service"})
+                if pi.status == "succeeded":
+                    inv = await _create_service_invoice(customer, body.concept, body.amount, "paid")
+                    await log_event("stripe", "success",
+                                    f"Cobro de servicio adicional · {body.concept} · {body.amount:.2f} € · {fiscalId}",
+                                    {"fiscalId": fiscalId})
+                    return {"status": "paid", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"]}
+                raise HTTPException(status_code=402, detail=f"El pago quedó en estado {pi.status}")
+            except stripe.error.CardError as e:  # noqa
+                await log_event("stripe", "error", f"Tarjeta rechazada en cobro adicional · {fiscalId}: {str(e)[:100]}")
+                raise HTTPException(status_code=402, detail=f"Tarjeta rechazada: {e.user_message or str(e)}")
+            except HTTPException:
+                raise
+            except Exception as e:  # noqa
+                await log_event("stripe", "error", f"Error en cobro adicional · {fiscalId}: {str(e)[:120]}")
+                raise HTTPException(status_code=400, detail=f"No se pudo cobrar: {str(e)[:120]}")
+
+    # 2) SEPA o sin tarjeta guardada → enlace de pago (Checkout mode=payment)
+    inv = await _create_service_invoice(customer, body.concept, body.amount, "pending")
+    origin = body.origin_url or os.environ.get("FRONTEND_URL", "")
+    cid = await _ensure_stripe_customer(customer)
+    pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+    session = stripe.checkout.Session.create(
+        mode="payment", customer=cid, payment_method_types=pm_types,
+        line_items=[{"price_data": {"currency": "eur", "unit_amount": int(round(body.amount * 100)),
+                                    "product_data": {"name": body.concept}}, "quantity": 1}],
+        success_url=f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{origin}/payment/cancel",
+        metadata={"invoice_id": str(inv["_id"]), "invoice_number": inv["invoiceNumber"],
+                  "fiscalId": fiscalId, "kind": "service"})
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "invoice_id": str(inv["_id"]), "invoice_number": inv["invoiceNumber"],
+        "fiscalId": fiscalId, "amount": body.amount, "currency": "eur", "kind": "service",
+        "status": "initiated", "payment_status": "pending", "created_at": now_iso(), "updated_at": now_iso()})
+    # avisar al cliente con el enlace de pago
+    await _send_mail_safe("email", customer.get("email"), f"Pago pendiente · {body.concept} · GoRoky",
+        emailer.base_template("Tienes un pago pendiente",
+            f"Hola {customer.get('name','')},<br><br>Se ha emitido una factura de <b>{body.amount:.2f} €</b> "
+            f"por <b>{body.concept}</b>. Puedes pagarla de forma segura aquí:<br><br>"
+            f"<a href='{session.url}' style='background:#0033ff;color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none'>Pagar ahora</a>"))
+    return {"status": "pending", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"],
+            "checkout_url": session.url}
+
+
 async def _on_subscription_checkout(obj):
     """Se ejecuta al completar el Checkout de suscripción: guarda datos de cobro recurrente."""
     from bson import ObjectId
@@ -1647,10 +1802,6 @@ async def _billing_success(sub):
     name = f"{customer.get('name','')} {customer.get('firstSurname','')}".strip() if customer else sub["fiscalId"]
     await log_event("billing", "success", f"Cobro correcto · {name} · {amount:.2f} €",
                     {"fiscalId": sub["fiscalId"]})
-    if customer:
-        await _send_mail_safe("email", customer.get("email"), "Pago recibido · GoRoky",
-            _mail_payment_success(customer.get("name", ""), amount,
-                                  inv["invoiceNumber"] if inv else "", inv.get("period", "") if inv else ""))
     return {"ok": True}
 
 

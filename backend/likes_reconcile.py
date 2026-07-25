@@ -18,6 +18,25 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _norm_svas(raw):
+    """Normaliza los SVAs de Likes a {code, status(bool), ...} para el CRM/portal."""
+    out = []
+    for s in (raw or []):
+        if not isinstance(s, dict):
+            continue
+        code = s.get("code") or s.get("svaCode") or s.get("name")
+        if code is None:
+            continue
+        status = s.get("status")
+        if status is None:
+            status = s.get("active", s.get("enabled", False))
+        item = dict(s)
+        item["code"] = code
+        item["status"] = bool(status)
+        out.append(item)
+    return out
+
+
 async def reconcile_customer(db, fiscal_id):
     if not likes_client.get_token():
         return {"reconciled": False, "reason": "not_connected"}
@@ -73,6 +92,7 @@ async def reconcile_customer(db, fiscal_id):
                                          "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
                     svas = likes_client.get_line_svas(ln)
                     if isinstance(svas, list) and svas:
+                        svas = _norm_svas(svas)
                         line_upd["svas"] = svas
                         roaming = next((x for x in svas if x.get("code") == "ROAMING"), None)
                         if roaming is not None:

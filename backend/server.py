@@ -587,15 +587,29 @@ async def update_svas(lineNumber: str, body: SvaUpdate, request: Request):
     line = await db.lines.find_one({"lineNumber": lineNumber})
     if not line:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
-    if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
+    if user.get("role") == "client" and line.get("fiscalId") != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
-    svas = line.get("svas", [])
-    updates = {s["code"]: s["status"] for s in body.svas}
+    svas = line.get("svas") or []
+    updates = {s.get("code"): s.get("status") for s in body.svas if s.get("code") is not None}
+    seen = set()
     for s in svas:
-        if s["code"] in updates:
-            s["status"] = updates[s["code"]]
+        c = s.get("code")
+        seen.add(c)
+        if c in updates:
+            s["status"] = bool(updates[c])
+    for code, status in updates.items():
+        if code not in seen:
+            svas.append({"code": code, "status": bool(status)})
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"svas": svas}})
-    return {"success": True, "svas": svas}
+    # Sincronizar con Likes (fail-safe: si falla, el cambio local queda igual)
+    likes_sync = None
+    if updates and likes_client.get_token():
+        payload = [{"code": c, "status": bool(st)} for c, st in updates.items()]
+        _data, err = likes_client.set_line_svas(lineNumber, payload)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes set_line_svas %s: %s", lineNumber, err)
+    return {"success": True, "svas": svas, "likesSync": likes_sync}
 
 
 # ------------------------- gestión avanzada de líneas (admin/agente) -------------------------
@@ -636,8 +650,14 @@ async def set_roaming(lineNumber: str, body: dict, request: Request):
     await _get_line_admin(lineNumber, request)
     enabled = bool(body.get("enabled", False))
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"roaming": enabled}})
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.set_line_svas(lineNumber, [{"code": "ROAMING", "status": enabled}])
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes roaming %s: %s", lineNumber, err)
     await log_event("order", "info", f"Roaming {'activado' if enabled else 'desactivado'} · línea {lineNumber}")
-    return {"lineNumber": lineNumber, "roaming": enabled}
+    return {"lineNumber": lineNumber, "roaming": enabled, "likesSync": likes_sync}
 
 
 @api.put("/lines/{lineNumber}/barring")
@@ -666,8 +686,14 @@ async def suspend_line(lineNumber: str, body: dict, request: Request):
     reason = body.get("reason", "temporal")
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"status": "SUSPENDED", "suspendReason": reason}})
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.suspend_line_remote(lineNumber, reason)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes suspend %s: %s", lineNumber, err)
     await log_event("order", "warning", f"Línea {lineNumber} suspendida ({reason})")
-    return {"lineNumber": lineNumber, "status": "SUSPENDED"}
+    return {"lineNumber": lineNumber, "status": "SUSPENDED", "likesSync": likes_sync}
 
 
 @api.post("/lines/{lineNumber}/reactivate")
@@ -675,8 +701,14 @@ async def reactivate_line(lineNumber: str, request: Request):
     await _get_line_admin(lineNumber, request)
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"status": "ACTIVE"}, "$unset": {"suspendReason": ""}})
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.reactivate_line_remote(lineNumber)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes reactivate %s: %s", lineNumber, err)
     await log_event("order", "success", f"Línea {lineNumber} reactivada")
-    return {"lineNumber": lineNumber, "status": "ACTIVE"}
+    return {"lineNumber": lineNumber, "status": "ACTIVE", "likesSync": likes_sync}
 
 
 @api.post("/lines/{lineNumber}/terminate")

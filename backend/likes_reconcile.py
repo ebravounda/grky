@@ -104,16 +104,53 @@ async def reconcile_customer(db, fiscal_id):
     return {"reconciled": True, "counts": counts, "at": now}
 
 
-async def reconcile_all(db, limit=500):
-    """Reconciliación masiva: todos los clientes ya dados de alta en Likes."""
+async def reconcile_all(db, limit=1000):
+    """Reconciliación masiva: importa TODOS los clientes reales de Likes y espeja su estado."""
     if not likes_client.get_token():
         return {"reconciled": False, "reason": "not_connected"}
+    imp = await import_customers(db)
     total = {"customers": 0, "orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
-    cursor = db.customers.find({"likesSynced": True}).limit(limit)
+    cursor = db.customers.find({"source": "likes"}).limit(limit)
     async for c in cursor:
         r = await reconcile_customer(db, c["fiscalId"])
         if r.get("reconciled"):
             total["customers"] += 1
             for k in ("orders", "lines", "subscriptions", "portabilities"):
                 total[k] += r["counts"].get(k, 0)
-    return {"reconciled": True, "totals": total}
+    return {"reconciled": True, "imported": imp.get("count", 0), "totals": total}
+
+
+def _map_customer(c):
+    ba = c.get("billingAddress") or {}
+    return {
+        "fiscalId": c.get("fiscalId"), "customerType": c.get("customerType"),
+        "name": c.get("name"), "firstSurname": c.get("firstSurname"),
+        "lastSurname": c.get("lastSurname"), "email": (c.get("email") or "").lower(),
+        "contactPhone": c.get("contactPhone"), "fiscalIdType": c.get("fiscalIdType"),
+        "paymentMethod": c.get("paymentMethod"), "likesStatus": c.get("status"),
+        "billingAddress": {"street": ba.get("street"), "streetNumber": ba.get("streetNumber"),
+                           "postalCode": ba.get("postalCode"), "cityName": ba.get("cityName"),
+                           "provinceName": ba.get("provinceName"),
+                           "additionalInfo": ba.get("additionalInfo")},
+        "source": "likes", "likesSynced": True,
+    }
+
+
+async def import_customers(db):
+    """Trae de Likes la lista completa de clientes y los espeja en la colección local."""
+    if not likes_client.get_token():
+        return {"imported": False, "reason": "not_connected"}
+    now = _now()
+    n = 0
+    for c in (likes_client.get_customers() or []):
+        fid = c.get("fiscalId")
+        if not fid:
+            continue
+        doc = _map_customer(c)
+        doc["likesSyncedAt"] = now
+        await db.customers.update_one(
+            {"fiscalId": fid},
+            {"$set": doc, "$setOnInsert": {"created": c.get("created") or now, "ownerId": None}},
+            upsert=True)
+        n += 1
+    return {"imported": True, "count": n}

@@ -153,6 +153,12 @@ def get_installations():
     return live if live is not None else []
 
 
+def get_customers():
+    """GET /customers → lista TODOS los clientes reales de la marca en Likes."""
+    live = _live_get("/customers")
+    return live if live is not None else []
+
+
 # --------------------------------------------------------------------------
 # Catálogo de productos (mock que replica GET /products/brand)
 # --------------------------------------------------------------------------

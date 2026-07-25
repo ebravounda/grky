@@ -93,3 +93,20 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **P1**: Verificar dominio `goroky.es` en Resend (cuota actual muy baja) para envío masivo.
 - **P1**: OCR/verificación biométrica del DNI en KYC.
 - **P2**: Facturación recurrente vía integración real de envíos (courier), multi-marca admin.
+
+### Iteración 2026-07-25 (Despliegue en producción — VPS Plesk)
+- **App desplegada y verificada E2E en `https://a.rokymovil.com`** (Cloudflare → nginx → backend).
+- **Backend** FastAPI en `127.0.0.1:8011` vía systemd `goroky-api.service` (WorkingDirectory `/opt/goroky/backend`, venv). Puerto 8011 elegido porque el 8001 lo usa OTRA app del cliente (`gymaccess-api.service` / gym24 / ingresoqr) — NO tocar 8001.
+- **Frontend** compilado (`yarn build`) y servido desde docroot Plesk `/var/www/vhosts/rokymovil.com/a.rokymovil.com`. `.env` de prod: `REACT_APP_BACKEND_URL=https://a.rokymovil.com`.
+- **Proxy `/api`** añadido en Plesk (Additional nginx directives) → `proxy_pass http://127.0.0.1:8011`. Fallback SPA vía `.htaccess` (RewriteRule → index.html, excluyendo `/api/`).
+- **Mongo** `goroky_prod` en Docker (`goroky-mongo`). Login admin y catálogo público responden 200.
+- **Fix conflicto pip/litellm**: eliminada la línea `litellm @ https://...whl#sha256=...` de `requirements.txt` (chocaba con `emergentintegrations`, que ya trae su litellm). Aplicado en repo.
+- **Fix seed multi-worker (race)**: `auth.py seed_admin` y `server.py startup()` capturan `DuplicateKeyError` (con 2 workers ambos sembraban admin y 1 worker crasheaba). Aplicado en repo — PENDIENTE `git pull` en el VPS para que surta efecto.
+- Credenciales admin prod: `admin@goroky.com` / `CambiaEstaClaveFuerte!` (definidas en `.env` del VPS).
+
+## Backlog actualizado (2026-07-25)
+- **P1 (PENDIENTE)**: Cambiar Stripe de TEST a LIVE en el `.env` del VPS (`sk_live_...`) + webhook prod → `https://a.rokymovil.com/api/billing/webhook`.
+- **P1**: `git pull` en VPS para aplicar el fix del seed multi-worker.
+- **P1**: Verificar dominio en Resend (cuota baja) para envío masivo.
+- **P1**: OCR/verificación biométrica del DNI en KYC.
+- **P2**: Endurecer CORS al dominio de producción (hoy `*`).

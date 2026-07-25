@@ -110,3 +110,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **P1**: Verificar dominio en Resend (cuota baja) para envío masivo.
 - **P1**: OCR/verificación biométrica del DNI en KYC.
 - **P2**: Endurecer CORS al dominio de producción (hoy `*`).
+
+### Iteración 2026-07-25 (bis) — Import de clientes reales de Likes + admin soporte@
+- **Admin de producción cambiado**: `soporte@goroky.com` / `Ed$2526759` (rol admin). Antiguo `admin@goroky.com` eliminado de prod. `.env` VPS: `ADMIN_EMAIL=soporte@goroky.com`, `ADMIN_PASSWORD='Ed$2526759'` (comilla simple por el `$`).
+- **Descubierto endpoint `GET /customers` de Likes** (lista global de clientes de la marca) — no estaba en el cliente. `/orders` y `/subscriptions` requieren `fiscalId`; `/portabilities` e `/installations` son globales pero estaban vacíos.
+- **Código**: añadido `likes_client.get_customers()` + `likes_reconcile.import_customers(db)` y `_map_customer()`. `reconcile_all()` ahora primero importa TODOS los clientes de Likes (`source:"likes"`) y luego reconcilia cada uno. El scheduler (cada 20 min) hará sync automático de altas/cambios reales.
+- **Import inmediato ejecutado en VPS** (script one-off): 3 clientes reales importados (F53982002 Eduardo Bravo, Z3091783J David Guerrero, Z3452060H Eduardo Bravo) con sus órdenes/líneas/subs; 3 clientes demo borrados (12345678A, B87654321, 45678912C) + usuario portal demo `cliente@goroky.com`.
+- **PENDIENTE usuario**: "Save to Github" (repo grky) + `git pull` en VPS + restart para activar la sync automática permanente (el código nuevo aún no está en el VPS).

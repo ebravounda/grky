@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 import os
 import io
 import logging
@@ -2943,12 +2944,15 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.customers.create_index("fiscalId", unique=True)
     await db.lines.create_index("lineNumber", unique=True)
-    await seed_admin(db)
-    await seed_tariffs(db)
-    await seed_likes_tramo1(db)
-    await seed_demo(db)
-    await seed_promotions(db)
-    await seed_roles(db)
+    try:
+        await seed_admin(db)
+        await seed_tariffs(db)
+        await seed_likes_tramo1(db)
+        await seed_demo(db)
+        await seed_promotions(db)
+        await seed_roles(db)
+    except DuplicateKeyError:
+        pass
     # scheduler: recordatorios de pago + salud de integraciones
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

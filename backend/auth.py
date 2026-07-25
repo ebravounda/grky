@@ -4,6 +4,7 @@ import bcrypt
 import secrets
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, EmailStr
 
@@ -116,8 +117,11 @@ async def seed_admin(db):
     password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": email})
     if existing is None:
-        await db.users.insert_one({"email": email, "password_hash": hash_password(password),
-                                   "name": "Administrador Goroky", "role": "admin", "fiscalId": None,
-                                   "created_at": datetime.now(timezone.utc).isoformat()})
+        try:
+            await db.users.insert_one({"email": email, "password_hash": hash_password(password),
+                                       "name": "Administrador Goroky", "role": "admin", "fiscalId": None,
+                                       "created_at": datetime.now(timezone.utc).isoformat()})
+        except DuplicateKeyError:
+            pass
     elif not verify_password(password, existing["password_hash"]):
         await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(password)}})

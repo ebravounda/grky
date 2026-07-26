@@ -207,6 +207,25 @@ def block_line_remote(line_number, block=True):
                                      "action": "BLOCK" if block else "UNBLOCK"})
 
 
+def set_credit_limit_remote(line_number, limit):
+    """PUT /line/credit-limit → fija el límite de gasto de la línea en Likes."""
+    return _live_put("/line/credit-limit", {"lineNumber": line_number,
+                                            "creditLimit": str(limit),
+                                            "unblock": True, "toBeBlocked": True,
+                                            "automaticReactivation": True})
+
+
+def change_sim_remote(line_number, icc=None, esim=False, esim_email=None, reason="Others"):
+    """POST /line/changeSim → cambia/regenera la SIM de la línea en Likes."""
+    body = {"lineNumber": line_number, "reason": reason, "eSim": bool(esim)}
+    if esim:
+        if esim_email:
+            body["eSimEmail"] = esim_email
+    elif icc:
+        body["icc"] = icc
+    return _live_post("/line/changeSim", body)
+
+
 def download_document(url):
     """Descarga un documento desde una downloadURL prefirmada (S3). Devuelve bytes o None."""
     try:

@@ -140,3 +140,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - El PUT con {code,status} devolvía 200 pero NO aplicaba. Confirmado que enviar el item real {spanishName,status,parm2,type} con status cambiado SÍ aplica (probado en línea 722714396: Roaming True→False OK).
 - FIX: `likes_client.SVA_NAME_TO_CODE` (mapa nombre ES↔código). `set_line_svas(line, updates)` ahora trae los SVAs reales, cambia el status por código→spanishName y hace PUT en formato real. `_norm_svas` deriva code desde spanishName.
 - Solo backend (likes_client.py, likes_reconcile.py). Requiere git pull + restart + reconcile para re-normalizar SVAs almacenados.
+
+### Iteración 2026-07-26 (tri) — Push límite de gasto + regenerar SIM
+- `likes_client.set_credit_limit_remote(line, limit)` → PUT /line/credit-limit {creditLimit:str, unblock, toBeBlocked, automaticReactivation}. OJO: Likes exige creditLimit >= 5.
+- `likes_client.change_sim_remote(line, icc/esim/reason)` → POST /line/changeSim.
+- Endpoints CRM con push+likesSync: /spend-limit y /credit-limit (unifican spendLimit=creditLimit), /sim-duplicate (tras changeSim refresca ICC real desde get_line_info).
+- Solo backend. Requiere git pull + restart.

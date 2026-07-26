@@ -673,8 +673,14 @@ async def set_spend_limit(lineNumber: str, body: dict, request: Request):
     limit = float(body.get("limit", 0))
     auto_cut = bool(body.get("autoCut", False))
     await db.lines.update_one({"lineNumber": lineNumber},
-                              {"$set": {"spendLimit": limit, "autoCut": auto_cut}})
-    return {"lineNumber": lineNumber, "spendLimit": limit, "autoCut": auto_cut}
+                              {"$set": {"spendLimit": limit, "autoCut": auto_cut, "creditLimit": limit}})
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.set_credit_limit_remote(lineNumber, limit)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes credit-limit %s: %s", lineNumber, err)
+    return {"lineNumber": lineNumber, "spendLimit": limit, "autoCut": auto_cut, "likesSync": likes_sync}
 
 
 @api.put("/lines/{lineNumber}/roaming")
@@ -2522,13 +2528,28 @@ async def sim_duplicate(lineNumber: str, request: Request):
     line = await db.lines.find_one({"lineNumber": lineNumber})
     if not line:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
-    import random
-    new_icc = "8934" + str(random.randint(10**15, 10**16 - 1))
+    is_esim = bool(line.get("eSim"))
+    likes_sync = None
+    new_icc = None
+    if likes_client.get_token():
+        data, err = likes_client.change_sim_remote(
+            lineNumber, esim=is_esim, esim_email=line.get("eSimEmail"), reason="Others")
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes changeSim %s: %s", lineNumber, err)
+        else:
+            # tras el cambio, refrescar la SIM real desde Likes
+            info = likes_client.get_line_info(lineNumber)
+            if info and info.get("icc"):
+                new_icc = info["icc"]
+    if not new_icc:
+        import random
+        new_icc = "8934" + str(random.randint(10**15, 10**16 - 1))
     upd = {"icc": new_icc}
-    if line.get("eSim"):
+    if is_esim:
         upd["esimData"] = likes_client.esim_data(new_icc)
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": upd})
-    return {"ok": True, "icc": new_icc}
+    return {"ok": True, "icc": new_icc, "likesSync": likes_sync}
 
 
 @api.put("/lines/{lineNumber}/spn")
@@ -2558,10 +2579,17 @@ async def sim_info(lineNumber: str, request: Request):
 @api.put("/lines/{lineNumber}/credit-limit")
 async def set_credit_limit(lineNumber: str, body: CreditLimitBody, request: Request):
     await require_admin(request)
-    r = await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"creditLimit": body.creditLimit}})
+    r = await db.lines.update_one({"lineNumber": lineNumber},
+                                  {"$set": {"creditLimit": body.creditLimit, "spendLimit": body.creditLimit}})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
-    return {"ok": True, "creditLimit": body.creditLimit}
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.set_credit_limit_remote(lineNumber, body.creditLimit)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes credit-limit %s: %s", lineNumber, err)
+    return {"ok": True, "creditLimit": body.creditLimit, "likesSync": likes_sync}
 
 
 # ------------------------- suscripciones avanzadas -------------------------

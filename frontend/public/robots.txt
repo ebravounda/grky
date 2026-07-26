@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /portal
+Disallow: /api
+
+Sitemap: https://a.rokymovil.com/sitemap.xml

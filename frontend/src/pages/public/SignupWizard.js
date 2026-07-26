@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api, { apiErr } from "@/lib/api";
 import { resizeImage } from "@/lib/img";
 import CameraCapture from "@/components/CameraCapture";
+import CoverageChecker from "@/components/CoverageChecker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ export default function SignupWizard() {
   const [operators, setOperators] = useState([]);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [coverageOk, setCoverageOk] = useState(null);
   const [f, setF] = useState({
     docType: "DNI", fiscalId: "", name: "", firstSurname: "", lastSurname: "", dob: "",
     contactPhone: "", email: "", address: "", city: "", postalCode: "", province: "",
@@ -49,6 +51,7 @@ export default function SignupWizard() {
   const validStep = () => {
     if (step === 0) return f.fiscalId && f.name && f.email && f.contactPhone && f.dob;
     if (step === 1) {
+      if (isFiber && !coverageOk) return false;
       if (isPort && (!f.donorOperatorId || !f.portMsisdn)) return false;
       if (isMobile && f.simType === "physical" && !f.simIcc) return false;
       return true;
@@ -127,6 +130,15 @@ export default function SignupWizard() {
 
           {step === 1 && (
             <div className="space-y-6">
+              {isFiber && (
+                <div className="rounded-lg border border-border bg-accent/30 p-4">
+                  <Label className="mb-2 block">Comprueba la cobertura de fibra en tu dirección *</Label>
+                  <CoverageChecker onResult={(ok) => setCoverageOk(ok)} />
+                  {coverageOk === false && (
+                    <p className="text-xs text-destructive mt-2">Sin cobertura de fibra en esa dirección. Prueba otra o contrata una tarifa móvil.</p>
+                  )}
+                </div>
+              )}
               {canPort && (
                 <div>
                   <Label className="mb-2 block">Selecciona el tipo de línea *</Label>

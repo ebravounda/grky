@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api, { apiErr, API, openMyContractPdf } from "@/lib/api";
+import { fmtData } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -134,7 +135,7 @@ export default function ClientDashboard() {
               {isMobile ? (
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span>{l.usedGB} GB usados</span><span className="font-semibold text-slate-700">{l.totalGB} GB</span>
+                    <span>{fmtData(l.usedGB)} usados</span><span className="font-semibold text-slate-700">{fmtData(l.totalGB)}</span>
                   </div>
                   <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                     <motion.div className={`h-full rounded-full ${pct > 80 ? "bg-accent" : "bg-primary"}`} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8 }} />

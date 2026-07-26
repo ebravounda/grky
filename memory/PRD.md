@@ -126,3 +126,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Estructura doc Likes confirmada: `{"downloadURL": "https://prod-likes-customer-documents.s3...", "type": ...}` — filename derivado del path (contract.pdf, signedContract.pdf).
 - **Requisito usuario**: "CRM y Likes = espejo total bidireccional". Pull casi completo (falta verificar tipos DNI/selfie/IBAN además de contratos). Push parcial (endpoints escritura sin doc oficial de Likes).
 - **PENDIENTE despliegue VPS**: Save to Github + git pull + restart backend + **recompilar frontend** (cambió CustomerDetail.js y api.js) + reconcile-all para importar docs.
+
+### Iteración 2026-07-26 — API oficial Likes + espejo en vivo + consumo MB/GB
+- Recibido OpenAPI oficial de Likes (apidocs.likestelecom.com). Endpoints confirmados: PUT /line/svas, PUT /line/block (BLOCK/UNBLOCK), GET /line/gb, GET /line/svas, GET /line/cdrs, GET /customers, GET /subscriptions/cached (global), GET /draft-orders (global).
+- **Push CRM→Likes** corregido a endpoints oficiales: SVAs/roaming (PUT /line/svas), suspender/reactivar (PUT /line/block). Fail-safe con campo likesSync.
+- **Pull en vivo** `_refresh_line_live()` en `GET /lines/{n}`: al abrir una línea (source=likes) trae SVAs/roaming/GB/estado en vivo de Likes y persiste → espejo instantáneo Likes→CRM.
+- **Consumo MB/GB**: helper `src/lib/format.js fmtData()` (MB si <1GB, GB si ≥1GB) aplicado en LinePanel.js (CRM) y ClientDashboard.js (portal).
+- Documentos: importador ya descarga documentation[].downloadURL (contract/signedContract). DNI/selfie NO aparecen en documentation[] de estas órdenes ni en /customer (vacío) — pendiente confirmar si esos clientes tienen DNI subido en Likes.
+- **BLOQUEANTE PRINCIPAL**: todo el código nuevo (push, pull vivo, docs, MB/GB, fix 500) está en el repo Emergent pero NO en el VPS. Requiere Save to Github + git pull + rebuild frontend + restart. Por eso "no se replica" para el usuario.

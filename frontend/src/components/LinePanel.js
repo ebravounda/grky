@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { apiErr } from "@/lib/api";
+import { fmtData } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,7 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
           {[
             { icon: Phone, label: "Minutos nacionales", value: `${line.nationalMinutes ?? 0}`, testid: "usage-minutes" },
             { icon: MessageSquare, label: "SMS enviados", value: `${line.smsUsed ?? 0}`, testid: "usage-sms" },
-            { icon: Database, label: "Datos usados", value: `${line.usedGB} GB`, testid: "usage-data" },
+            { icon: Database, label: "Datos usados", value: fmtData(line.usedGB), testid: "usage-data" },
           ].map((s) => (
             <div key={s.label} data-testid={s.testid} className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center gap-2 text-primary mb-2"><s.icon size={16} /><span className="overline text-muted-foreground">{s.label}</span></div>
@@ -162,11 +163,11 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
                   transition={{ duration: 1 }} />
               </svg>
               <div className="absolute text-center">
-                <p className="font-heading text-3xl font-700">{line.usedGB}</p>
-                <p className="text-xs text-muted-foreground">de {line.totalGB} GB</p>
+                <p className="font-heading text-3xl font-700">{fmtData(line.usedGB)}</p>
+                <p className="text-xs text-muted-foreground">de {fmtData(line.totalGB)}</p>
               </div>
             </div>
-            <p className="text-center text-sm text-muted-foreground mt-2">{(line.totalGB - line.usedGB).toFixed(1)} GB disponibles</p>
+            <p className="text-center text-sm text-muted-foreground mt-2">{fmtData(Math.max(0, (line.totalGB || 0) - (line.usedGB || 0)))} disponibles</p>
           </div>
         )}
 

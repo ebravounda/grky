@@ -97,6 +97,37 @@ def _enrich_line(line: dict) -> dict:
     return line
 
 
+async def _refresh_line_live(line: dict) -> dict:
+    """Trae de Likes en vivo SVAs/roaming/consumo/estado de la línea y lo persiste (espejo instantáneo)."""
+    if line.get("source") != "likes" or not likes_client.get_token():
+        return line
+    ln = line.get("lineNumber")
+    upd = {}
+    try:
+        svas = likes_client.get_line_svas(ln)
+        if isinstance(svas, list) and svas:
+            svas = likes_reconcile._norm_svas(svas)
+            upd["svas"] = svas
+            roaming = next((x for x in svas if x.get("code") == "ROAMING"), None)
+            if roaming is not None:
+                upd["roaming"] = bool(roaming.get("status"))
+        if line.get("family") == "Mobile":
+            gb = likes_client.get_line_gb(ln)
+            if gb:
+                upd.update({"totalGB": gb.get("totalGB"), "usedGB": gb.get("usedGB"),
+                            "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
+        info = likes_client.get_line_info(ln)
+        if info and info.get("status"):
+            upd["status"] = info["status"]
+    except Exception as e:  # noqa
+        logger.warning("refresh line live %s: %s", ln, e)
+    if upd:
+        upd["likesSyncedAt"] = now_iso()
+        await db.lines.update_one({"lineNumber": ln}, {"$set": upd})
+        line.update(upd)
+    return line
+
+
 async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
     """Clients can only access their own fiscalId."""
     if user.get("role") == "client":
@@ -565,6 +596,7 @@ async def get_line(lineNumber: str, request: Request):
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
+    line = await _refresh_line_live(line)
     return clean(_enrich_line(line))
 
 

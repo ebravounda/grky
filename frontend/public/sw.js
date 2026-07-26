@@ -1,5 +1,5 @@
 /* GoRoky PWA Service Worker */
-const CACHE = "goroky-v1";
+const CACHE = "goroky-v2";
 const APP_SHELL = ["/", "/index.html", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

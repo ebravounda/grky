@@ -78,7 +78,7 @@ function App() {
       <Toaster richColors position="top-right" />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<PublicCatalog />} />
           <Route path="/login" element={<Login />} />
           <Route path="/payment/:result" element={<PaymentResult />} />
           <Route path="/contratar" element={<PublicCatalog />} />

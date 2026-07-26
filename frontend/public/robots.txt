@@ -4,4 +4,4 @@ Disallow: /app
 Disallow: /portal
 Disallow: /api
 
-Sitemap: https://a.rokymovil.com/sitemap.xml
+Sitemap: https://rokymovil.com/sitemap.xml

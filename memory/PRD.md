@@ -201,3 +201,8 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **SEO**: `index.html` con `lang=es`, title/description/keywords con marca (goroky, soyroky, roky móvil) + 14 ciudades (Madrid, Barcelona, Valencia, Alicante, Granada, Málaga, Fuengirola, Benidorm, Marbella, Cádiz, Cáceres, Segovia, Tarancón, Cuenca), Open Graph + Twitter Card + canonical, **JSON-LD** (Organization con alternateName + areaServed, Store). `public/robots.txt` + `public/sitemap.xml`. Contenido de ciudades en marquee + footer.
 - ⚠️ **APRENDIZAJE (evitar doom loop)**: tras `create_file overwrite=true` de un componente grande, el hot-reload de CRA a veces NO recompila el bundle (sirve el antiguo aunque diga "Compiled successfully"). SOLUCIÓN: `sudo supervisorctl restart frontend` para forzar recompilación limpia. Verificar con `curl localhost:3000/static/js/bundle.js | grep <string-nuevo>`.
 - ⚠️ **SEO SPA**: es CRA client-rendered; el meta estático + JSON-LD cubren lo esencial, pero para indexación máxima de contenido dinámico convendría prerender/SSR (react-snap o similar) — pendiente P2.
+
+### Iteración 2026-06 (fork) — Tienda como web principal (home) + dominio SEO rokymovil.com
+- Ruta `/` ahora renderiza `PublicCatalog` (la tienda es la home). `RootRedirect` queda sin uso (login/app/portal siguen accesibles vía "Mi cuenta").
+- SEO actualizado a dominio raíz: canonical/OG → `https://rokymovil.com/`, JSON-LD/robots/sitemap → `rokymovil.com`.
+- ⚠️ Para que se vea en `rokymovil.com` (no solo `a.rokymovil.com`): el usuario debe apuntar el dominio raíz al app en su VPS (DNS A/CNAME + Nginx `server_name rokymovil.com www.rokymovil.com` + certificado/Cloudflare). Es config de infraestructura del VPS, no de código.

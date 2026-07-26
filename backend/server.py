@@ -399,6 +399,10 @@ class AppSettingsBody(BaseModel):
     setupFee: Optional[float] = None
     reminderDays: Optional[List[int]] = None
     maxFailed: Optional[int] = None
+    stripeSecretKey: Optional[str] = None
+    stripePublishableKey: Optional[str] = None
+    stripeWebhookSecret: Optional[str] = None
+    stripeMode: Optional[str] = None  # "test" | "live"
 
 
 class RejectBody(BaseModel):
@@ -1528,6 +1532,7 @@ async def create_checkout(body: CheckoutRequest, request: Request):
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
+    await _stripe_apply()
     amount = int(round(inv["total"] * 100))
     session = stripe.checkout.Session.create(
         line_items=[{
@@ -1557,6 +1562,7 @@ async def payment_status(session_id: str):
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     if record.get("payment_status") != "paid":
         try:
+            await _stripe_apply()
             s = stripe.checkout.Session.retrieve(session_id)
             if s.payment_status == "paid" or s.status == "complete":
                 await db.payment_transactions.update_one(
@@ -1583,7 +1589,8 @@ async def stripe_webhook(request: Request):
     from bson import ObjectId
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
-    secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    cfg = await _stripe_apply()
+    secret = (cfg.get("stripeWebhookSecret") or "").strip() or os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     try:
         event = stripe.Webhook.construct_event(payload, sig, secret)
     except Exception:
@@ -1627,11 +1634,32 @@ async def get_app_settings():
     return s
 
 
+async def _stripe_apply():
+    """Aplica la clave de Stripe desde la BD (o .env como fallback) antes de cada operación."""
+    s = await get_app_settings()
+    key = (s.get("stripeSecretKey") or "").strip() or os.environ.get("STRIPE_SECRET_KEY") or "sk_test_emergent"
+    stripe.api_key = key
+    return s
+
+
+def _mask_secret(v):
+    if not v:
+        return ""
+    return "••••" + v[-4:] if len(v) > 4 else "••••"
+
+
 @api.get("/admin/settings")
 async def admin_settings_get(request: Request):
     await require_admin(request)
     s = await get_app_settings()
     s.pop("_id", None)
+    # No exponer secretos completos
+    s["stripeSecretKeyMasked"] = _mask_secret(s.get("stripeSecretKey"))
+    s["stripeWebhookSecretMasked"] = _mask_secret(s.get("stripeWebhookSecret"))
+    s["stripeSecretKeySet"] = bool(s.get("stripeSecretKey"))
+    s["stripeWebhookSecretSet"] = bool(s.get("stripeWebhookSecret"))
+    s.pop("stripeSecretKey", None)
+    s.pop("stripeWebhookSecret", None)
     return s
 
 
@@ -1639,10 +1667,18 @@ async def admin_settings_get(request: Request):
 async def admin_settings_put(body: AppSettingsBody, request: Request):
     await require_admin(request)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # No sobrescribir secretos con cadena vacía o el placeholder enmascarado
+    for k in ("stripeSecretKey", "stripeWebhookSecret"):
+        if k in updates and (not str(updates[k]).strip() or str(updates[k]).startswith("••••")):
+            updates.pop(k)
     if updates:
         await db.app_settings.update_one({"_id": "config"}, {"$set": updates}, upsert=True)
+    if "stripeSecretKey" in updates:
+        await _stripe_apply()
     s = await get_app_settings()
     s.pop("_id", None)
+    s.pop("stripeSecretKey", None)
+    s.pop("stripeWebhookSecret", None)
     await log_event("system", "info", f"Configuración actualizada: {', '.join(updates.keys())}")
     return s
 
@@ -1827,6 +1863,7 @@ async def reject_application(token: str, body: RejectBody, request: Request):
 
 # ------------------------- recurring billing (card / SEPA) -------------------------
 async def _ensure_stripe_customer(customer):
+    await _stripe_apply()
     if customer.get("stripeCustomerId"):
         return customer["stripeCustomerId"]
     sc = stripe.Customer.create(
@@ -1965,6 +2002,7 @@ async def charge_service(fiscalId: str, body: ServiceChargeBody, request: Reques
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="El importe debe ser mayor que 0")
+    await _stripe_apply()
     method = body.method or (customer.get("recurring") or {}).get("method") or "card"
 
     # 1) Tarjeta guardada → cobro inmediato off-session
@@ -2241,6 +2279,7 @@ async def likes_reconcile_job():
 
 async def billing_daily_job():
     settings = await get_app_settings()
+    await _stripe_apply()
     reminder_days = settings.get("reminderDays") or BILLING_REMINDER_DAYS
     today = datetime.now(timezone.utc).date()
     subs = await db.subscriptions.find({"billing.enabled": True}).to_list(2000)
@@ -2557,13 +2596,19 @@ async def list_commissions(request: Request):
 @api.get("/settings")
 async def get_settings(request: Request):
     await require_admin(request)
+    cfg = await get_app_settings()
+    stripe_key = (cfg.get("stripeSecretKey") or "").strip() or os.environ.get("STRIPE_SECRET_KEY", "")
+    stripe_mode = cfg.get("stripeMode") or ("live" if stripe_key.startswith("sk_live") else "test")
     return {
         "issuer": {"brand": "GOROKY", "legal": "TRAMILEX GLOBAL SERVICE SL",
                    "cif": "B21796925", "address": "Calle cortina del muelle otr 11, 29015 MALAGA (Málaga)"},
         "likes": {"live": likes_client.CONNECTION_STATE["live"], "error": likes_client.CONNECTION_STATE["last_error"]},
         "emailConfigured": emailer.is_configured(),
         "senderEmail": os.environ.get("SENDER_EMAIL", ""),
-        "stripeMode": os.environ.get("STRIPE_MODE", "test"),
+        "stripeMode": stripe_mode,
+        "stripeConfigured": bool(stripe_key),
+        "stripePublishableKey": cfg.get("stripePublishableKey") or "",
+        "stripeWebhookConfigured": bool((cfg.get("stripeWebhookSecret") or "").strip() or os.environ.get("STRIPE_WEBHOOK_SECRET", "")),
     }
 
 
@@ -3263,6 +3308,10 @@ async def startup():
         await seed_roles(db)
     except DuplicateKeyError:
         pass
+    try:
+        await _stripe_apply()
+    except Exception as e:  # noqa
+        logger.warning("stripe config load failed: %s", e)
     # scheduler: recordatorios de pago + salud de integraciones
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

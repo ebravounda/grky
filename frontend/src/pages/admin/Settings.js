@@ -26,10 +26,14 @@ export default function Settings() {
   const [sending, setSending] = useState(false);
   const [cfg, setCfg] = useState(null);
   const [savingCfg, setSavingCfg] = useState(false);
+  const [stripeForm, setStripeForm] = useState({ stripeSecretKey: "", stripePublishableKey: "", stripeWebhookSecret: "", stripeMode: "test" });
 
   useEffect(() => {
     api.get("/settings").then((r) => { setS(r.data); setTestEmail(user?.email || ""); });
-    api.get("/admin/settings").then((r) => setCfg(r.data));
+    api.get("/admin/settings").then((r) => {
+      setCfg(r.data);
+      setStripeForm({ stripeSecretKey: "", stripePublishableKey: r.data.stripePublishableKey || "", stripeWebhookSecret: "", stripeMode: r.data.stripeMode || "test" });
+    });
   }, [user]);
   if (!s) return <div className="text-muted-foreground">Cargando…</div>;
 
@@ -39,7 +43,20 @@ export default function Settings() {
       const { data } = await api.put("/admin/settings", patch);
       setCfg(data);
       toast.success("Configuración guardada");
+      return data;
     } catch (e) { toast.error(apiErr(e)); } finally { setSavingCfg(false); }
+  };
+
+  const saveStripe = async () => {
+    const patch = { stripePublishableKey: stripeForm.stripePublishableKey, stripeMode: stripeForm.stripeMode };
+    if (stripeForm.stripeSecretKey.trim()) patch.stripeSecretKey = stripeForm.stripeSecretKey.trim();
+    if (stripeForm.stripeWebhookSecret.trim()) patch.stripeWebhookSecret = stripeForm.stripeWebhookSecret.trim();
+    const r = await saveCfg(patch);
+    if (r) {
+      setStripeForm((f) => ({ ...f, stripeSecretKey: "", stripeWebhookSecret: "" }));
+      api.get("/settings").then((res) => setS(res.data));
+      api.get("/admin/settings").then((res) => setCfg(res.data));
+    }
   };
 
   const sendTest = async () => {
@@ -82,7 +99,7 @@ export default function Settings() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm flex items-center gap-1.5"><CreditCard size={14} /> Stripe</span>
-            <StatusRow ok={true} okText={`Activo (${s.stripeMode})`} koText="No configurado" />
+            <StatusRow ok={!!s.stripeConfigured} okText={`Activo (${s.stripeMode})`} koText="No configurado" />
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm flex items-center gap-1.5"><Mail size={14} /> Email (Resend)</span>
@@ -122,6 +139,52 @@ export default function Settings() {
         </div>
 
         <LikesCard />
+
+        <div data-testid="stripe-config-card" className="rounded-lg border border-border bg-card p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-2 text-primary"><CreditCard size={18} /><h3 className="font-heading font-600 text-foreground">Pasarela de pago (Stripe)</h3></div>
+          <p className="text-sm text-muted-foreground">Introduce tus claves de Stripe. Se guardan de forma segura en el servidor. Usa claves <b>test</b> para pruebas y <b>live</b> en producción.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Clave secreta (Secret key)</Label>
+              <Input data-testid="stripe-secret-input" type="password" autoComplete="off"
+                placeholder={cfg?.stripeSecretKeySet ? `Guardada (${cfg.stripeSecretKeyMasked})` : "sk_live_… o sk_test_…"}
+                value={stripeForm.stripeSecretKey} onChange={(e) => setStripeForm((f) => ({ ...f, stripeSecretKey: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Clave publicable (Publishable key)</Label>
+              <Input data-testid="stripe-publishable-input" autoComplete="off" placeholder="pk_live_… o pk_test_…"
+                value={stripeForm.stripePublishableKey} onChange={(e) => setStripeForm((f) => ({ ...f, stripePublishableKey: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Secreto del webhook (Signing secret)</Label>
+              <Input data-testid="stripe-webhook-input" type="password" autoComplete="off"
+                placeholder={cfg?.stripeWebhookSecretSet ? `Guardado (${cfg.stripeWebhookSecretMasked})` : "whsec_…"}
+                value={stripeForm.stripeWebhookSecret} onChange={(e) => setStripeForm((f) => ({ ...f, stripeWebhookSecret: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Modo</Label>
+              <div className="flex gap-2">
+                {["test", "live"].map((m) => (
+                  <button key={m} type="button" data-testid={`stripe-mode-${m}`}
+                    onClick={() => setStripeForm((f) => ({ ...f, stripeMode: m }))}
+                    className={`flex-1 rounded-md border p-2 text-sm capitalize transition ${stripeForm.stripeMode === m ? "border-primary ring-2 ring-primary/30 bg-primary/5 font-medium" : "border-border"}`}>
+                    {m === "live" ? "Producción (live)" : "Pruebas (test)"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-accent/30 p-3 text-xs text-muted-foreground">
+            URL del webhook (configúrala en tu panel de Stripe → Developers → Webhooks):
+            <code className="ml-1 text-foreground break-all">{`${window.location.origin.replace('http://', 'https://')}/api/webhook/stripe`}</code>
+            <br />Eventos: <code className="text-foreground">checkout.session.completed</code>, <code className="text-foreground">invoice.payment_succeeded</code>, <code className="text-foreground">invoice.payment_failed</code>
+          </div>
+          <div className="flex justify-end">
+            <Button data-testid="save-stripe-btn" className="rounded-full gap-2" disabled={savingCfg} onClick={saveStripe}>
+              <CreditCard size={15} /> {savingCfg ? "Guardando…" : "Guardar claves de Stripe"}
+            </Button>
+          </div>
+        </div>
 
         <ContractTemplateCard />
 

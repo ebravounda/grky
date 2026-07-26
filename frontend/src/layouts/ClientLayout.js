@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { Home, ReceiptText, Store, LifeBuoy, Bell, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import InstallPrompt from "@/components/InstallPrompt";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 
@@ -45,6 +46,8 @@ export default function ClientLayout() {
         <main>
           <Outlet />
         </main>
+
+        <InstallPrompt />
 
         {/* Bottom tab bar */}
         <nav className="fixed bottom-0 w-full max-w-[560px] bg-white border-t border-slate-200 pb-safe z-40 shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]">

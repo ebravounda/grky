@@ -26,8 +26,8 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
-    payload = {"sub": user_id, "email": email, "role": role,
+def create_access_token(user_id: str, email: str, role: str, epoch: int = 0) -> str:
+    payload = {"sub": user_id, "email": email, "role": role, "epoch": epoch,
                "exp": datetime.now(timezone.utc) + timedelta(hours=12), "type": "access"}
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -47,7 +47,7 @@ def create_auth_router(db):
     router = APIRouter(prefix="/api/auth")
 
     async def _issue(response: Response, user: dict):
-        token = create_access_token(str(user["_id"]), user["email"], user["role"])
+        token = create_access_token(str(user["_id"]), user["email"], user["role"], user.get("sessionEpoch", 0))
         response.set_cookie(key="access_token", value=token, httponly=True,
                             secure=True, samesite="none", max_age=43200, path="/")
         return token
@@ -58,6 +58,10 @@ def create_auth_router(db):
         user = await db.users.find_one({"email": email})
         if not user or not verify_password(body.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+        if user.get("appBlocked"):
+            raise HTTPException(status_code=403, detail="Tu acceso a la app está bloqueado. Contacta con soporte.")
+        await db.users.update_one({"_id": user["_id"]},
+                                  {"$set": {"lastLogin": datetime.now(timezone.utc).isoformat()}})
         token = await _issue(response, user)
         return {"token": token, "user": _public(user)}
 
@@ -105,6 +109,10 @@ async def get_current_user(request: Request, db) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        if payload.get("epoch", 0) != user.get("sessionEpoch", 0):
+            raise HTTPException(status_code=401, detail="Sesión finalizada. Vuelve a iniciar sesión.")
+        if user.get("appBlocked"):
+            raise HTTPException(status_code=403, detail="Tu acceso a la app está bloqueado.")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Sesión expirada")

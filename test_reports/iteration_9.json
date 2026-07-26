@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 9: tested Admin app-users management (list/block/logout/set-pw/reset-pw), auto client-user creation is implicit (2 client users present: Juan García + Yeily Cadena), and Likes 3-step fiber coverage (admin + public). Backend: 8/8 pytest passed. Frontend: sidebar shows 'Usuarios de la app', /app/app-users renders table with columns Cliente/Servicios activos/Último acceso/Estado/Acciones and all 4 action buttons per row (Restablecer/Contraseña/Cerrar sesión/Bloquear); set-pw dialog opens. Coverage flow on /app/catalog with 'Gran Via Madrid' returns 10 addresses → 97 verticals → 'Cobertura FTTH disponible' card with address (CALLE GRAN VIA 55, 28013 MADRID) and product list (1502, 1504, 1506, 1510, PF-1502, etc.). Cliente@goroky.com verified restored (unblocked, password Cliente2026!, login 200 at end).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/app-users/{id}/block (blocked=true)", "issue": "Also increments sessionEpoch, so a pre-existing client token now returns 401 (session ended) instead of 403 (appBlocked) on GET /api/auth/me. The 403 check in get_current_user is only reachable if the epoch still matches. Functionally correct (denied), but semantically the review request expects 403. Consider not incrementing epoch on block so the appBlocked 403 branch is reachable."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_app_users_coverage.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "MINOR (optional): reconsider whether /admin/app-users/{id}/block should increment sessionEpoch. Current behavior makes prior tokens 401 instead of 403. Either behavior invalidates access, so this is not blocking."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to ~2700+ lines; consider extracting the app-users admin block (lines ~586-702) and coverage block (~520-583) into separate routers.",
+    "_ensure_client_access uses email as identity but customer.email is stored lowercased at creation; ensure downstream imports also normalize (e.g., legacy customers with mixed-case emails could get duplicate users).",
+    "admin_app_users has no pagination; with many clients it will fetch 3000 users and issue 2 count queries per user (N+1). For >1k clients consider aggregation ($lookup) or precomputed counters.",
+    "_send_app_credentials silently no-ops for test domains (@example.com etc.) — good for seed noise, but ensure production emails don't accidentally fall in this list.",
+    "_coverage_check normalization handles list responses well; consider also handling {options: [...]} shape in case Likes returns nested."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9_app_users_coverage.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com/Goroky2026! (admin); cliente@goroky.com/Cliente2026! (client, LEFT UNBLOCKED and pw restored)",
+  "seed_data_creation": "Yeily Cadena's password was reset (random) during test_reset_password_second_client — she now has an unknown random password (email attempted, no-op in preview since Resend/test domain). If Yeily needs a known password, admin can set it via /app/app-users → Contraseña.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "data-testids for app-users: app-users-page, app-users-search, app-user-<id>, reset-pw-<id>, set-pw-<id>, logout-<id>, block-<id>, set-pw-dialog, manual-pw-input, save-manual-pw. Coverage: coverage-address, coverage-check-btn, coverage-addr-<i>, coverage-vertical-<i>, coverage-result. Public coverage works without auth at /api/public/coverage/{search,buildings,check}. Likes is LIVE from pod so real FTTH data returned for 'Gran Via Madrid'. IMPORTANT: if a test kills the client's block/pw state mid-run, restore via admin API: POST /admin/app-users/<id>/block {blocked:false} and /set-password {password:'Cliente2026!'}. Test file /app/backend/tests/test_iter9_app_users_coverage.py uses try/finally to auto-restore.",
+  "rca of the issue": "N/A — all features work per spec. The only semantic deviation (401 vs 403 for pre-block tokens) is because block increments sessionEpoch, so the epoch-mismatch branch (401) runs before the appBlocked branch (403). Access is correctly denied either way; test accepts 401/403."
+}

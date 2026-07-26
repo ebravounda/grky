@@ -24,6 +24,7 @@ import Resources from "@/pages/admin/Resources";
 import Invoices from "@/pages/admin/Invoices";
 import Tickets from "@/pages/admin/Tickets";
 import Users from "@/pages/admin/Users";
+import AppUsers from "@/pages/admin/AppUsers";
 import Commissions from "@/pages/admin/Commissions";
 import ClientDashboard from "@/pages/client/ClientDashboard";
 import ClientLineDetail from "@/pages/client/ClientLineDetail";
@@ -105,6 +106,7 @@ function App() {
             <Route path="invoices" element={<PermGuard perm="invoices.view"><Invoices /></PermGuard>} />
             <Route path="tickets" element={<PermGuard perm="tickets.manage"><Tickets /></PermGuard>} />
             <Route path="users" element={<PermGuard perm="users.manage"><Users /></PermGuard>} />
+            <Route path="app-users" element={<PermGuard perm="customers.view"><AppUsers /></PermGuard>} />
             <Route path="commissions" element={<PermGuard perm="commissions.view"><Commissions /></PermGuard>} />
           </Route>
 

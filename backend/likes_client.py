@@ -381,8 +381,15 @@ def get_ticket_typologies():
     return MOCK_TICKET_TYPOLOGIES
 
 
-def check_coverage(address):
-    """Mock del flujo de cobertura (POST /coverage/format-coverage)."""
+def check_coverage(gescal37=None, session_id=None, address=None):
+    """Consulta cobertura real (POST /coverage/format-coverage). Fallback a mock."""
+    if gescal37:
+        payload = {"gescal37": gescal37}
+        if session_id:
+            payload["sessionId"] = session_id
+        live, _err = _live_post("/coverage/format-coverage", payload)
+        if live is not None:
+            return live
     return {
         "valid": True,
         "products": [{"productId": "1520"}, {"productId": "1521"}, {"productId": "1522"}],
@@ -396,13 +403,28 @@ def check_coverage(address):
 
 
 def search_address(label):
-    """Mock de GET /coverage/address (búsqueda de direcciones)."""
+    """Búsqueda de direcciones real (GET /coverage/address?label=). Fallback a mock."""
+    live = _live_get("/coverage/address", {"label": label or ""})
+    if live is not None:
+        return live
     base = label or "Calle Mayor"
     return {"sessionId": "mock-session", "items": [
-        {"address": f"{base} 1, 28013 Madrid", "gescal": "28079000000100001"},
-        {"address": f"{base} 15, 28013 Madrid", "gescal": "28079000000100015"},
-        {"address": f"{base} 42, 28013 Madrid", "gescal": "28079000000100042"},
+        {"label": f"{base} 1, 28013 Madrid", "gescal": "28079000000100001"},
+        {"label": f"{base} 15, 28013 Madrid", "gescal": "28079000000100015"},
+        {"label": f"{base} 42, 28013 Madrid", "gescal": "28079000000100042"},
     ]}
+
+
+def get_buildings(gescal, session_id=None):
+    """Portales/verticales de una dirección (GET /coverage/buildings). Fallback a mock."""
+    params = {"gescal": gescal}
+    if session_id:
+        params["sessionId"] = session_id
+    live = _live_get("/coverage/buildings", params)
+    if live is not None:
+        return live
+    return {"sessionId": session_id or "mock-session",
+            "verticals": [{"gescal37": (gescal or "").ljust(37, "0")[:37], "label": "Portal único"}]}
 
 
 def esim_data(icc):

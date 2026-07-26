@@ -514,7 +514,192 @@ async def ticket_typologies(request: Request):
 @api.post("/coverage")
 async def coverage(body: CoverageRequest, request: Request):
     await current_user(request)
-    return likes_client.check_coverage(body.address)
+    return likes_client.check_coverage(address=body.address)
+
+
+# ------------------------- cobertura de fibra (flujo real Likes) -------------------------
+class CoverageCheckBody(BaseModel):
+    gescal37: str
+    sessionId: Optional[str] = None
+
+
+async def _coverage_search(label):
+    return likes_client.search_address(label)
+
+
+async def _coverage_buildings(gescal, session_id):
+    return likes_client.get_buildings(gescal, session_id)
+
+
+async def _coverage_check(gescal37, session_id):
+    res = likes_client.check_coverage(gescal37=gescal37, session_id=session_id)
+    # Likes devuelve una lista de opciones (FTTH/NEBA...); normalizamos a un objeto
+    if isinstance(res, list):
+        options = res
+        chosen = next((o for o in res if o.get("valid")), (res[0] if res else {}))
+    else:
+        options = [res] if res else []
+        chosen = res or {}
+    cov = chosen.get("coverage") or {}
+    if not cov.get("label"):
+        parts = [cov.get("streetType", ""), cov.get("street", ""), cov.get("streetNumber", "")]
+        addr = " ".join(p for p in parts if p).strip()
+        loc = " ".join(p for p in [cov.get("postalCode", ""), cov.get("city", "")] if p).strip()
+        cov["label"] = ", ".join(p for p in [addr, loc] if p)
+    return {"valid": bool(chosen.get("valid")), "products": chosen.get("products") or [],
+            "coverage": cov, "options": options}
+
+
+@api.get("/coverage/search")
+async def coverage_search(label: str, request: Request):
+    await current_user(request)
+    return await _coverage_search(label)
+
+
+@api.get("/coverage/buildings")
+async def coverage_buildings(gescal: str, request: Request, sessionId: str = None):
+    await current_user(request)
+    return await _coverage_buildings(gescal, sessionId)
+
+
+@api.post("/coverage/check")
+async def coverage_check(body: CoverageCheckBody, request: Request):
+    await current_user(request)
+    return await _coverage_check(body.gescal37, body.sessionId)
+
+
+@api.get("/public/coverage/search")
+async def public_coverage_search(label: str):
+    return await _coverage_search(label)
+
+
+@api.get("/public/coverage/buildings")
+async def public_coverage_buildings(gescal: str, sessionId: str = None):
+    return await _coverage_buildings(gescal, sessionId)
+
+
+@api.post("/public/coverage/check")
+async def public_coverage_check(body: CoverageCheckBody):
+    return await _coverage_check(body.gescal37, body.sessionId)
+
+
+# ------------------------- acceso de clientes a la app -------------------------
+class SetPwBody(BaseModel):
+    password: str
+
+
+class BlockBody(BaseModel):
+    blocked: bool
+
+
+def _gen_password(n: int = 10):
+    import secrets as _s
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+    return "".join(_s.choice(alphabet) for _ in range(n))
+
+
+async def _send_app_credentials(email, name, password, reset=False):
+    if not email:
+        return
+    app_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    login_url = f"{app_url}/login" if app_url else "la app de GoRoky"
+    title = "Contraseña de la app restablecida" if reset else "Ya tienes acceso a la app de GoRoky"
+    intro = ("Hemos restablecido la contraseña de acceso a tu app. Estos son tus nuevos datos de acceso:"
+             if reset else
+             "¡Bienvenido! Ya puedes acceder a la app de GoRoky para gestionar tus servicios, "
+             "ver tu consumo y descargar tus facturas. Estos son tus datos de acceso:")
+    body = (f"Hola {name or ''},<br><br>{intro}<br><br>"
+            "<b>Tus datos de acceso a la app:</b><br>"
+            f"• App: <a href='{login_url}'>{login_url}</a><br>"
+            f"• Usuario: <b>{email}</b><br>"
+            f"• Contraseña: <b>{password}</b><br><br>"
+            "Por tu seguridad, te recomendamos cambiar la contraseña tras el primer acceso.")
+    await _send_mail_safe("email", email, f"{title} · GoRoky", emailer.base_template(title, body))
+
+
+async def _ensure_client_access(cust):
+    """Crea el usuario de app del cliente (si no existe) y le envía sus credenciales."""
+    if not cust or not cust.get("email"):
+        return
+    email = cust["email"].lower()
+    if await db.users.find_one({"email": email}):
+        return
+    pw = _gen_password()
+    name = f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip()
+    await db.users.insert_one({
+        "email": email, "password_hash": hash_password(pw), "name": name,
+        "role": "client", "fiscalId": cust.get("fiscalId"),
+        "appBlocked": False, "sessionEpoch": 0, "created_at": now_iso()})
+    await _send_app_credentials(email, name, pw, reset=False)
+    await log_event("system", "info", f"Acceso a la app creado para {email}")
+
+
+@api.get("/admin/app-users")
+async def admin_app_users(request: Request):
+    await require_admin(request)
+    users = await db.users.find({"role": "client"}).to_list(3000)
+    out = []
+    for u in users:
+        fid = u.get("fiscalId")
+        active = await db.lines.count_documents({"fiscalId": fid, "status": "ACTIVE"}) if fid else 0
+        total = await db.lines.count_documents({"fiscalId": fid}) if fid else 0
+        out.append({"id": str(u["_id"]), "email": u["email"], "name": u.get("name"),
+                    "fiscalId": fid, "lastLogin": u.get("lastLogin"),
+                    "appBlocked": bool(u.get("appBlocked")), "activeServices": active,
+                    "totalServices": total, "createdAt": u.get("created_at")})
+    out.sort(key=lambda x: (x.get("lastLogin") or ""), reverse=True)
+    return out
+
+
+@api.post("/admin/app-users/{uid}/reset-password")
+async def admin_reset_app_pw(uid: str, request: Request):
+    await require_admin(request)
+    u = await db.users.find_one({"_id": _OID(uid), "role": "client"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    pw = _gen_password()
+    await db.users.update_one({"_id": u["_id"]},
+                              {"$set": {"password_hash": hash_password(pw)}, "$inc": {"sessionEpoch": 1}})
+    await _send_app_credentials(u["email"], u.get("name"), pw, reset=True)
+    await log_event("system", "info", f"Contraseña de app restablecida · {u['email']}")
+    return {"ok": True, "emailed": bool(u.get("email"))}
+
+
+@api.post("/admin/app-users/{uid}/set-password")
+async def admin_set_app_pw(uid: str, body: SetPwBody, request: Request):
+    await require_admin(request)
+    if len((body.password or "").strip()) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+    u = await db.users.find_one({"_id": _OID(uid), "role": "client"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    await db.users.update_one({"_id": u["_id"]},
+                              {"$set": {"password_hash": hash_password(body.password.strip())}, "$inc": {"sessionEpoch": 1}})
+    await log_event("system", "info", f"Contraseña de app cambiada manualmente · {u['email']}")
+    return {"ok": True}
+
+
+@api.post("/admin/app-users/{uid}/logout")
+async def admin_logout_app_user(uid: str, request: Request):
+    await require_admin(request)
+    r = await db.users.update_one({"_id": _OID(uid), "role": "client"}, {"$inc": {"sessionEpoch": 1}})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+@api.post("/admin/app-users/{uid}/block")
+async def admin_block_app_user(uid: str, body: BlockBody, request: Request):
+    await require_admin(request)
+    op = {"$set": {"appBlocked": bool(body.blocked)}}
+    if body.blocked:
+        op["$inc"] = {"sessionEpoch": 1}
+    r = await db.users.update_one({"_id": _OID(uid), "role": "client"}, op)
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    await log_event("system", "warning" if body.blocked else "info",
+                    f"Acceso a la app {'bloqueado' if body.blocked else 'desbloqueado'} · usuario {uid}")
+    return {"ok": True, "appBlocked": bool(body.blocked)}
 
 
 # ------------------------- dashboard -------------------------
@@ -1796,6 +1981,9 @@ async def _do_activate_order(order):
     body += "<br>Gracias por confiar en GoRoky. 🎉"
     await _send_mail_safe("email", to, "¡Bienvenido a GoRoky! Tu línea está activada",
                           emailer.base_template("¡Bienvenido a GoRoky! Tu línea ya está activada", body))
+    # crear acceso a la app + enviar credenciales (si aún no tiene usuario)
+    if cust:
+        await _ensure_client_access(cust)
     await log_event("order", "success",
                     f"Línea {order.get('lineNumber')} activada · {order.get('customerName')}",
                     {"orderId": order["orderId"]})

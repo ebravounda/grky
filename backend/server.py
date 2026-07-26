@@ -3183,6 +3183,74 @@ async def _save_file(kind, data_url, owner):
     return str(res.inserted_id)
 
 
+DEFAULT_SITE_CONTENT = {
+    "brandName": "GoRoky",
+    "hero": {
+        "badge": "Promo portabilidad",
+        "title": "Móvil y fibra que se adaptan",
+        "titleHighlight": "a ti",
+        "subtitle": "Cámbiate a roky móvil y conserva tu número gratis. Tarifas claras, cobertura nacional y alta 100% online en minutos.",
+        "ctaPrimary": "Ver tarifas",
+        "ctaSecondary": "Comprobar fibra",
+    },
+    "plans": {
+        "eyebrow": "Tarifas GoRoky",
+        "title": "Elige tu tarifa y contrata en minutos",
+    },
+    "coverage": {
+        "eyebrow": "Fibra óptica",
+        "title": "¿Llega la fibra a tu casa?",
+        "description": "Comprueba la cobertura real de fibra en tu dirección antes de contratar. Disponible en las principales ciudades de España.",
+    },
+    "trust": [
+        {"icon": "Repeat", "title": "Portabilidad gratis", "desc": "Conserva tu número sin coste ni cortes."},
+        {"icon": "Zap", "title": "Alta 100% online", "desc": "Firma digital y activación en minutos."},
+        {"icon": "Smartphone", "title": "App GoRoky", "desc": "Controla tu consumo y facturas desde el móvil."},
+        {"icon": "Headphones", "title": "Atención cercana", "desc": "Soporte real, sin robots que no resuelven."},
+    ],
+    "cities": ["Madrid", "Barcelona", "Valencia", "Alicante", "Granada", "Málaga",
+               "Fuengirola", "Benidorm", "Marbella", "Cádiz", "Cáceres", "Segovia", "Tarancón", "Cuenca"],
+    "footer": {
+        "description": "GoRoky (soyroky · roky móvil) es tu operador de móvil y fibra. Portabilidad gratis y alta 100% online con cobertura en las principales ciudades de España.",
+        "company": "TRAMILEX GLOBAL SERVICE SL · B21796925",
+    },
+}
+
+
+async def get_site_content():
+    doc = await db.site_content.find_one({"_id": "home"})
+    if not doc:
+        return dict(DEFAULT_SITE_CONTENT)
+    doc.pop("_id", None)
+    # merge superficial con defaults para nuevas claves
+    merged = dict(DEFAULT_SITE_CONTENT)
+    merged.update(doc)
+    return merged
+
+
+class SiteContentBody(BaseModel):
+    content: dict
+
+
+@api.get("/public/site-content")
+async def public_site_content():
+    return await get_site_content()
+
+
+@api.get("/admin/site-content")
+async def admin_site_content_get(request: Request):
+    await require_admin(request)
+    return await get_site_content()
+
+
+@api.put("/admin/site-content")
+async def admin_site_content_put(body: SiteContentBody, request: Request):
+    await require_admin(request)
+    await db.site_content.update_one({"_id": "home"}, {"$set": body.content}, upsert=True)
+    await log_event("system", "info", "Contenido de la web pública actualizado")
+    return await get_site_content()
+
+
 @api.get("/public/catalog")
 async def public_catalog():
     items = await db.tariffs.find({"active": True, "type": "Main"}).sort("price", 1).to_list(500)

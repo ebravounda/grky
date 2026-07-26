@@ -12,6 +12,7 @@ import LineDetail from "@/pages/admin/LineDetail";
 import Catalog from "@/pages/admin/Catalog";
 import Tariffs from "@/pages/admin/Tariffs";
 import Settings from "@/pages/admin/Settings";
+import SiteContent from "@/pages/admin/SiteContent";
 import Orders from "@/pages/admin/Orders";
 import Alerts from "@/pages/admin/Alerts";
 import Solicitudes from "@/pages/admin/Solicitudes";
@@ -96,6 +97,7 @@ function App() {
             <Route path="catalog" element={<PermGuard perm="catalog.view"><Catalog /></PermGuard>} />
             <Route path="tariffs" element={<PermGuard perm="tariffs.manage"><Tariffs /></PermGuard>} />
             <Route path="settings" element={<PermGuard perm="settings.manage"><Settings /></PermGuard>} />
+            <Route path="site-content" element={<PermGuard perm="settings.manage"><SiteContent /></PermGuard>} />
             <Route path="orders" element={<PermGuard perm="orders.manage"><Orders /></PermGuard>} />
             <Route path="billing" element={<PermGuard perm="billing.manage"><Billing /></PermGuard>} />
             <Route path="shipments" element={<PermGuard perm="shipments.manage"><Shipments /></PermGuard>} />

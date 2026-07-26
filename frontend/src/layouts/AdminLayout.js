@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
-  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone,
+  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +31,7 @@ const nav = [
   { to: "/app/tickets", label: "Soporte", icon: LifeBuoy, id: "soporte", perm: "tickets.manage" },
   { to: "/app/users", label: "Usuarios y permisos", icon: ShieldCheck, id: "usuarios", perm: "users.manage" },
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion", perm: "settings.manage" },
+  { to: "/app/site-content", label: "Contenido web", icon: Globe, id: "contenido-web", perm: "settings.manage" },
 ];
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";

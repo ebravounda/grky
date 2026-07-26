@@ -688,10 +688,10 @@ async def suspend_line(lineNumber: str, body: dict, request: Request):
                               {"$set": {"status": "SUSPENDED", "suspendReason": reason}})
     likes_sync = None
     if likes_client.get_token():
-        _d, err = likes_client.suspend_line_remote(lineNumber, reason)
+        _d, err = likes_client.block_line_remote(lineNumber, block=True)
         likes_sync = {"synced": err is None, "error": err}
         if err:
-            logger.warning("Likes suspend %s: %s", lineNumber, err)
+            logger.warning("Likes block %s: %s", lineNumber, err)
     await log_event("order", "warning", f"Línea {lineNumber} suspendida ({reason})")
     return {"lineNumber": lineNumber, "status": "SUSPENDED", "likesSync": likes_sync}
 
@@ -703,10 +703,10 @@ async def reactivate_line(lineNumber: str, request: Request):
                               {"$set": {"status": "ACTIVE"}, "$unset": {"suspendReason": ""}})
     likes_sync = None
     if likes_client.get_token():
-        _d, err = likes_client.reactivate_line_remote(lineNumber)
+        _d, err = likes_client.block_line_remote(lineNumber, block=False)
         likes_sync = {"synced": err is None, "error": err}
         if err:
-            logger.warning("Likes reactivate %s: %s", lineNumber, err)
+            logger.warning("Likes unblock %s: %s", lineNumber, err)
     await log_event("order", "success", f"Línea {lineNumber} reactivada")
     return {"lineNumber": lineNumber, "status": "ACTIVE", "likesSync": likes_sync}
 

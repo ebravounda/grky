@@ -165,14 +165,10 @@ def set_line_svas(line_number, svas):
     return _live_put("/line/svas", {"lineNumber": line_number, "svas": svas})
 
 
-def suspend_line_remote(line_number, reason=""):
-    """POST /line/suspend → suspende la línea en Likes. (endpoint NO verificado)"""
-    return _live_post("/line/suspend", {"lineNumber": line_number, "reason": reason})
-
-
-def reactivate_line_remote(line_number):
-    """POST /line/reactivate → reactiva la línea en Likes. (endpoint NO verificado)"""
-    return _live_post("/line/reactivate", {"lineNumber": line_number})
+def block_line_remote(line_number, block=True):
+    """PUT /line/block → bloquea (BLOCK) o desbloquea (UNBLOCK) la línea en Likes."""
+    return _live_put("/line/block", {"lineNumber": line_number,
+                                     "action": "BLOCK" if block else "UNBLOCK"})
 
 
 def download_document(url):

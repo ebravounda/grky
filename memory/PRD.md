@@ -146,3 +146,14 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - `likes_client.change_sim_remote(line, icc/esim/reason)` → POST /line/changeSim.
 - Endpoints CRM con push+likesSync: /spend-limit y /credit-limit (unifican spendLimit=creditLimit), /sim-duplicate (tras changeSim refresca ICC real desde get_line_info).
 - Solo backend. Requiere git pull + restart.
+
+### Iteración 2026-06 (fork) — PIN/PUK reales + Titular/CDRs + auditoría total de sync
+- **OpenAPI oficial guardado permanentemente** en `/app/backend/likes_openapi.json` (v2.1, 45 endpoints). NO volver a buscarlo online; consultarlo aquí.
+- **PIN/PUK reales (P0 resuelto)**: `_refresh_line_live` y `reconcile_customer` traen `GET /line?withSimsInfo=true&withOwners=true` y persisten `pins{pin,puk,pin2,puk2}`, `imsi`, `esimData` (para eSIM), `titularName`, `activationDate` (campo `created` de Likes), `spn`, `icc` y `creditLimit` (`GET /line/credit-limit`). `GET /lines/{n}/sim` ahora refresca en vivo y devuelve el PIN/PUK EXACTO de Likes (antes eran aleatorios locales `_sim_pins`).
+- **Titular + fecha de activación en la vista de línea (P1)**: `GET /lines/{n}` devuelve `titular{name,fiscalId,customerType,email,phone}` (desde `customers` local, fallback owner de Likes) y `activationDate`. Nueva tarjeta "Titular" en `LinePanel.js` (data-testid `line-titular-card`). Fix bug "Límite de crédito: undefined €".
+- **CDRs reales (P1)**: `_refresh_line_live`/reconcile traen `GET /line/cdrs` y persisten `cdrs[:50]`. Tabla ya existente en LinePanel. En preview MOCK las líneas source=likes muestran 0 CDRs (sin datos reales); en VPS traen los reales.
+- **Auditoría total push CRM→Likes** (usando spec oficial):
+  - ✅ CON endpoint y ahora conectados: Suspender/Reactivar (`PUT /line/block`), SVAs/Roaming/Barrings/Desvío (`PUT /line/svas`), Límite crédito/gasto (`PUT /line/credit-limit`), Duplicar SIM (`POST /line/changeSim`), SPN (`PUT /line/spn`), **Cambio de titular** línea+suscripción (`POST /changeTitular`), **Cambio de tarifa/pack** (`POST /changeProduct`), **Añadir/Terminar opcional** (`POST /addOptionalProduct` / `POST /terminateOptionalProduct`).
+  - ⚠️ SIN endpoint de escritura en Likes (imposible push directo, la API no lo expone): **Bono de datos** (solo vía orden/opcional), **Baja definitiva de línea main** (no hay endpoint; `terminate` ahora hace `PUT /line/block` para cortar servicio + requiere ticket para baja real), **Cambio de número** (no expuesto). Estos quedan locales y así se documenta al usuario.
+  - Nuevas funciones en `likes_client.py`: `change_titular_remote`, `change_product_remote`, `add_optional_remote`, `terminate_optional_remote`, `get_credit_limit`.
+- **PENDIENTE DESPLIEGUE VPS** (SIEMPRE tras cambios): Save to Github → `git pull` en VPS → recompilar frontend (`yarn build`, cambió LinePanel.js) → `systemctl restart goroky-api.service`. En preview la IP no está autorizada (MOCK) → el push a Likes no se ejecuta; se valida en el VPS.

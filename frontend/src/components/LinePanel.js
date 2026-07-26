@@ -190,9 +190,21 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
           <Row l="Familia" v={isMobile ? "Móvil" : "Fibra"} />
           <Row l="ICC / SIM" v={line.icc} />
           <Row l="eSIM" v={line.eSim ? "Sí" : "No"} />
-          {isMobile && <Row l="Límite de crédito" v={`${line.creditLimit} €`} />}
-          <Row l="Alta" v={line.created?.slice(0, 10)} />
+          {isMobile && <Row l="Límite de crédito" v={line.creditLimit != null ? `${line.creditLimit} €` : "—"} />}
+          <Row l="Alta" v={(line.activationDate || line.created)?.slice(0, 10)} />
         </div>
+
+        {line.titular && (
+          <div data-testid="line-titular-card" className="rounded-lg border border-border bg-card p-6 space-y-3">
+            <div className="flex items-center gap-2 text-primary mb-1"><UserCog size={18} /><h3 className="font-heading font-600 text-foreground">Titular</h3></div>
+            <Row l="Nombre" v={line.titular.name} />
+            <Row l="NIF / CIF" v={line.titular.fiscalId} />
+            <Row l="Tipo" v={line.titular.customerType} />
+            <Row l="Email" v={line.titular.email} />
+            <Row l="Teléfono" v={line.titular.phone} />
+            <Row l="Fecha de activación" v={(line.activationDate || line.created)?.slice(0, 10)} />
+          </div>
+        )}
 
         {line.eSim && esim && (
           <div data-testid="esim-card" className="rounded-lg border border-border bg-card p-6">

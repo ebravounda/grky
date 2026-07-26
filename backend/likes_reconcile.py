@@ -88,6 +88,9 @@ async def reconcile_customer(db, fiscal_id):
                     if gb:
                         line_upd.update({"totalGB": gb.get("totalGB"), "usedGB": gb.get("usedGB"),
                                          "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
+                    cl = likes_client.get_credit_limit(ln)
+                    if cl and cl.get("creditLimit") is not None:
+                        line_upd["creditLimit"] = cl.get("creditLimit")
                     svas = likes_client.get_line_svas(ln)
                     if isinstance(svas, list) and svas:
                         svas = _norm_svas(svas)
@@ -96,10 +99,34 @@ async def reconcile_customer(db, fiscal_id):
                         if roaming is not None:
                             line_upd["roaming"] = bool(roaming.get("status"))
                     info = likes_client.get_line_info(ln)
-                    if info and info.get("status"):
-                        line_upd["status"] = info["status"]
-                        if info.get("simInfo"):
-                            line_upd["esimData"] = info["simInfo"]
+                    if info:
+                        if info.get("status"):
+                            line_upd["status"] = info["status"]
+                        if info.get("icc"):
+                            line_upd["icc"] = info["icc"]
+                        if info.get("spn"):
+                            line_upd["spn"] = info["spn"]
+                        if info.get("created"):
+                            line_upd["activationDate"] = info["created"]
+                        owner = info.get("owner") or {}
+                        if owner.get("name"):
+                            line_upd["titularName"] = owner.get("name")
+                        si = info.get("simInfo") or {}
+                        if si:
+                            line_upd["pins"] = {"pin": si.get("pin"), "puk": si.get("puk"),
+                                                "pin2": si.get("pin2"), "puk2": si.get("puk2")}
+                            if si.get("imsi"):
+                                line_upd["imsi"] = si["imsi"]
+                            if info.get("eSim") and si.get("activationCode"):
+                                line_upd["esimData"] = {k: si.get(k) for k in
+                                                        ("icc", "pin", "puk", "smdpAddress",
+                                                         "activationCode", "qrUrl", "qrDownloadUrl")
+                                                        if si.get(k) is not None}
+                            elif si:
+                                line_upd["esimData"] = si
+                    cdrs = likes_client.get_line_cdrs(ln)
+                    if isinstance(cdrs, list):
+                        line_upd["cdrs"] = cdrs[:50]
                 res = await db.lines.update_one({"lineNumber": ln}, {"$set": line_upd})
                 if res.matched_count == 0:
                     await db.lines.insert_one({"lineNumber": ln, "created": now, "spn": "GOROKY", **line_upd})

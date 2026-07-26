@@ -150,11 +150,16 @@ def get_subscriptions(fiscal_id):
 
 def get_line_info(line_number):
     return _live_get("/line", {"lineNumber": line_number, "withSims": "true",
-                               "withBonuses": "true", "withSimsInfo": "true"})
+                               "withBonuses": "true", "withSimsInfo": "true",
+                               "withOwners": "true"})
 
 
 def get_line_gb(line_number):
     return _live_get("/line/gb", {"lineNumber": line_number})
+
+
+def get_credit_limit(line_number):
+    return _live_get("/line/credit-limit", {"lineNumber": line_number})
 
 
 def get_line_svas(line_number):
@@ -229,6 +234,40 @@ def change_sim_remote(line_number, icc=None, esim=False, esim_email=None, reason
 def set_spn_remote(line_number, spn):
     """PUT /line/spn → cambia el Service Provider Name de la línea en Likes."""
     return _live_put("/line/spn", {"lineNumber": line_number, "spn": spn})
+
+
+def change_titular_remote(subscription_ids, actual_fiscal, new_fiscal, execute_now=True):
+    """POST /changeTitular → cambia el titular de las suscripciones en Likes."""
+    return _live_post("/changeTitular", {
+        "subscriptionIds": list(subscription_ids), "actualFiscalId": actual_fiscal,
+        "newFiscalId": new_fiscal, "executeNow": execute_now})
+
+
+def change_product_remote(subscription_id, fiscal_id, product_id, family, line_number=None, execute_now=True):
+    """POST /changeProduct → cambia la tarifa/producto de una suscripción en Likes."""
+    body = {"subscriptionId": subscription_id, "fiscalId": fiscal_id,
+            "productId": product_id, "family": family, "executeNow": execute_now}
+    if line_number:
+        body["lineNumber"] = line_number
+    return _live_post("/changeProduct", body)
+
+
+def add_optional_remote(subscription_id, fiscal_id, product_id, family, line_number=None):
+    """POST /addOptionalProduct → añade un producto opcional a la suscripción en Likes."""
+    body = {"subscriptionId": subscription_id, "fiscalId": fiscal_id,
+            "productId": product_id, "family": family}
+    if line_number:
+        body["lineNumber"] = line_number
+    return _live_post("/addOptionalProduct", body)
+
+
+def terminate_optional_remote(subscription_id, fiscal_id, product_id, family, line_number=None):
+    """POST /terminateOptionalProduct → da de baja un opcional de la suscripción en Likes."""
+    body = {"subscriptionId": subscription_id, "fiscalId": fiscal_id,
+            "productId": product_id, "family": family}
+    if line_number:
+        body["lineNumber"] = line_number
+    return _live_post("/terminateOptionalProduct", body)
 
 
 def download_document(url):

@@ -116,9 +116,37 @@ async def _refresh_line_live(line: dict) -> dict:
             if gb:
                 upd.update({"totalGB": gb.get("totalGB"), "usedGB": gb.get("usedGB"),
                             "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
+            cl = likes_client.get_credit_limit(ln)
+            if cl and cl.get("creditLimit") is not None:
+                upd["creditLimit"] = cl.get("creditLimit")
         info = likes_client.get_line_info(ln)
-        if info and info.get("status"):
-            upd["status"] = info["status"]
+        if info:
+            if info.get("status"):
+                upd["status"] = info["status"]
+            if info.get("icc"):
+                upd["icc"] = info["icc"]
+            if info.get("spn"):
+                upd["spn"] = info["spn"]
+            if info.get("created"):
+                upd["activationDate"] = info["created"]
+            owner = info.get("owner") or {}
+            if owner.get("name"):
+                upd["titularName"] = owner.get("name")
+            si = info.get("simInfo") or {}
+            if si:
+                # PIN/PUK REALES de Likes (espejo exacto)
+                upd["pins"] = {"pin": si.get("pin"), "puk": si.get("puk"),
+                               "pin2": si.get("pin2"), "puk2": si.get("puk2")}
+                if si.get("imsi"):
+                    upd["imsi"] = si["imsi"]
+                if info.get("eSim") and si.get("activationCode"):
+                    upd["esimData"] = {k: si.get(k) for k in
+                                       ("icc", "pin", "puk", "smdpAddress", "activationCode",
+                                        "qrUrl", "qrDownloadUrl") if si.get(k) is not None}
+            if line.get("family") == "Mobile":
+                cdrs = likes_client.get_line_cdrs(ln)
+                if isinstance(cdrs, list):
+                    upd["cdrs"] = cdrs[:50]
     except Exception as e:  # noqa
         logger.warning("refresh line live %s: %s", ln, e)
     if upd:
@@ -597,7 +625,20 @@ async def get_line(lineNumber: str, request: Request):
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
     line = await _refresh_line_live(line)
-    return clean(_enrich_line(line))
+    line = _enrich_line(line)
+    cust = await db.customers.find_one({"fiscalId": line.get("fiscalId")})
+    if cust:
+        full_name = " ".join(filter(None, [cust.get("name"), cust.get("firstSurname"),
+                                            cust.get("lastSurname")])).strip()
+        line["titular"] = {
+            "name": full_name or line.get("titularName"),
+            "fiscalId": cust.get("fiscalId"), "customerType": cust.get("customerType"),
+            "email": cust.get("email"), "phone": cust.get("contactPhone"),
+        }
+    elif line.get("titularName"):
+        line["titular"] = {"name": line.get("titularName"), "fiscalId": line.get("fiscalId")}
+    line["activationDate"] = line.get("activationDate") or line.get("created")
+    return clean(line)
 
 
 @api.post("/lines/{lineNumber}/toggle-block")
@@ -776,12 +817,20 @@ async def reactivate_line(lineNumber: str, request: Request):
 
 @api.post("/lines/{lineNumber}/terminate")
 async def terminate_line(lineNumber: str, body: dict, request: Request):
-    await _get_line_admin(lineNumber, request)
+    line = await _get_line_admin(lineNumber, request)
+    likes_sync = None
+    # Likes no expone baja definitiva de línea main: bloqueamos en Likes para cortar servicio.
+    if likes_client.get_token():
+        _d, err = likes_client.block_line_remote(lineNumber, block=True)
+        likes_sync = {"synced": err is None, "error": err,
+                      "note": "Baja definitiva requiere ticket en Likes; línea bloqueada."}
+        if err:
+            logger.warning("Likes terminate/block %s: %s", lineNumber, err)
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"status": "TERMINATED", "terminateReason": body.get("reason", ""),
                                         "terminatedAt": now_iso()}})
     await log_event("order", "warning", f"Baja de línea {lineNumber}")
-    return {"lineNumber": lineNumber, "status": "TERMINATED"}
+    return {"lineNumber": lineNumber, "status": "TERMINATED", "likesSync": likes_sync}
 
 
 @api.post("/lines/{lineNumber}/transfer")
@@ -791,10 +840,19 @@ async def transfer_line(lineNumber: str, body: dict, request: Request):
     dest = await db.customers.find_one({"fiscalId": new_fiscal})
     if not dest:
         raise HTTPException(status_code=404, detail="El nuevo titular no existe como cliente")
+    actual_fiscal = line.get("fiscalId")
+    subs = await db.subscriptions.find({"products.lineNumber": lineNumber}).to_list(50)
+    sub_ids = [s.get("subscriptionId") for s in subs if s.get("subscriptionId")]
+    likes_sync = None
+    if likes_client.get_token() and sub_ids:
+        _d, err = likes_client.change_titular_remote(sub_ids, actual_fiscal, new_fiscal)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes changeTitular %s: %s", lineNumber, err)
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"fiscalId": new_fiscal}})
     await db.subscriptions.update_many({"products.lineNumber": lineNumber}, {"$set": {"fiscalId": new_fiscal}})
     await log_event("order", "info", f"Cambio de titular línea {lineNumber} → {new_fiscal}")
-    return {"lineNumber": lineNumber, "fiscalId": new_fiscal}
+    return {"lineNumber": lineNumber, "fiscalId": new_fiscal, "likesSync": likes_sync}
 
 
 @api.post("/lines/{lineNumber}/change-number")
@@ -843,7 +901,16 @@ async def change_tariff(body: TariffChange, request: Request):
         await db.lines.update_one({"lineNumber": ln},
                                   {"$set": {"productId": prod["productId"], "productName": prod["productName"],
                                             "price": prod["price"]}})
-    return {"success": True, "productName": prod["productName"]}
+    likes_sync = None
+    if likes_client.get_token():
+        likes_pid = prod.get("likesProductId") or prod["productId"]
+        _d, err = likes_client.change_product_remote(
+            body.subscriptionId, sub.get("fiscalId"), likes_pid,
+            sub.get("family") or prod.get("family"), line_number=ln)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes changeProduct %s: %s", body.subscriptionId, err)
+    return {"success": True, "productName": prod["productName"], "likesSync": likes_sync}
 
 
 # ------------------------- orders / service creation -------------------------
@@ -2600,10 +2667,12 @@ async def sim_info(lineNumber: str, request: Request):
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
-    icc = line["icc"]
+    line = await _refresh_line_live(line)
+    icc = line.get("icc") or ""
     p = line.get("pins") or {"pin": "3736", "puk": "08792901", "pin2": "5678", "puk2": "12345678"}
-    return {"icc": icc, "imsi": "21407" + icc[-10:], "pin": p["pin"], "pin2": p.get("pin2", ""),
-            "puk": p["puk"], "puk2": p.get("puk2", ""), "eSim": line.get("eSim", False),
+    imsi = line.get("imsi") or ("21407" + icc[-10:] if icc else "")
+    return {"icc": icc, "imsi": imsi, "pin": p.get("pin"), "pin2": p.get("pin2", ""),
+            "puk": p.get("puk"), "puk2": p.get("puk2", ""), "eSim": line.get("eSim", False),
             "spn": line.get("spn", "GOROKY")}
 
 
@@ -2634,10 +2703,17 @@ async def change_titular(body: ChangeTitular, request: Request):
     if not newc:
         raise HTTPException(status_code=404, detail="Nuevo titular no encontrado")
     line_numbers = [p.get("lineNumber") for p in sub.get("products", []) if p.get("lineNumber")]
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.change_titular_remote(
+            [body.subscriptionId], sub.get("fiscalId"), body.newFiscalId)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes changeTitular sub %s: %s", body.subscriptionId, err)
     await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"fiscalId": body.newFiscalId}})
     if line_numbers:
         await db.lines.update_many({"lineNumber": {"$in": line_numbers}}, {"$set": {"fiscalId": body.newFiscalId}})
-    return {"ok": True, "newFiscalId": body.newFiscalId}
+    return {"ok": True, "newFiscalId": body.newFiscalId, "likesSync": likes_sync}
 
 
 @api.get("/subscriptions/{subscriptionId}/optional-products")
@@ -2667,8 +2743,17 @@ async def add_optional(body: OptionalProductBody, request: Request):
                      "family": prod["family"], "type": "Optional", "status": "ACTIVE",
                      "lineNumber": products[0].get("lineNumber") if products else None,
                      "price": prod["price"], "finalPrice": round(prod["price"] * 1.21, 2)})
+    ln = products[0].get("lineNumber") if products else None
+    likes_sync = None
+    if likes_client.get_token():
+        likes_pid = prod.get("likesProductId") or prod["productId"]
+        _d, err = likes_client.add_optional_remote(
+            body.subscriptionId, sub.get("fiscalId"), likes_pid, prod["family"], line_number=ln)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes addOptional %s: %s", body.subscriptionId, err)
     await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"products": products}})
-    return {"ok": True, "productName": prod["productName"]}
+    return {"ok": True, "productName": prod["productName"], "likesSync": likes_sync}
 
 
 @api.post("/subscriptions/terminate-optional")
@@ -2677,9 +2762,20 @@ async def terminate_optional(body: OptionalProductBody, request: Request):
     sub = await db.subscriptions.find_one({"subscriptionId": body.subscriptionId})
     if not sub:
         raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+    target = next((p for p in sub.get("products", [])
+                   if p.get("productId") == body.productId and p.get("type") == "Optional"), None)
+    likes_sync = None
+    if target and likes_client.get_token():
+        likes_pid = target.get("likesProductId") or body.productId
+        _d, err = likes_client.terminate_optional_remote(
+            body.subscriptionId, sub.get("fiscalId"), likes_pid,
+            target.get("family") or sub.get("family"), line_number=target.get("lineNumber"))
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes terminateOptional %s: %s", body.subscriptionId, err)
     products = [p for p in sub.get("products", []) if not (p.get("productId") == body.productId and p.get("type") == "Optional")]
     await db.subscriptions.update_one({"subscriptionId": body.subscriptionId}, {"$set": {"products": products}})
-    return {"ok": True}
+    return {"ok": True, "likesSync": likes_sync}
 
 
 # ------------------------- instalaciones -------------------------

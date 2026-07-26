@@ -610,7 +610,13 @@ async def toggle_block(lineNumber: str, request: Request):
         raise HTTPException(status_code=403, detail="No autorizado")
     new_status = "SUSPENDED" if line["status"] == "ACTIVE" else "ACTIVE"
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"status": new_status}})
-    return {"lineNumber": lineNumber, "status": new_status}
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.block_line_remote(lineNumber, block=(new_status == "SUSPENDED"))
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes toggle-block %s: %s", lineNumber, err)
+    return {"lineNumber": lineNumber, "status": new_status, "likesSync": likes_sync}
 
 
 @api.put("/lines/{lineNumber}/svas")
@@ -706,7 +712,18 @@ async def set_barring(lineNumber: str, body: dict, request: Request):
                 "dataRoaming": bool(body.get("dataRoaming", False)),
                 "voicemail": bool(body.get("voicemail", False))}
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"barrings": barrings}})
-    return {"lineNumber": lineNumber, "barrings": barrings}
+    # Un "barring" activo = desactivar el SVA correspondiente en Likes
+    likes_sync = None
+    if likes_client.get_token():
+        svas = [{"code": "OUTBOUND_PREMIUM_CALLS", "status": not barrings["premium"]},
+                {"code": "INTERNATIONAL_OUTBOUND_CALLS", "status": not barrings["international"]},
+                {"code": "ROAMING", "status": not barrings["dataRoaming"]},
+                {"code": "VOICEMAIL", "status": not barrings["voicemail"]}]
+        _d, err = likes_client.set_line_svas(lineNumber, svas)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes barring %s: %s", lineNumber, err)
+    return {"lineNumber": lineNumber, "barrings": barrings, "likesSync": likes_sync}
 
 
 @api.put("/lines/{lineNumber}/call-forward")
@@ -715,7 +732,15 @@ async def set_call_forward(lineNumber: str, body: dict, request: Request):
     cf = {"enabled": bool(body.get("enabled", False)), "number": body.get("number", ""),
           "voicemail": bool(body.get("voicemail", False))}
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"callForward": cf}})
-    return {"lineNumber": lineNumber, "callForward": cf}
+    likes_sync = None
+    if likes_client.get_token():
+        svas = [{"code": "FORWARD_UNCONDITIONAL", "status": cf["enabled"]},
+                {"code": "VOICEMAIL", "status": cf["voicemail"]}]
+        _d, err = likes_client.set_line_svas(lineNumber, svas)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes call-forward %s: %s", lineNumber, err)
+    return {"lineNumber": lineNumber, "callForward": cf, "likesSync": likes_sync}
 
 
 @api.post("/lines/{lineNumber}/suspend")
@@ -2558,7 +2583,13 @@ async def set_spn(lineNumber: str, body: SpnUpdate, request: Request):
     r = await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"spn": body.spn}})
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
-    return {"ok": True, "spn": body.spn}
+    likes_sync = None
+    if likes_client.get_token():
+        _d, err = likes_client.set_spn_remote(lineNumber, body.spn)
+        likes_sync = {"synced": err is None, "error": err}
+        if err:
+            logger.warning("Likes spn %s: %s", lineNumber, err)
+    return {"ok": True, "spn": body.spn, "likesSync": likes_sync}
 
 
 @api.get("/lines/{lineNumber}/sim")

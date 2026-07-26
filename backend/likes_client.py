@@ -226,6 +226,11 @@ def change_sim_remote(line_number, icc=None, esim=False, esim_email=None, reason
     return _live_post("/line/changeSim", body)
 
 
+def set_spn_remote(line_number, spn):
+    """PUT /line/spn → cambia el Service Provider Name de la línea en Likes."""
+    return _live_put("/line/spn", {"lineNumber": line_number, "spn": spn})
+
+
 def download_document(url):
     """Descarga un documento desde una downloadURL prefirmada (S3). Devuelve bytes o None."""
     try:

@@ -364,7 +364,16 @@ class ApplicationCreate(BaseModel):
     docBack: Optional[str] = None
     selfie: Optional[str] = None
     paymentMethod: str = "sepa"  # "sepa" | "card"
-    simType: str = "esim"        # "esim" | "physical"
+    simType: str = "esim"        # "esim" | "physical" | "ship"
+    simIcc: Optional[str] = None             # ICC de la SIM física (si simType=physical)
+    # Portabilidad (móvil / fijo)
+    lineType: str = "new"        # "new" | "portability" | "portability_prepaid"
+    donorOperatorId: Optional[str] = None   # código operador donante (Likes)
+    portMsisdn: Optional[str] = None         # número a portar
+    portIcc: Optional[str] = None            # ICC de la SIM actual (opcional)
+    currentHolderName: Optional[str] = None  # titular actual del número
+    currentHolderFiscalId: Optional[str] = None
+    changeHolder: bool = False               # el número está a nombre de otra persona
 
 
 class SignBody(BaseModel):
@@ -483,6 +492,12 @@ async def delete_tariff(product_id: str, request: Request):
 @api.get("/donor-operators")
 async def donor_operators(request: Request):
     await current_user(request)
+    return likes_client.get_donor_operators()
+
+
+@api.get("/public/donor-operators")
+async def public_donor_operators():
+    """Operadores donantes para el asistente de alta público (portabilidad)."""
     return likes_client.get_donor_operators()
 
 
@@ -2961,6 +2976,11 @@ async def create_application(body: ApplicationCreate):
     product = await _get_tariff(body.productId)
     if not product:
         raise HTTPException(status_code=400, detail="Producto no válido")
+    if not (body.province or "").strip():
+        raise HTTPException(status_code=400, detail="La provincia es obligatoria")
+    is_port = body.lineType in ("portability", "portability_prepaid")
+    if is_port and (not body.donorOperatorId or not body.portMsisdn):
+        raise HTTPException(status_code=400, detail="Para portar tu número indica el operador actual y el número a portar")
     token = _secrets.token_urlsafe(24)
     contract_code = "GRK-" + _secrets.token_hex(4).upper()
     front = await _save_file("doc_front", body.docFront, body.fiscalId)
@@ -2976,7 +2996,15 @@ async def create_application(body: ApplicationCreate):
         "province": body.province, "iban": body.iban, "bank": body.bank,
         "contactPhone": body.contactPhone, "email": body.email.lower(),
         "acceptedTerms": True, "fileIds": {"front": front, "back": back, "selfie": selfie},
-        "paymentMethod": body.paymentMethod, "simType": body.simType,
+        "paymentMethod": body.paymentMethod, "simType": body.simType, "simIcc": body.simIcc,
+        "lineType": body.lineType, "portability": is_port,
+        "portabilityType": ("prepaid" if body.lineType == "portability_prepaid" else "postpaid") if is_port else None,
+        "donorOperatorId": body.donorOperatorId if is_port else None,
+        "portMsisdn": body.portMsisdn if is_port else None,
+        "portIcc": body.portIcc if is_port else None,
+        "currentHolderName": body.currentHolderName if is_port else None,
+        "currentHolderFiscalId": body.currentHolderFiscalId if is_port else None,
+        "changeHolder": bool(body.changeHolder) if is_port else False,
         "paymentStatus": "pending", "reviewStatus": "PENDING_REVIEW",
         "createdAt": now_iso(),
     }
@@ -3003,6 +3031,10 @@ def _app_public_view(app_doc):
             "email": app_doc["email"], "signerName": app_doc.get("signerName"),
             "paymentMethod": app_doc.get("paymentMethod", "sepa"),
             "simType": app_doc.get("simType", "esim"),
+            "lineType": app_doc.get("lineType", "new"),
+            "portability": bool(app_doc.get("portability")),
+            "portMsisdn": app_doc.get("portMsisdn"),
+            "donorOperatorId": app_doc.get("donorOperatorId"),
             "paymentStatus": app_doc.get("paymentStatus", "pending")}
 
 
@@ -3015,6 +3047,11 @@ async def get_application(token: str):
 
 
 def _app_to_contract(app_doc):
+    is_port = bool(app_doc.get("portability"))
+    donor = None
+    if is_port and app_doc.get("donorOperatorId"):
+        donor = next((d["Name"] for d in likes_client.get_donor_operators()
+                      if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
     return {
         "contractNumber": app_doc["contractCode"], "date": app_doc.get("signedAt") or app_doc["createdAt"],
         "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip().upper(),
@@ -3022,8 +3059,13 @@ def _app_to_contract(app_doc):
         "customerAddress": f"{app_doc['address']}, {app_doc['postalCode']} {app_doc['city']} ({app_doc.get('province', '')})".strip(),
         "customerEmail": app_doc["email"], "customerPhone": app_doc["contactPhone"],
         "productName": app_doc["productName"], "family": app_doc["family"],
-        "lineNumber": app_doc.get("lineNumber", "Pendiente de asignar"), "price": app_doc["price"],
-        "portability": False, "donorOperator": None,
+        "lineNumber": app_doc.get("portMsisdn") or app_doc.get("lineNumber", "Pendiente de asignar"),
+        "price": app_doc["price"],
+        "portability": is_port, "donorOperator": donor,
+        "portMsisdn": app_doc.get("portMsisdn"),
+        "currentHolderName": app_doc.get("currentHolderName"),
+        "currentHolderFiscalId": app_doc.get("currentHolderFiscalId"),
+        "changeHolder": app_doc.get("changeHolder", False),
         "signed": app_doc["status"] in ("SIGNED", "COMPLETED"),
         "signerName": app_doc.get("signerName"), "signatureImage": app_doc.get("signatureImage"),
     }
@@ -3052,8 +3094,15 @@ async def sign_application(token: str, body: SignBody):
     sig_id = await _save_file("signature", body.signatureImage, app_doc["fiscalId"]) if body.signatureImage else None
 
     is_mobile = app_doc["family"] == "Mobile"
-    is_esim = is_mobile and app_doc.get("simType", "esim") == "esim"
-    line_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
+    sim_type = app_doc.get("simType", "esim")
+    is_esim = is_mobile and sim_type == "esim"
+    is_port = bool(app_doc.get("portability"))
+    port_msisdn = app_doc.get("portMsisdn")
+    # En portabilidad el cliente conserva su número; en alta nueva se genera uno.
+    if is_port and port_msisdn:
+        line_number = port_msisdn
+    else:
+        line_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
     product = await _get_tariff(app_doc["productId"])
 
     customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
@@ -3063,7 +3112,12 @@ async def sign_application(token: str, body: SignBody):
            "contractCode": app_doc["contractCode"], "signedAt": now_iso(),
            "signatureId": sig_id, "signerName": body.signerName, "applicationToken": token}
     if customer:
-        await db.customers.update_one({"fiscalId": app_doc["fiscalId"]}, {"$set": {"kyc": kyc, "iban": app_doc["iban"]}})
+        await db.customers.update_one({"fiscalId": app_doc["fiscalId"]}, {"$set": {
+            "kyc": kyc, "iban": app_doc["iban"], "contactPhone": app_doc["contactPhone"],
+            "email": app_doc["email"],
+            "billingAddress": {"street": app_doc["address"], "streetNumber": "",
+                               "postalCode": app_doc["postalCode"], "cityName": app_doc["city"],
+                               "provinceName": app_doc.get("province", "")}}})
     else:
         await db.customers.insert_one({
             "fiscalId": app_doc["fiscalId"], "customerType": "Residential", "name": app_doc["name"],
@@ -3076,11 +3130,12 @@ async def sign_application(token: str, body: SignBody):
             "kyc": kyc, "created": now_iso()})
     customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
 
-    icc = "8934" + str(uuid.uuid4().int)[:16]
+    icc = (app_doc.get("simIcc") if (is_mobile and sim_type == "physical" and app_doc.get("simIcc"))
+           else "8934" + str(uuid.uuid4().int)[:16])
     line = {"lineNumber": line_number, "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
             "status": "PROVISIONING", "productId": product["productId"], "productName": product["productName"],
             "price": product["price"], "icc": icc, "spn": "GOROKY", "pins": _sim_pins(),
-            "eSim": is_esim, "simType": app_doc.get("simType", "esim"),
+            "eSim": is_esim, "simType": sim_type,
             "esimData": likes_client.esim_data(icc) if is_esim else None,
             "totalGB": 50 if is_mobile else 0, "usedGB": 0, "creditLimit": 30,
             "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
@@ -3094,15 +3149,37 @@ async def sign_application(token: str, body: SignBody):
                       "lineNumber": line_number, "price": product["price"],
                       "finalPrice": round(product["price"] * 1.21, 2)}]})
     invoice = await _create_invoice(customer, product, status="pending")
+    donor_name = None
+    if is_port and app_doc.get("donorOperatorId"):
+        donor_name = next((d["Name"] for d in likes_client.get_donor_operators()
+                           if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
     await db.orders.insert_one({"orderId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"],
              "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip(),
              "status": "PROVISIONING", "channel": "WEB", "price": product["price"],
              "productName": product["productName"], "family": app_doc["family"],
              "productId": product["productId"],
-             "lineNumber": line_number, "portability": False, "donorOperatorId": None,
+             "lineNumber": line_number, "portability": is_port,
+             "donorOperatorId": app_doc.get("donorOperatorId"), "donorOperator": donor_name,
+             "portMsisdn": port_msisdn, "portIcc": app_doc.get("portIcc"),
+             "simType": sim_type, "eSim": is_esim, "simIcc": app_doc.get("simIcc"),
+             "portabilityType": app_doc.get("portabilityType"),
+             "currentHolderName": app_doc.get("currentHolderName"),
+             "currentHolderFiscalId": app_doc.get("currentHolderFiscalId"),
+             "changeHolder": app_doc.get("changeHolder", False),
              "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
              "contractNumber": app_doc["contractCode"], "signed": True, "signedAt": now_iso(),
              "created": now_iso()})
+
+    # Registro de portabilidad (espejo del panel de Likes)
+    if is_port:
+        await db.portabilities.insert_one({
+            "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": app_doc["fiscalId"],
+            "lineNumber": line_number, "type": "IN", "status": "INITIATED",
+            "donorOperatorId": app_doc.get("donorOperatorId"), "donorOperator": donor_name,
+            "icc": app_doc.get("portIcc"), "currentHolderName": app_doc.get("currentHolderName"),
+            "currentHolderFiscalId": app_doc.get("currentHolderFiscalId"),
+            "changeHolder": app_doc.get("changeHolder", False),
+            "contractNumber": app_doc["contractCode"], "created": now_iso()})
 
     # Sincronización real con Likes (no bloqueante: en preview/MOCK es no-op)
     try:

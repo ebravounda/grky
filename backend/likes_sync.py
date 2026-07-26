@@ -66,22 +66,30 @@ def _customer_payload(customer, app_doc):
     return payload
 
 
-def _products_payload(order, likes_product_id):
-    """Construye el array products para /signupv2 según la familia."""
+def _products_payload(order, likes_product_id, customer_email=None):
+    """Construye el array products para /signupv2 según la familia (mismo proceso que Likes)."""
     family = order.get("family", "Mobile")
     portability = bool(order.get("portability"))
     prod = {"family": family, "productId": likes_product_id, "portability": portability}
     if family == "Mobile":
+        sim_type = order.get("simType", "esim")
         if portability:
             prod["donorOperatorId"] = order.get("donorOperatorId")
             prod["lineNumber"] = order.get("portMsisdn") or order.get("lineNumber")
-        if order.get("icc"):
-            prod["icc"] = order["icc"]
+        if sim_type == "esim" or order.get("eSim"):
+            prod["eSim"] = True
+            if customer_email:
+                prod["eSimEmail"] = customer_email
+        elif sim_type == "physical" and order.get("simIcc"):
+            prod["icc"] = order.get("simIcc")
+        # "ship" (Enviar SIM): se omite icc → Likes deja la línea en PENDING_MANUAL_SHIPPING
     elif family == "Fiber":
         if order.get("coverage"):
             prod["coverage"] = order["coverage"]
         if portability:
             prod["lineNumber"] = order.get("portMsisdn") or order.get("lineNumber")
+            if order.get("donorOperatorId"):
+                prod["donorOperatorId"] = order.get("donorOperatorId")
     elif family == "TV":
         prod["lineNumber"] = order.get("email") or ""
     return [prod]
@@ -135,7 +143,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
     order_payload = {
         "digitalSignature": False,
         "fiscalId": customer["fiscalId"],
-        "products": _products_payload(order, likes_product_id),
+        "products": _products_payload(order, likes_product_id, customer.get("email")),
     }
     odata, oerr = likes_client.create_order(order_payload)
     if oerr:

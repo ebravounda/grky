@@ -1,179 +1,88 @@
 {
-  "theme": "premium_mobile_telco",
+  "project_name": "GoRoky Public Store & Checkout",
+  "theme": "Light theme default with vibrant accents (E-commerce trust focus)",
   "typography": {
-    "fonts": {
-      "headings": "Outfit, sans-serif",
-      "body": "Inter, sans-serif"
-    },
-    "hierarchy": {
-      "h1": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900",
-      "h2": "text-lg font-semibold tracking-tight text-slate-900",
-      "h3": "text-base font-medium text-slate-800",
-      "body": "text-sm text-slate-600",
-      "caption": "text-xs text-slate-500",
-      "button": "text-sm font-semibold sm:text-base"
-    },
-    "import_links": [
-      "@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');"
+    "headings": "Outfit, sans-serif",
+    "body": "Manrope, sans-serif",
+    "rules": [
+      "Use text-5xl to text-6xl for main hero headings.",
+      "Use tight letter spacing (tracking-tight) for headings.",
+      "Prices inside plan cards MUST be massive (text-5xl font-black) with the currency symbol and '/mes' smaller (text-lg text-muted-foreground).",
+      "Use uppercase wide-tracking labels (text-xs tracking-widest font-bold) for tags like 'PROMO PORTABILIDAD' or 'MÁS POPULAR'."
     ]
   },
   "colors": {
-    "brand": {
-      "primary": "hsl(216, 100%, 52%)",
-      "primary_hex": "#0A6BFF",
-      "accent": "hsl(25, 100%, 50%)",
-      "accent_hex": "#FF6A00"
-    },
-    "surface": {
-      "background": "#F8FAFC",
-      "card": "#FFFFFF",
-      "header_glass": "rgba(255, 255, 255, 0.85)"
-    },
-    "text": {
-      "primary": "#0F172A",
-      "secondary": "#64748B",
-      "inverse": "#FFFFFF",
-      "brand": "#0A6BFF",
-      "accent": "#FF6A00"
-    }
+    "primary": "#015EEF (Vibrant Blue for trust and branding)",
+    "accent": "#FF7A00 (Orange for primary CTAs like 'Contratar')",
+    "background": "bg-slate-50 for the page body to allow pure white plan cards to pop.",
+    "rules": [
+      "DO NOT use generic gradients. Use flat vibrant colors.",
+      "Ensure text over primary blue is pure white for contrast.",
+      "Primary CTAs must be Orange to stand out from the Blue brand elements."
+    ]
+  },
+  "layouts": {
+    "page_structure": "Sticky Glassmorphism Header -> Hero Section with Category Tabs -> Plan Catalog Grid -> Coverage Checker -> Trust Features -> SEO Cities Marquee -> Footer",
+    "plan_cards": "Use 3-column grid on desktop (grid-cols-1 md:grid-cols-3 gap-8). Cards must have pure white bg, 1px subtle border, and rounded-3xl. The 'Más Popular' card should have a blue border and an 'over-the-border' badge.",
+    "coverage_checker": "Horizontal layout on desktop: Text on left, Input + Button on right. Dark blue background (#015EEF) with white text to break the visual rhythm. Must include success/error inline states.",
+    "checkout_wizard": "Rendered as a multi-step modal (Dialog) or full-screen overlay when 'Contratar' is clicked. Must show a progress bar/stepper."
   },
   "visual_enhancers": {
-    "border_radius": {
-      "card": "rounded-2xl",
-      "button": "rounded-xl",
-      "pill": "rounded-full",
-      "modal": "rounded-3xl"
+    "glassmorphism": "Use for the top sticky navigation: bg-white/70 backdrop-blur-xl border-b border-border/50.",
+    "marquee": "Use a subtle text marquee for the SEO cities (Madrid, Barcelona, Valencia...) to pack keywords without looking like spam. It should look like an 'Editorial Ribbon'.",
+    "micro_interactions": "Plan cards should lift on hover (-translate-y-1) and shadow should increase. Tab switching must have a layout animation (Framer Motion).",
+    "badges": "Use prominent icon badges (Lucide icons) with soft background tints for plan features."
+  },
+  "components_to_build": [
+    {
+      "name": "PlanCard",
+      "description": "Displays plan details: Title, GBs, Features list, Price, and CTA. Props for 'isPopular', 'category', 'price', 'features'."
     },
-    "shadows": {
-      "card_soft": "shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]",
-      "floating_nav": "shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]",
-      "accent_glow": "shadow-[0_4px_16px_rgba(255,106,0,0.3)]"
+    {
+      "name": "CoverageChecker",
+      "description": "Input for address and 'Comprobar' button. Simulates checking and shows a success/error message inline."
     },
-    "overlays": {
-      "hero_gradient": "bg-gradient-to-r from-blue-900/90 to-blue-900/40",
-      "image_scrim": "bg-black/20"
+    {
+      "name": "CheckoutWizard",
+      "description": "Multi-step flow: 1. Datos personales, 2. Tu línea (Portabilidad/Nueva), 3. Dirección y Pago, 4. Documentos KYC (upload simulation), 5. Confirmación. Include form validations."
+    },
+    {
+      "name": "SEOCitiesMarquee",
+      "description": "A continuous scrolling ribbon containing the target cities for SEO purposes. 'Disponible en Madrid • Barcelona • Valencia...'"
     }
-  },
-  "layouts_and_grids": {
-    "client_home_container": "w-full max-w-md mx-auto min-h-screen bg-slate-50 relative pb-20 shadow-2xl overflow-x-hidden md:my-8 md:rounded-[40px] md:border-[8px] md:border-slate-900",
-    "admin_dashboard_container": "w-full min-h-screen bg-slate-50 p-6",
-    "admin_two_column": "grid grid-cols-1 lg:grid-cols-12 gap-8",
-    "carousels": {
-      "container": "flex overflow-x-auto snap-x snap-mandatory hide-scrollbar gap-4 px-4 pb-4",
-      "item_large": "snap-center w-[85%] shrink-0",
-      "item_small": "snap-center w-[70%] shrink-0"
-    }
-  },
-  "components": {
-    "client_header": {
-      "layout": "flex justify-between items-center px-4 py-4 sticky top-0 z-50 backdrop-blur-xl bg-white/80 border-b border-slate-100",
-      "greeting": "flex items-center gap-3",
-      "avatar": "h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold",
-      "text": "text-sm text-slate-500, user name text-base font-bold text-slate-900",
-      "notification": "relative p-2 rounded-full hover:bg-slate-100 text-slate-700",
-      "badge": "absolute top-1 right-1 h-2.5 w-2.5 bg-orange-500 rounded-full border-2 border-white"
-    },
-    "hero_banner": {
-      "wrapper": "mx-4 mt-4 relative h-48 rounded-2xl overflow-hidden shadow-md group cursor-pointer",
-      "image": "absolute inset-0 w-full h-full object-cover",
-      "overlay": "absolute inset-0 bg-gradient-to-r from-[#0A6BFF]/95 to-[#0A6BFF]/60",
-      "content": "relative h-full flex flex-col justify-center p-6 text-white",
-      "title": "text-xl font-bold mb-1",
-      "subtitle": "text-sm text-blue-100 mb-4 line-clamp-2",
-      "cta_pill": "w-fit px-4 py-1.5 bg-[#FF6A00] text-white text-sm font-semibold rounded-full shadow-lg"
-    },
-    "product_cards": {
-      "wrapper": "bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]",
-      "header": "flex justify-between items-center mb-4 pb-4 border-b border-slate-100",
-      "msisdn": "text-lg font-bold text-slate-900",
-      "plan_name": "text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-md",
-      "consumption": "space-y-2",
-      "bar": "h-2 w-full bg-slate-100 rounded-full overflow-hidden",
-      "bar_fill": "h-full bg-[#0A6BFF] rounded-full",
-      "pagination_dots": "flex justify-center gap-1.5 mt-2"
-    },
-    "offer_cards": {
-      "wrapper": "relative bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] flex flex-col h-full",
-      "image_container": "h-32 w-full relative",
-      "badge": "absolute top-2 right-2 bg-[#FF6A00] text-white text-xs font-bold px-2 py-1 rounded-md z-10 shadow-md",
-      "content": "p-4 flex flex-col flex-grow",
-      "title": "font-bold text-slate-900 mb-1",
-      "cta": "mt-auto pt-2 text-[#0A6BFF] font-semibold text-sm flex items-center gap-1"
-    },
-    "action_buttons": {
-      "container": "px-4 my-6 space-y-3",
-      "primary": "w-full py-3.5 bg-[#FF6A00] text-white rounded-xl font-bold text-base shadow-[0_4px_16px_rgba(255,106,0,0.3)] hover:bg-[#E65F00] transition-colors active:scale-[0.98]",
-      "secondary": "w-full py-3.5 bg-white border-2 border-[#0A6BFF] text-[#0A6BFF] rounded-xl font-bold text-base hover:bg-blue-50 transition-colors active:scale-[0.98]"
-    },
-    "bottom_tab_bar": {
-      "wrapper": "fixed bottom-0 w-full max-w-md bg-white border-t border-slate-200 pb-safe z-50",
-      "container": "flex justify-between px-2 pt-2 pb-1",
-      "item": "flex flex-col items-center p-2 min-w-[60px] text-slate-400 hover:text-[#0A6BFF]",
-      "item_active": "text-[#0A6BFF]",
-      "icon_size": "24",
-      "label": "text-[10px] font-medium mt-1"
-    },
-    "popup_modal": {
-      "overlay": "fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4",
-      "content": "bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl relative",
-      "close_btn": "absolute top-3 right-3 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full p-1.5 text-white z-10",
-      "image": "w-full h-48 object-cover",
-      "body": "p-6 text-center",
-      "title": "text-2xl font-bold text-slate-900 mb-2",
-      "cta": "w-full py-3.5 bg-[#FF6A00] text-white rounded-xl font-bold text-base mt-4 shadow-lg"
-    },
-    "admin_promociones": {
-      "form_section": "lg:col-span-7 space-y-6",
-      "preview_section": "lg:col-span-5 relative",
-      "preview_sticky": "sticky top-6 bg-slate-100 rounded-3xl p-6 border-4 border-slate-200 flex items-center justify-center min-h-[600px] overflow-hidden shadow-inner",
-      "card": "bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
-    }
-  },
-  "motion": {
-    "page_transition": {
-      "initial": { "opacity": 0, "y": 10 },
-      "animate": { "opacity": 1, "y": 0 },
-      "transition": { "duration": 0.3 }
-    },
-    "modal_popup": {
-      "initial": { "opacity": 0, "scale": 0.95 },
-      "animate": { "opacity": 1, "scale": 1 },
-      "exit": { "opacity": 0, "scale": 0.95 },
-      "transition": { "type": "spring", "damping": 25, "stiffness": 300 }
-    },
-    "hover_lift": "transition-transform hover:-translate-y-1 duration-200"
-  },
-  "accessibility": {
-    "contrast": "Ensure text over images has sufficient gradient overlay (min 60% opacity) for readable white text.",
-    "aria": "Add aria-labels to all icon-only buttons (like the notification bell and modal close button).",
-    "touch_targets": "All interactive elements in the mobile view must be at least 44x44px."
-  },
-  "media": {
-    "image_urls": {
-      "mobile_lifestyle": "https://images.unsplash.com/photo-1662858557337-48c9ecf07ee0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwzfHxwZXJzb24lMjB1c2luZyUyMHNtYXJ0cGhvbmUlMjBoYXBweXxlbnwwfHx8fDE3ODQ4NTQwOTh8MA&ixlib=rb-4.1.0&q=85",
-      "streaming_tv": "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHw0fHxtb3ZpZSUyMHN0cmVhbWluZyUyMHR2fGVufDB8fHx8MTc4NDg1NDEwM3ww&ixlib=rb-4.1.0&q=85",
-      "gamer_neon": "https://images.unsplash.com/photo-1614179924047-e1ab49a0a0cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxnYW1lciUyMHBjJTIwc2V0dXAlMjBuZW9ufGVufDB8fHx8MTc4NDg1NDExNnww&ixlib=rb-4.1.0&q=85",
-      "brand_logo": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png"
-    }
-  },
-  "instructions_to_main_agent": [
-    "You are redesigning the GoRoky client self-service portal to look like a premium native mobile telco app (like Mi Vodafone).",
-    "Use Light Theme as default for consumer clarity, using GoRoky Blue (#0A6BFF) for structure and GoRoky Orange (#FF6A00) for highlights/CTAs.",
-    "Do NOT change existing `data-testid` attributes. Simply apply new Tailwind styling and structure.",
-    "The client home page must be wrapped in a mobile-constrained container (`w-full max-w-md mx-auto min-h-screen relative shadow-2xl`) so it looks like a phone on desktop.",
-    "The carousels (Product lines, Ofertas) MUST use CSS scroll snapping (`overflow-x-auto snap-x snap-mandatory`) instead of complex JS carousels.",
-    "For the Admin 'Promociones' page, implement a live preview feature. The admin form should be on the left, and a simulated 'mobile view' should stick to the right side, rendering the Hero Banner, Popup, or Offer Card dynamically as the admin types.",
-    "Use Lucide-React for all icons (Bell, User, Home, Receipt, ShoppingBag, Smartphone, Headphones).",
-    "Integrate Framer Motion for the login popup modal animation.",
-    "Hide the global scrollbar inside the mobile wrapper by adding a `.hide-scrollbar::-webkit-scrollbar { display: none; }` utility class.",
-    "Use Shadcn UI components for the Admin dashboard forms (Input, Select, Switch, Calendar/Datepicker), but heavily customize the Client Portal to rely on raw Tailwind for the exact mobile app feel."
   ],
+  "accessibility": [
+    "All interactive elements MUST have data-testid attributes (e.g., data-testid='tab-movil', data-testid='btn-contratar-plan1', data-testid='coverage-input').",
+    "Focus states must use ring-2 ring-primary ring-offset-2.",
+    "Contrast ratios must meet APCA/WCAG standards. Do not put light gray text on white."
+  ],
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1622556498246-755f44ca76f3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHw0fHxwZXJzb24lMjB1c2luZyUyMG1vYmlsZSUyMHBob25lJTIwbW9kZXJuJTIwbGlmZXN0eWxlfGVufDB8fHx8MTc4NTEwNjMxMXww&ixlib=rb-4.1.0&q=85",
+        "description": "Man using mobile phone (Use for Mobile Plans hero/banner)",
+        "category": "hero_mobile"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1758598738327-82de3cb31c56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHw0fHxmYW1pbHklMjB3YXRjaGluZyUyMHR2JTIwbGl2aW5nJTIwcm9vbXxlbnwwfHx8fDE3ODUxMDYzMTF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Family watching TV on couch (Use for Fiber/TV Plans hero/banner)",
+        "category": "hero_fiber_tv"
+      }
+    ],
+    "icons_library": "lucide-react"
+  },
   "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "Do not converge toward generic outputs. Use the generous spacing and border-radii defined in visual_enhancers.",
-    "NEVER use fully transparent backgrounds on headers; always use backdrop-blur + semi-transparent white (glassmorphism).",
-    "Always use modern button styles (rounded-xl or rounded-full) with interaction animations (active:scale-[0.98]).",
-    "NEVER use AI assistant Emoji characters (🤖🧠💭) for icons.",
-    "Include data-testid on all new interactive elements.",
-    "Use sonner for toast notifications."
-  ]
+    "You tend to converge toward generic outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for floating navs.",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements like button, input excluding transforms.",
+    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "All interactive and key informational elements MUST include a `data-testid` attribute."
+  ],
+  "instructions_to_main_agent": "Implement a full landing page simulating a public telecom store. Use a sophisticated tab system to switch between Móvil, Fibra, Satélite, and TV plans. Build out the checkout flow as a responsive multi-step modal/dialog. Ensure the SEO cities are visible but artfully integrated via a Marquee at the bottom. For the fiber checker, implement a simple stateful input that validates the address and shows 'Available' or 'Not Available' to demonstrate functionality. Remember to implement the brand colors explicitly (Blue #015EEF, Orange #FF7A00)."
 }

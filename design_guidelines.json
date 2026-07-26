@@ -1,88 +1,103 @@
 {
-  "project_name": "GoRoky Public Store & Checkout",
-  "theme": "Light theme default with vibrant accents (E-commerce trust focus)",
+  "theme": "light",
   "typography": {
-    "headings": "Outfit, sans-serif",
-    "body": "Manrope, sans-serif",
-    "rules": [
-      "Use text-5xl to text-6xl for main hero headings.",
-      "Use tight letter spacing (tracking-tight) for headings.",
-      "Prices inside plan cards MUST be massive (text-5xl font-black) with the currency symbol and '/mes' smaller (text-lg text-muted-foreground).",
-      "Use uppercase wide-tracking labels (text-xs tracking-widest font-bold) for tags like 'PROMO PORTABILIDAD' or 'MÁS POPULAR'."
-    ]
+    "font_family_headings": "Outfit, sans-serif",
+    "font_family_body": "Manrope, sans-serif",
+    "h1": "text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-tight",
+    "h2": "text-4xl sm:text-5xl font-extrabold tracking-tight",
+    "h3": "text-2xl sm:text-3xl font-bold tracking-tight",
+    "h4": "text-xl sm:text-2xl font-bold",
+    "body": "text-base sm:text-lg leading-relaxed text-slate-700",
+    "small": "text-sm font-medium text-slate-500",
+    "labels": "text-xs font-bold uppercase tracking-[0.2em] text-[#FF7A00]"
   },
   "colors": {
-    "primary": "#015EEF (Vibrant Blue for trust and branding)",
-    "accent": "#FF7A00 (Orange for primary CTAs like 'Contratar')",
-    "background": "bg-slate-50 for the page body to allow pure white plan cards to pop.",
-    "rules": [
-      "DO NOT use generic gradients. Use flat vibrant colors.",
-      "Ensure text over primary blue is pure white for contrast.",
-      "Primary CTAs must be Orange to stand out from the Blue brand elements."
-    ]
-  },
-  "layouts": {
-    "page_structure": "Sticky Glassmorphism Header -> Hero Section with Category Tabs -> Plan Catalog Grid -> Coverage Checker -> Trust Features -> SEO Cities Marquee -> Footer",
-    "plan_cards": "Use 3-column grid on desktop (grid-cols-1 md:grid-cols-3 gap-8). Cards must have pure white bg, 1px subtle border, and rounded-3xl. The 'Más Popular' card should have a blue border and an 'over-the-border' badge.",
-    "coverage_checker": "Horizontal layout on desktop: Text on left, Input + Button on right. Dark blue background (#015EEF) with white text to break the visual rhythm. Must include success/error inline states.",
-    "checkout_wizard": "Rendered as a multi-step modal (Dialog) or full-screen overlay when 'Contratar' is clicked. Must show a progress bar/stepper."
+    "primary": "#0033ff",
+    "accent": "#FF7A00",
+    "background": "#FFFFFF",
+    "surface": "#F8F9FB",
+    "surface_glass": "rgba(255, 255, 255, 0.8)",
+    "text_main": "#050505",
+    "text_muted": "#64748B",
+    "border": "rgba(0, 51, 255, 0.1)",
+    "footer_bg": "#0A0A0A"
   },
   "visual_enhancers": {
-    "glassmorphism": "Use for the top sticky navigation: bg-white/70 backdrop-blur-xl border-b border-border/50.",
-    "marquee": "Use a subtle text marquee for the SEO cities (Madrid, Barcelona, Valencia...) to pack keywords without looking like spam. It should look like an 'Editorial Ribbon'.",
-    "micro_interactions": "Plan cards should lift on hover (-translate-y-1) and shadow should increase. Tab switching must have a layout animation (Framer Motion).",
-    "badges": "Use prominent icon badges (Lucide icons) with soft background tints for plan features."
+    "header_glassmorphism": "backdrop-blur-2xl bg-white/80 border-b border-black/5",
+    "card_shadows": "shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)]",
+    "primary_glow": "shadow-[0_8px_24px_rgba(0,51,255,0.3)]",
+    "accent_glow": "shadow-[0_8px_24px_rgba(255,122,0,0.3)]"
   },
-  "components_to_build": [
+  "components": {
+    "buttons": {
+      "primary": "rounded-full bg-[#0033ff] hover:bg-[#0022cc] text-white font-bold px-8 py-4 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(0,51,255,0.3)]",
+      "accent": "rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(255,122,0,0.3)]",
+      "outline": "rounded-full border-2 border-[#0033ff] text-[#0033ff] hover:bg-[#0033ff] hover:text-white font-bold px-8 py-4 transition-all"
+    },
+    "cards": {
+      "tariff_base": "relative bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group p-8 flex flex-col",
+      "tariff_highlighted": "relative bg-[#0033ff] text-white rounded-3xl shadow-2xl transition-all duration-300 p-8 flex flex-col scale-100 lg:scale-105 z-10 border border-[#0033ff]",
+      "popular_badge": "absolute top-0 right-0 bg-[#FF7A00] text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-bl-xl rounded-tr-3xl"
+    },
+    "tabs": {
+      "list": "inline-flex bg-slate-100 p-1 rounded-full w-full sm:w-auto",
+      "trigger": "rounded-full px-6 py-2.5 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-[#0033ff] data-[state=active]:shadow-sm"
+    }
+  },
+  "grids": {
+    "bento": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+    "benefits": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
+  },
+  "layouts": {
+    "hero_section": "grid grid-cols-1 lg:grid-cols-12 gap-12 items-center min-h-[85vh] pt-28 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "section_spacing": "py-20 md:py-32"
+  },
+  "motion": {
+    "hover_interactions": "Buttons and cards scale up slightly (hover:-translate-y-1).",
+    "framer_motion_entrances": "Use staggered fade-in-up animations for hero content and tariff cards using framer-motion.",
+    "tab_indicator": "Animate the active tab background smoothly using framer-motion layoutId."
+  },
+  "accessibility": {
+    "contrast": "Ensure white text is used over the primary blue (#0033ff) and accent orange (#FF7A00).",
+    "focus_states": "Add focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2 to all buttons and inputs.",
+    "test_ids": "Mandatory data-testid attributes on all interactive elements (e.g., data-testid='contract-button')."
+  },
+  "image_urls": [
     {
-      "name": "PlanCard",
-      "description": "Displays plan details: Title, GBs, Features list, Price, and CTA. Props for 'isPopular', 'category', 'price', 'features'."
+      "url": "https://images.unsplash.com/photo-1694057336527-fbc3e7c84890?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbmVyZ2V0aWMlMjBzbWlsaW5nJTIwcGVyc29uJTIwcGhvbmUlMjBzb2xpZCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg1MTA4ODgxfDA&ixlib=rb-4.1.0&q=85",
+      "category": "hero",
+      "description": "Energetic woman in yellow jacket holding a smartphone, perfect for a dynamic telecom hero image."
     },
     {
-      "name": "CoverageChecker",
-      "description": "Input for address and 'Comprobar' button. Simulates checking and shows a success/error message inline."
-    },
-    {
-      "name": "CheckoutWizard",
-      "description": "Multi-step flow: 1. Datos personales, 2. Tu línea (Portabilidad/Nueva), 3. Dirección y Pago, 4. Documentos KYC (upload simulation), 5. Confirmación. Include form validations."
-    },
-    {
-      "name": "SEOCitiesMarquee",
-      "description": "A continuous scrolling ribbon containing the target cities for SEO purposes. 'Disponible en Madrid • Barcelona • Valencia...'"
+      "url": "https://images.unsplash.com/photo-1750711158632-5273ec9b9b86?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBmYXN0JTIwaW50ZXJuZXQlMjBob21lJTIwd2lmaXxlbnwwfHx8fDE3ODUxMDg4NzF8MA&ixlib=rb-4.1.0&q=85",
+      "category": "fiber_section",
+      "description": "Wi-fi router to represent the Fiber product/service."
     }
   ],
-  "accessibility": [
-    "All interactive elements MUST have data-testid attributes (e.g., data-testid='tab-movil', data-testid='btn-contratar-plan1', data-testid='coverage-input').",
-    "Focus states must use ring-2 ring-primary ring-offset-2.",
-    "Contrast ratios must meet APCA/WCAG standards. Do not put light gray text on white."
-  ],
-  "media": {
-    "images": [
-      {
-        "url": "https://images.unsplash.com/photo-1622556498246-755f44ca76f3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHw0fHxwZXJzb24lMjB1c2luZyUyMG1vYmlsZSUyMHBob25lJTIwbW9kZXJuJTIwbGlmZXN0eWxlfGVufDB8fHx8MTc4NTEwNjMxMXww&ixlib=rb-4.1.0&q=85",
-        "description": "Man using mobile phone (Use for Mobile Plans hero/banner)",
-        "category": "hero_mobile"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1758598738327-82de3cb31c56?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHw0fHxmYW1pbHklMjB3YXRjaGluZyUyMHR2JTIwbGl2aW5nJTIwcm9vbXxlbnwwfHx8fDE3ODUxMDYzMTF8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Family watching TV on couch (Use for Fiber/TV Plans hero/banner)",
-        "category": "hero_fiber_tv"
-      }
-    ],
-    "icons_library": "lucide-react"
+  "3d_libraries": {
+    "usage": "Not recommended for this specific fast-loading telecom e-commerce page. Focus on high-performance 2D framer-motion micro-interactions."
   },
-  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "You tend to converge toward generic outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
-    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
-    "Create depth through layered design elements with z-index hierarchy.",
-    "Use glass-morphism effects with backdrop filters (12-24px blur) for floating navs.",
-    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements like button, input excluding transforms.",
-    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
-    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
-    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
-    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
-    "All interactive and key informational elements MUST include a `data-testid` attribute."
+  "instructions_to_main_agent": [
+    "Develop a React SPA (.js, not .tsx) using Tailwind CSS and shadcn/ui.",
+    "Build a sticky glass header (`backdrop-blur-2xl bg-white/80`) with the Logo (left), Nav links (center), and 'Mi cuenta' outline button (right). Hide Nav on mobile behind a hamburger menu.",
+    "Hero Section: Use a 12-col grid. Left side has massive 'Outfit' heading (`text-5xl md:text-7xl`), subtext, and two buttons: Primary 'Ver tarifas' (#0033ff) and Secondary 'Comprobar fibra' (#FF7A00). Right side contains the energetic hero image.",
+    "Tariffs Grid: Use customized shadcn Tabs to switch between Móvil, Fibra, Satélite, TV. The cards must have huge prices (`text-6xl font-black`), feature list with Lucide Check icons, and a 'Contratar' CTA. Highlight the main plan with a solid primary blue background, scaling it up slightly, and adding a 'Más popular' badge.",
+    "Fiber Coverage Checker: Full width section with solid #0033ff background. Include a simple address input and 'Comprobar fibra' button. Make it spacious.",
+    "Trust Row: 4 items (Icon + text). Include 'Portabilidad gratis', 'Alta 100% online', 'App GoRoky', and 'Atención 24/7'. DO NOT INCLUDE 'Sin permanencia'.",
+    "SEO Marquee: Implement `react-fast-marquee`. Display scrolling Spanish cities (Madrid, Barcelona, Valencia, Alicante, etc.) using massive outline text (e.g., text-transparent text-stroke).",
+    "Footer: Dark theme (#0A0A0A) with white text. Include links and legal text: 'TRAMILEX GLOBAL SERVICE SL · B21796925'."
   ],
-  "instructions_to_main_agent": "Implement a full landing page simulating a public telecom store. Use a sophisticated tab system to switch between Móvil, Fibra, Satélite, and TV plans. Build out the checkout flow as a responsive multi-step modal/dialog. Ensure the SEO cities are visible but artfully integrated via a Marquee at the bottom. For the fiber checker, implement a simple stateful input that validates the address and shows 'Available' or 'Not Available' to demonstrate functionality. Remember to implement the brand colors explicitly (Blue #015EEF, Orange #FF7A00)."
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You MUST NOT use 'sin permanencia' in any copy, as fiber does have a commitment period. CRITICAL RULE.",
+    "The website must look hyper-professional, mimicking the bold and spacious aesthetic of www.wom.cl.",
+    "Use custom .js components, not .tsx files.",
+    "Do not use generic centered layouts for the entire page. Rely on asymmetrical grids.",
+    "Implement extreme spacing (e.g., py-24, gap-8) to give a 'spacious' ('amplia') premium feel.",
+    "NEVER use generic placeholder images or text like 'Lorem ipsum'. Use Spanish language for all text.",
+    "Include 'data-testid' on all interactive elements to support testing.",
+    "Install and use `lucide-react` for iconography.",
+    "Install and use `framer-motion` for entry animations and interactive tab highlights.",
+    "Use standard Tailwind classes. Avoid custom CSS files unless necessary for the marquee outline effect."
+  ]
 }

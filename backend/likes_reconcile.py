@@ -19,21 +19,19 @@ def _now():
 
 
 def _norm_svas(raw):
-    """Normaliza los SVAs de Likes a {code, status(bool), ...} para el CRM/portal."""
+    """Normaliza los SVAs de Likes (formato real {spanishName, status, type}) a {code, status, spanishName}."""
     out = []
     for s in (raw or []):
         if not isinstance(s, dict):
             continue
-        code = s.get("code") or s.get("svaCode") or s.get("name")
-        if code is None:
+        name = s.get("spanishName")
+        code = s.get("code") or likes_client.SVA_NAME_TO_CODE.get(name)
+        if not code:
+            code = (name or s.get("type") or "").upper().replace(" ", "_")
+        if not code:
             continue
-        status = s.get("status")
-        if status is None:
-            status = s.get("active", s.get("enabled", False))
-        item = dict(s)
-        item["code"] = code
-        item["status"] = bool(status)
-        out.append(item)
+        out.append({"code": code, "status": bool(s.get("status")),
+                    "spanishName": name or code, "type": s.get("type")})
     return out
 
 

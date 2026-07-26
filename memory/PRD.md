@@ -134,3 +134,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Consumo MB/GB**: helper `src/lib/format.js fmtData()` (MB si <1GB, GB si ≥1GB) aplicado en LinePanel.js (CRM) y ClientDashboard.js (portal).
 - Documentos: importador ya descarga documentation[].downloadURL (contract/signedContract). DNI/selfie NO aparecen en documentation[] de estas órdenes ni en /customer (vacío) — pendiente confirmar si esos clientes tienen DNI subido en Likes.
 - **BLOQUEANTE PRINCIPAL**: todo el código nuevo (push, pull vivo, docs, MB/GB, fix 500) está en el repo Emergent pero NO en el VPS. Requiere Save to Github + git pull + rebuild frontend + restart. Por eso "no se replica" para el usuario.
+
+### Iteración 2026-07-26 (bis) — FIX CRÍTICO formato SVAs Likes
+- DESCUBIERTO: la API REAL de /line/svas NO devuelve `code` (la doc oficial está idealizada). Formato real: {spanishName, status, parm2, type}. type es categoría (Phone/SMS/Internet/Roaming/Other), NO único. spanishName identifica el SVA.
+- El PUT con {code,status} devolvía 200 pero NO aplicaba. Confirmado que enviar el item real {spanishName,status,parm2,type} con status cambiado SÍ aplica (probado en línea 722714396: Roaming True→False OK).
+- FIX: `likes_client.SVA_NAME_TO_CODE` (mapa nombre ES↔código). `set_line_svas(line, updates)` ahora trae los SVAs reales, cambia el status por código→spanishName y hace PUT en formato real. `_norm_svas` deriva code desde spanishName.
+- Solo backend (likes_client.py, likes_reconcile.py). Requiere git pull + restart + reconcile para re-normalizar SVAs almacenados.

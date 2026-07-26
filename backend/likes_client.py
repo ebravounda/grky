@@ -19,6 +19,29 @@ LIKES_PASSWORD = os.environ.get("LIKES_PASSWORD", "")
 
 _token_cache = {"token": None, "ts": 0}
 
+# Mapa nombre en español (respuesta real de Likes) <-> código canónico usado por el CRM
+SVA_NAME_TO_CODE = {
+    "Roaming": "ROAMING",
+    "Datos": "DATA",
+    "Llamadas entrantes": "INBOUND_CALLS",
+    "Llamadas salientes": "OUTBOUND_CALLS",
+    "Llamadas salientes internacionales": "INTERNATIONAL_OUTBOUND_CALLS",
+    "Servicios premium": "OUTBOUND_PREMIUM_CALLS",
+    "SMSs Entrantes": "INBOUND_SMSS",
+    "SMSs Salientes": "OUTBOUND_SMSS",
+    "Llamada en espera": "CALL_WAITING",
+    "Llamada visible": "VISIBLE_CALLER",
+    "Buzón de Voz": "VOICEMAIL",
+    "Buzón de voz": "VOICEMAIL",
+    "Desvío incondicional": "FORWARD_UNCONDITIONAL",
+    "Desvío si comunica": "FORWARD_BUSY",
+    "Desvío si no hay cobertura": "FORWARD_NON_REACHABLE",
+    "Desvío si no contesta": "FORWARD_NON_REPLY",
+    "VoLTE": "VOLTE",
+    "5G": "FIVE_G",
+}
+
+
 # Estado de conexión con la API real (para mostrar en el panel)
 CONNECTION_STATE = {"live": False, "last_error": "IP no autorizada (403 Forbidden)"}
 
@@ -160,9 +183,22 @@ def get_customers():
 
 
 # ---- Escritura de gestión de línea (sincroniza acciones con Likes) ----
-def set_line_svas(line_number, svas):
-    """PUT /line/svas → activa/desactiva SVAs de la línea en Likes (espejo del GET)."""
-    return _live_put("/line/svas", {"lineNumber": line_number, "svas": svas})
+def set_line_svas(line_number, updates):
+    """updates: lista de {code, status}. Trae los SVAs reales, cambia el status de los pedidos
+    y hace PUT en el formato REAL de Likes ({spanishName, status, parm2, type})."""
+    current = get_line_svas(line_number)
+    if not isinstance(current, list) or not current:
+        return None, "no_svas"
+    want = {u.get("code"): bool(u.get("status")) for u in updates if u.get("code")}
+    changed = []
+    for s in current:
+        code = SVA_NAME_TO_CODE.get(s.get("spanishName"))
+        if code and code in want:
+            s["status"] = want[code]
+            changed.append(s)
+    if not changed:
+        return None, "sva_not_found"
+    return _live_put("/line/svas", {"lineNumber": line_number, "svas": changed})
 
 
 def block_line_remote(line_number, block=True):

@@ -117,3 +117,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Código**: añadido `likes_client.get_customers()` + `likes_reconcile.import_customers(db)` y `_map_customer()`. `reconcile_all()` ahora primero importa TODOS los clientes de Likes (`source:"likes"`) y luego reconcilia cada uno. El scheduler (cada 20 min) hará sync automático de altas/cambios reales.
 - **Import inmediato ejecutado en VPS** (script one-off): 3 clientes reales importados (F53982002 Eduardo Bravo, Z3091783J David Guerrero, Z3452060H Eduardo Bravo) con sus órdenes/líneas/subs; 3 clientes demo borrados (12345678A, B87654321, 45678912C) + usuario portal demo `cliente@goroky.com`.
 - **PENDIENTE usuario**: "Save to Github" (repo grky) + `git pull` en VPS + restart para activar la sync automática permanente (el código nuevo aún no está en el VPS).
+
+### Iteración 2026-07-25 (tri) — Fix SVAs 500 + push a Likes + espejo de documentos
+- **Fix 500 `PUT /lines/{n}/svas`**: defensivo (`.get`), añade codes nuevos, normaliza. `_norm_svas()` en reconcile mapea SVAs de Likes a {code,status}.
+- **Push CRM→Likes (fail-safe)**: `set_line_svas` (PUT /line/svas), roaming (SVA ROAMING), `suspend_line_remote`/`reactivate_line_remote` (POST /line/suspend|reactivate — **endpoints NO verificados**). Cada acción devuelve `likesSync`. Si Likes falla, el cambio local se guarda igual.
+- **Espejo de documentos Likes→CRM**: `likes_client.download_document(url)` + `likes_reconcile.import_documents(db, fid)` — recorre órdenes del cliente, `GET /draft-order-v2`, descarga cada `documentation[].downloadURL` (S3 presigned) y lo guarda en `customer_documents` (idempotente por fiscalId+orderId+filename, source=likes). Integrado en `reconcile_customer` (counts["documents"]).
+- **Endpoint** `GET /customers/{fiscalId}/documents/{doc_id}/download` (StreamingResponse). Frontend: docs clicables en `CustomerDetail.js` + `openCustomerDoc` en `lib/api.js` + etiqueta "Likes".
+- Estructura doc Likes confirmada: `{"downloadURL": "https://prod-likes-customer-documents.s3...", "type": ...}` — filename derivado del path (contract.pdf, signedContract.pdf).
+- **Requisito usuario**: "CRM y Likes = espejo total bidireccional". Pull casi completo (falta verificar tipos DNI/selfie/IBAN además de contratos). Push parcial (endpoints escritura sin doc oficial de Likes).
+- **PENDIENTE despliegue VPS**: Save to Github + git pull + restart backend + **recompilar frontend** (cambió CustomerDetail.js y api.js) + reconcile-all para importar docs.

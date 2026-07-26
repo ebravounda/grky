@@ -175,6 +175,18 @@ def reactivate_line_remote(line_number):
     return _live_post("/line/reactivate", {"lineNumber": line_number})
 
 
+def download_document(url):
+    """Descarga un documento desde una downloadURL prefirmada (S3). Devuelve bytes o None."""
+    try:
+        r = requests.get(url, timeout=30)
+        if r.status_code == 200:
+            return r.content
+        logger.warning("download_document HTTP %s", r.status_code)
+    except Exception as e:  # noqa
+        logger.warning("download_document error: %s", e)
+    return None
+
+
 # --------------------------------------------------------------------------
 # Catálogo de productos (mock que replica GET /products/brand)
 # --------------------------------------------------------------------------

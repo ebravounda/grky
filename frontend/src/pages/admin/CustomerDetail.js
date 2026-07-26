@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
+import api, { apiErr, openInvoicePdf, openContractPdf, openCustomerDoc } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature, CreditCard, RefreshCw,
+  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -225,10 +225,20 @@ export default function CustomerDetail() {
           {docs.length === 0 ? <p className="text-sm text-muted-foreground">Sin documentos subidos.</p> : (
             <div className="divide-y divide-border">
               {docs.map((d) => (
-                <div key={d.id} className="flex items-center justify-between py-2.5 text-sm">
-                  <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-success" /> {DOC_TYPES.find((t) => t.v === d.type)?.l || d.type} — <span className="text-muted-foreground">{d.filename}</span></span>
-                  <span className="text-xs text-muted-foreground">{d.uploadedAt?.slice(0, 10)}</span>
-                </div>
+                <button
+                  key={d.id}
+                  data-testid={`doc-download-${d.id}`}
+                  onClick={() => openCustomerDoc(fiscalId, d.id).catch((e) => toast.error(apiErr(e)))}
+                  className="w-full flex items-center justify-between py-2.5 text-sm hover:bg-muted/50 rounded px-1 transition-colors text-left">
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 size={15} className="text-success" />
+                    {DOC_TYPES.find((t) => t.v === d.type)?.l || d.type} — <span className="text-muted-foreground">{d.filename}</span>
+                    {d.source === "likes" && <span className="text-[10px] uppercase tracking-wide text-primary bg-primary/10 rounded-full px-1.5 py-0.5">Likes</span>}
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {d.uploadedAt?.slice(0, 10)} <Download size={14} />
+                  </span>
+                </button>
               ))}
             </div>
           )}

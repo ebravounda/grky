@@ -121,7 +121,42 @@ async def reconcile_customer(db, fiscal_id):
     except Exception as e:  # noqa
         logger.warning("reconcile ports %s: %s", fiscal_id, e)
 
+    # 4) DOCUMENTOS + CONTRATOS (descarga de Likes)
+    try:
+        counts["documents"] = await import_documents(db, fiscal_id)
+    except Exception as e:  # noqa
+        logger.warning("reconcile docs %s: %s", fiscal_id, e)
+
     return {"reconciled": True, "counts": counts, "at": now}
+
+
+async def import_documents(db, fiscal_id):
+    """Descarga de Likes los documentos (DNI/NIE, IBAN, contrato firmado) de cada orden del cliente."""
+    import base64
+    n = 0
+    for o in (likes_client.get_customer_orders(fiscal_id) or []):
+        oid = o.get("orderId")
+        if not oid:
+            continue
+        draft = likes_client.get_order_draft(oid) or {}
+        for d in (draft.get("documentation") or []):
+            url = d.get("downloadURL")
+            if not url:
+                continue
+            fname = url.split("?", 1)[0].rsplit("/", 1)[-1] or "documento"
+            dtype = d.get("type") or fname.rsplit(".", 1)[0]
+            if await db.customer_documents.find_one(
+                    {"fiscalId": fiscal_id, "orderId": oid, "filename": fname}):
+                continue
+            content = likes_client.download_document(url)
+            if not content:
+                continue
+            await db.customer_documents.insert_one({
+                "fiscalId": fiscal_id, "orderId": oid, "type": dtype, "filename": fname,
+                "content": base64.b64encode(content).decode(), "source": "likes",
+                "uploadedAt": _now()})
+            n += 1
+    return n
 
 
 async def reconcile_all(db, limit=1000):

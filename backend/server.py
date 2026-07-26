@@ -2679,7 +2679,21 @@ async def download_resource(path: str, name: str, request: Request):
 async def list_documents(fiscalId: str, request: Request):
     await require_admin(request)
     docs = await db.customer_documents.find({"fiscalId": fiscalId}).to_list(50)
-    return [{"id": str(d["_id"]), "type": d["type"], "filename": d["filename"], "uploadedAt": d["uploadedAt"]} for d in docs]
+    return [{"id": str(d["_id"]), "type": d["type"], "filename": d["filename"],
+             "uploadedAt": d["uploadedAt"], "source": d.get("source", "manual")} for d in docs]
+
+
+@api.get("/customers/{fiscalId}/documents/{doc_id}/download")
+async def download_customer_document(fiscalId: str, doc_id: str, request: Request):
+    await require_admin(request)
+    d = await db.customer_documents.find_one({"_id": _OID(doc_id), "fiscalId": fiscalId})
+    if not d:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    raw = base64.b64decode(d.get("content") or "")
+    fname = d.get("filename", "documento")
+    media = "application/pdf" if fname.lower().endswith(".pdf") else "application/octet-stream"
+    return StreamingResponse(io.BytesIO(raw), media_type=media,
+                             headers={"Content-Disposition": f'inline; filename="{fname}"'})
 
 
 @api.post("/customers/{fiscalId}/documents")

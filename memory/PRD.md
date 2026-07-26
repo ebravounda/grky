@@ -214,3 +214,8 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **"Sin permanencia" ELIMINADO** de toda la UI pública (hero, ventajas, footer) porque la fibra SÍ tiene permanencia. La cláusula legal en `contracts.py` (duración/permanencia del contrato) se mantiene intacta (correcta).
 - Verificado: backend curl (PUT guarda + público refleja + merge preserva ciudades), screenshots home desktop/planes OK, panel admin CMS OK. NO se usó testing_agent (cambios acotados a 1 endpoint CRUD + 1 página).
 - ⚠️ DESPLIEGUE VPS: usuario debe hacer `cd /opt/goroky && git pull && cd frontend && sed -i 's#^REACT_APP_BACKEND_URL=.*#REACT_APP_BACKEND_URL=https://rokymovil.com#' .env && yarn install && yarn build && rm -rf /var/www/vhosts/rokymovil.com/a.rokymovil.com/* && cp -r build/* /var/www/vhosts/rokymovil.com/a.rokymovil.com/ && sudo systemctl restart goroky-api.service` (conservar `.htaccess` SPA).
+
+### Iteración 2026-06 (fork) — Detalle de servicio tras icono "i" en tarjetas de tienda
+- **Problema (prod)**: tras sincronizar catálogo de Likes, `marketingText` trae muchas líneas de detalle que estiraban las tarjetas y rompían la visual en rokymovil.com.
+- **Fix (`PublicCatalog.js`)**: la tarjeta muestra máx. 3 features (con `line-clamp-2`); icono "i" (`data-testid=detail-{productId}`) junto al nombre abre Dialog "Detalle · {tarifa}" con TODO el marketingText + botón Contratar; si hay >3 items, enlace "Ver todo el detalle" (`more-{productId}`). Altura de tarjeta uniforme independiente del catálogo Likes.
+- Verificado con screenshot (icono i + modal detalle OK). ⚠️ Tras editar componentes grandes, CRA no recompiló hasta `supervisorctl restart frontend`.

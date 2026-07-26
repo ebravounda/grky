@@ -11,7 +11,7 @@ import {
 import CoverageChecker from "@/components/CoverageChecker";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
-  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles,
+  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -144,18 +144,68 @@ export default function PublicCatalog() {
                         <span className="absolute top-0 right-0 bg-[#FF7A00] text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-bl-xl rounded-tr-3xl">Más popular</span>
                       )}
                       <span className={`grid place-items-center h-12 w-12 rounded-2xl mb-5 ${popular ? "bg-white/15 text-white" : "bg-[#0033ff]/10 text-[#0033ff]"}`}><t.icon size={24} /></span>
-                      <h3 className={`font-heading font-bold text-2xl ${popular ? "text-white" : ""}`}>{p.productName}</h3>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className={`font-heading font-bold text-2xl ${popular ? "text-white" : ""}`}>{p.productName}</h3>
+                        {(p.marketingText || []).length > 0 && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <button aria-label="Ver detalle del servicio" data-testid={`detail-${p.productId}`}
+                                className={`shrink-0 grid place-items-center h-8 w-8 rounded-full border transition-colors ${popular ? "border-white/30 text-white hover:bg-white/10" : "border-slate-200 text-slate-400 hover:text-[#0033ff] hover:border-[#0033ff]"}`}>
+                                <Info size={16} />
+                              </button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-md">
+                              <DialogHeader><DialogTitle>Detalle · {p.productName}</DialogTitle></DialogHeader>
+                              <ul className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                                {(p.marketingText || []).map((m, j) => (
+                                  <li key={j} className="flex items-start gap-2.5 text-sm text-slate-600">
+                                    <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                                    <span>{m.title ? <b className="text-slate-900 font-semibold">{m.title}: </b> : null}{m.value}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <button className="mt-2 w-full rounded-full py-3 bg-[#0033ff] hover:bg-[#0022cc] text-white font-bold inline-flex items-center justify-center gap-2 transition-colors"
+                                onClick={() => navigate(`/contratar/${p.productId}`)} data-testid={`detail-contract-${p.productId}`}>
+                                Contratar <ArrowRight size={16} />
+                              </button>
+                            </DialogContent>
+                          </Dialog>
+                        )}
+                      </div>
                       <div className="mt-3 mb-6 flex items-end gap-1">
                         <span className="font-heading text-6xl font-black tracking-tighter leading-none">{p.price.toFixed(2).replace(".", ",")}</span>
                         <span className={`text-lg mb-1.5 ${popular ? "text-white/70" : "text-slate-400"}`}>€/mes</span>
                       </div>
                       <ul className="space-y-3 mb-7 flex-1">
-                        {(p.marketingText || []).map((m, j) => (
+                        {(p.marketingText || []).slice(0, 3).map((m, j) => (
                           <li key={j} className={`flex items-start gap-2.5 text-sm ${popular ? "text-white/90" : "text-slate-600"}`}>
                             <CheckCircle2 size={18} className={`shrink-0 mt-0.5 ${popular ? "text-white" : "text-emerald-500"}`} />
-                            <span>{m.title}: <b className={popular ? "text-white font-semibold" : "text-slate-900 font-semibold"}>{m.value}</b></span>
+                            <span className="line-clamp-2">{m.title ? <b className={popular ? "text-white font-semibold" : "text-slate-900 font-semibold"}>{m.title}: </b> : null}{m.value}</span>
                           </li>
                         ))}
+                        {(p.marketingText || []).length > 3 && (
+                          <li>
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <button data-testid={`more-${p.productId}`}
+                                  className={`inline-flex items-center gap-1.5 text-sm font-semibold transition-colors ${popular ? "text-white/90 hover:text-white" : "text-[#0033ff] hover:text-[#0022cc]"}`}>
+                                  <Info size={15} /> Ver todo el detalle
+                                </button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-md">
+                                <DialogHeader><DialogTitle>Detalle · {p.productName}</DialogTitle></DialogHeader>
+                                <ul className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                                  {(p.marketingText || []).map((m, j) => (
+                                    <li key={j} className="flex items-start gap-2.5 text-sm text-slate-600">
+                                      <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                                      <span>{m.title ? <b className="text-slate-900 font-semibold">{m.title}: </b> : null}{m.value}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </DialogContent>
+                            </Dialog>
+                          </li>
+                        )}
                       </ul>
                       {p.channels?.length > 0 && (
                         <Dialog>

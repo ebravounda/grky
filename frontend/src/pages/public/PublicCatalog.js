@@ -16,7 +16,11 @@ import {
 import { motion } from "framer-motion";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
-const HERO_IMG = "https://images.unsplash.com/photo-1694057336527-fbc3e7c84890?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbmVyZ2V0aWMlMjBzbWlsaW5nJTIwcGVyc29uJTIwcGhvbmUlMjBzb2xpZCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg1MTA4ODgxfDA&ixlib=rb-4.1.0&q=85";
+const HERO_IMG = "https://images.unsplash.com/photo-1761499413046-08ac70109128?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxsaWZlc3R5bGUlMjB5b3V0aCUyMHVzaW5nJTIwc21hcnRwaG9uZSUyMG91dGRvb3JzfGVufDB8fHx8MTc4NTE5NTM1NXww&ixlib=rb-4.1.0&q=85";
+const FIBER_BG = "https://images.unsplash.com/photo-1597733336794-12d05021d510?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwZ2xvd2luZyUyMHRlY2h8ZW58MHx8fHwxNzg1MTk1MzM1fDA&ixlib=rb-4.1.0&q=85";
+
+const BLUE = "#015EEF";
+const ORANGE = "#FF7A00";
 
 const TAB_META = {
   Mobile: { label: "Móvil", icon: Signal },
@@ -32,6 +36,7 @@ const TAB_META = {
   International: { label: "Internacional", icon: Signal },
   Bonos: { label: "Bonos", icon: Sparkles },
   Paquetes: { label: "Paquetes", icon: Sparkles },
+  Other: { label: "Otros", icon: Sparkles },
 };
 
 const ICONS = { Repeat, Zap, Smartphone, Headphones, ShieldCheck, Sparkles, Wifi, Signal };
@@ -53,7 +58,7 @@ export default function PublicCatalog() {
   }, []);
 
   if (!content) {
-    return <div className="min-h-screen grid place-items-center bg-white"><div className="h-10 w-10 rounded-full border-2 border-[#0033ff] border-t-transparent animate-spin" /></div>;
+    return <div className="min-h-screen grid place-items-center bg-[#0A0A0A]"><div className="h-10 w-10 rounded-full border-2 border-[#015EEF] border-t-transparent animate-spin" /></div>;
   }
 
   const TABS = Object.keys(catalog).filter((k) => (catalog[k] || []).length)
@@ -62,16 +67,16 @@ export default function PublicCatalog() {
   const { hero, plans, coverage, trust, cities, footer } = content;
 
   return (
-    <div className="min-h-screen bg-white text-[#050505] font-body selection:bg-[#FF7A00] selection:text-white" data-testid="public-catalog">
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-white/80 border-b border-black/5">
+    <div className="min-h-screen bg-white text-[#0A0A0A] font-body selection:bg-[#FF7A00] selection:text-white" data-testid="public-catalog">
+      {/* Header — crystal glass */}
+      <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-white/70 border-b border-black/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <a href="#top" className="flex items-center" data-testid="header-logo"><img src={LOGO} alt="GoRoky · roky móvil" className="h-9 w-auto" /></a>
           <nav className="hidden md:flex items-center gap-8 text-sm font-bold">
-            <a href="#planes" className="text-slate-700 hover:text-[#0033ff] transition-colors">Tarifas</a>
-            <a href="#cobertura" className="text-slate-700 hover:text-[#0033ff] transition-colors">Cobertura fibra</a>
+            <a href="#planes" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Tarifas</a>
+            <a href="#cobertura" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Cobertura fibra</a>
             <button onClick={() => navigate("/login")} data-testid="header-login-btn"
-              className="rounded-full border-2 border-[#0033ff] text-[#0033ff] hover:bg-[#0033ff] hover:text-white font-bold px-6 py-2.5 transition-all focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2">Mi cuenta</button>
+              className="rounded-full border-2 border-[#015EEF] text-[#015EEF] hover:bg-[#015EEF] hover:text-white font-bold px-6 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2">Mi cuenta</button>
           </nav>
           {/* Mobile menu */}
           <div className="md:hidden">
@@ -84,45 +89,61 @@ export default function PublicCatalog() {
                 <a href="#planes" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Tarifas</a>
                 <a href="#cobertura" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Cobertura fibra</a>
                 <button onClick={() => { setMenuOpen(false); navigate("/login"); }} data-testid="mobile-login-btn"
-                  className="rounded-full bg-[#0033ff] text-white font-bold px-6 py-3 mt-2">Mi cuenta</button>
+                  className="rounded-full bg-[#015EEF] text-white font-bold px-6 py-3 mt-2">Mi cuenta</button>
               </SheetContent>
             </Sheet>
           </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section id="top" className="relative overflow-hidden bg-white">
-        <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#0033ff]/5 blur-3xl" />
-        <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center pt-32 lg:pt-36 pb-16 lg:pb-24">
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="lg:col-span-6">
-            <span className="inline-flex items-center gap-2 text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] bg-[#FF7A00]/10 rounded-full px-4 py-2 mb-6">
+      {/* Hero — dark obsidian, electric orbs */}
+      <section id="top" className="relative overflow-hidden bg-[#0A0A0A] text-white">
+        <div className="pointer-events-none absolute -top-32 -right-24 h-[560px] w-[560px] rounded-full bg-[#015EEF]/25 blur-[120px]" />
+        <div className="pointer-events-none absolute top-52 -left-32 h-[460px] w-[460px] rounded-full bg-[#FF7A00]/20 blur-[120px]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center pt-32 lg:pt-40 pb-20 lg:pb-28">
+          <motion.div initial="hidden" animate="show"
+            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.12 } } }}
+            className="lg:col-span-6">
+            <motion.span variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}
+              className="inline-flex items-center gap-2 text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] bg-[#FF7A00]/15 ring-1 ring-[#FF7A00]/30 rounded-full px-4 py-2 mb-6">
               <Star size={14} className="fill-[#FF7A00]" /> {hero.badge}
-            </span>
-            <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.95]">
-              {hero.title} <span className="text-[#0033ff]">{hero.titleHighlight}</span>
-            </h1>
-            <p className="text-slate-600 mt-6 text-lg sm:text-xl leading-relaxed max-w-xl">{hero.subtitle}</p>
-            <div className="flex flex-col sm:flex-row gap-4 mt-9">
+            </motion.span>
+            <motion.h1 variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
+              className="font-heading text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.92]">
+              {hero.title} <span className="text-[#4d94ff]" style={{ textShadow: "0 0 40px rgba(1,94,239,0.55)" }}>{hero.titleHighlight}</span>
+            </motion.h1>
+            <motion.p variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
+              className="text-white/70 mt-6 text-lg sm:text-xl leading-relaxed max-w-xl">{hero.subtitle}</motion.p>
+            <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
+              className="flex flex-col sm:flex-row gap-4 mt-9">
               <a href="#planes" data-testid="hero-cta-planes"
-                className="rounded-full bg-[#0033ff] hover:bg-[#0022cc] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(0,51,255,0.3)]">
+                className="rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(1,94,239,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0A]">
                 {hero.ctaPrimary} <ArrowRight size={18} />
               </a>
               <a href="#cobertura" data-testid="hero-cta-cobertura"
-                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(255,122,0,0.3)]">
+                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(255,122,0,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0A]">
                 {hero.ctaSecondary}
               </a>
-            </div>
+            </motion.div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
+              className="flex flex-wrap items-center gap-x-8 gap-y-3 mt-10 text-sm text-white/60">
+              <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Alta 100% online</span>
+              <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Cobertura nacional</span>
+              <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Red 4G/5G</span>
+            </motion.div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.15 }} className="lg:col-span-6 relative">
-            <div className="rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5]">
+          <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.2 }} className="lg:col-span-6 relative">
+            <div className="absolute -inset-4 rounded-[3rem] bg-gradient-to-tr from-[#015EEF]/40 to-[#FF7A00]/30 blur-2xl" />
+            <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5] ring-1 ring-white/10">
               <img src={HERO_IMG} alt="Cliente feliz con GoRoky" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A]/50 to-transparent" />
             </div>
-            <div className="absolute -bottom-5 -left-2 sm:left-6 bg-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3 border border-slate-100">
-              <span className="grid place-items-center h-11 w-11 rounded-xl bg-[#0033ff]/10 text-[#0033ff]"><Repeat size={20} /></span>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}
+              className="absolute -bottom-5 -left-2 sm:left-6 bg-white text-[#0A0A0A] rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3">
+              <span className="grid place-items-center h-11 w-11 rounded-xl bg-[#015EEF]/10 text-[#015EEF]"><Repeat size={20} /></span>
               <div><p className="font-heading font-bold leading-tight">Portabilidad gratis</p><p className="text-sm text-slate-500">Conserva tu número</p></div>
-            </div>
+            </motion.div>
           </motion.div>
         </div>
       </section>
@@ -135,10 +156,10 @@ export default function PublicCatalog() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="inline-flex flex-wrap h-auto gap-1 bg-slate-100 p-1 rounded-full mb-12">
+          <TabsList className="inline-flex flex-wrap h-auto gap-1 bg-slate-200/60 p-1.5 rounded-full mb-12">
             {TABS.map((t) => (
               <TabsTrigger key={t.key} value={t.key} data-testid={`public-tab-${t.key}`}
-                className="gap-1.5 rounded-full px-6 py-2.5 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-[#0033ff] data-[state=active]:shadow-sm text-slate-500">
+                className="gap-1.5 rounded-full px-6 py-2.5 text-sm font-bold transition-colors data-[state=active]:bg-white data-[state=active]:text-[#015EEF] data-[state=active]:shadow-sm text-slate-500 hover:text-slate-900">
                 <t.icon size={15} /> {t.label}
               </TabsTrigger>
             ))}
@@ -152,22 +173,25 @@ export default function PublicCatalog() {
                   const anyPopular = list.some((x) => x.popular);
                   const popular = anyPopular ? !!p.popular : (i === 1 && list.length >= 3);
                   return (
-                    <motion.div key={p.productId} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.06 }}
+                    <motion.div key={p.productId} initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: (i % 3) * 0.08, duration: 0.5 }}
                       data-testid={`public-product-${p.productId}`}
                       className={popular
-                        ? "relative bg-[#0033ff] text-white rounded-3xl shadow-2xl p-8 flex flex-col lg:scale-105 z-10"
-                        : "relative bg-white rounded-3xl border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] transition-all duration-300 p-8 flex flex-col"}>
+                        ? "relative bg-[#015EEF] text-white rounded-[2rem] shadow-[0_24px_50px_rgba(1,94,239,0.35)] p-8 flex flex-col lg:scale-105 z-10 overflow-hidden"
+                        : "relative bg-white rounded-[2rem] border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_24px_45px_rgb(0,0,0,0.1)] hover:-translate-y-2 transition-[transform,box-shadow] duration-300 p-8 flex flex-col"}>
                       {popular && (
-                        <span className="absolute top-0 right-0 bg-[#FF7A00] text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-bl-xl rounded-tr-3xl">Más popular</span>
+                        <>
+                          <div className="pointer-events-none absolute -top-16 -right-16 h-52 w-52 rounded-full bg-white/10 blur-2xl" />
+                          <span className="absolute top-0 right-0 bg-[#FF7A00] text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-bl-2xl rounded-tr-[2rem]">Más popular</span>
+                        </>
                       )}
-                      <span className={`grid place-items-center h-12 w-12 rounded-2xl mb-5 ${popular ? "bg-white/15 text-white" : "bg-[#0033ff]/10 text-[#0033ff]"}`}><t.icon size={24} /></span>
+                      <span className={`grid place-items-center h-12 w-12 rounded-2xl mb-5 ${popular ? "bg-white/15 text-white" : "bg-[#015EEF]/10 text-[#015EEF]"}`}><t.icon size={24} /></span>
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className={`font-heading font-bold text-2xl ${popular ? "text-white" : ""}`}>{p.productName}</h3>
+                        <h3 className={`font-heading font-bold text-2xl leading-tight ${popular ? "text-white" : ""}`}>{p.productName}</h3>
                         {(p.marketingText || []).length > 0 && (
                           <Dialog>
                             <DialogTrigger asChild>
                               <button aria-label="Ver detalle del servicio" data-testid={`detail-${p.productId}`}
-                                className={`shrink-0 grid place-items-center h-8 w-8 rounded-full border transition-colors ${popular ? "border-white/30 text-white hover:bg-white/10" : "border-slate-200 text-slate-400 hover:text-[#0033ff] hover:border-[#0033ff]"}`}>
+                                className={`shrink-0 grid place-items-center h-8 w-8 rounded-full border transition-colors ${popular ? "border-white/30 text-white hover:bg-white/10" : "border-slate-200 text-slate-400 hover:text-[#015EEF] hover:border-[#015EEF]"}`}>
                                 <Info size={16} />
                               </button>
                             </DialogTrigger>
@@ -181,7 +205,7 @@ export default function PublicCatalog() {
                                   </li>
                                 ))}
                               </ul>
-                              <button className="mt-2 w-full rounded-full py-3 bg-[#0033ff] hover:bg-[#0022cc] text-white font-bold inline-flex items-center justify-center gap-2 transition-colors"
+                              <button className="mt-2 w-full rounded-full py-3 bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold inline-flex items-center justify-center gap-2 transition-colors"
                                 onClick={() => navigate(`/contratar/${p.productId}`)} data-testid={`detail-contract-${p.productId}`}>
                                 Contratar <ArrowRight size={16} />
                               </button>
@@ -205,7 +229,7 @@ export default function PublicCatalog() {
                             <Dialog>
                               <DialogTrigger asChild>
                                 <button data-testid={`more-${p.productId}`}
-                                  className={`inline-flex items-center gap-1.5 text-sm font-semibold transition-colors ${popular ? "text-white/90 hover:text-white" : "text-[#0033ff] hover:text-[#0022cc]"}`}>
+                                  className={`inline-flex items-center gap-1.5 text-sm font-semibold transition-colors ${popular ? "text-white/90 hover:text-white" : "text-[#015EEF] hover:text-[#004cc7]"}`}>
                                   <Info size={15} /> Ver todo el detalle
                                 </button>
                               </DialogTrigger>
@@ -227,20 +251,20 @@ export default function PublicCatalog() {
                       {p.channels?.length > 0 && (
                         <Dialog>
                           <DialogTrigger asChild>
-                            <button className={`w-full rounded-full py-2.5 mb-3 border font-semibold text-sm inline-flex items-center justify-center gap-1.5 transition-colors ${popular ? "border-white/30 text-white hover:bg-white/10" : "border-slate-200 hover:border-[#0033ff]"}`} data-testid={`channels-${p.productId}`}>
+                            <button className={`w-full rounded-full py-2.5 mb-3 border font-semibold text-sm inline-flex items-center justify-center gap-1.5 transition-colors ${popular ? "border-white/30 text-white hover:bg-white/10" : "border-slate-200 hover:border-[#015EEF]"}`} data-testid={`channels-${p.productId}`}>
                               <Tv2 size={15} /> Ver {p.channels.length} canales
                             </button>
                           </DialogTrigger>
                           <DialogContent className="max-w-md">
                             <DialogHeader><DialogTitle>Canales · {p.productName}</DialogTitle></DialogHeader>
                             <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto">
-                              {p.channels.map((ch, k) => <span key={k} className="flex items-center gap-1.5 text-sm py-1"><Tv size={13} className="text-[#0033ff] shrink-0" /> {ch}</span>)}
+                              {p.channels.map((ch, k) => <span key={k} className="flex items-center gap-1.5 text-sm py-1"><Tv size={13} className="text-[#015EEF] shrink-0" /> {ch}</span>)}
                             </div>
                           </DialogContent>
                         </Dialog>
                       )}
                       <button
-                        className={`w-full rounded-full py-3.5 font-bold inline-flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5 ${popular ? "bg-[#FF7A00] hover:bg-[#e66e00] text-white shadow-[0_8px_24px_rgba(255,122,0,0.4)]" : "bg-[#0033ff] hover:bg-[#0022cc] text-white shadow-[0_8px_24px_rgba(0,51,255,0.25)]"}`}
+                        className={`w-full rounded-full py-3.5 font-bold inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-0.5 ${popular ? "bg-[#FF7A00] hover:bg-[#e66e00] text-white shadow-[0_10px_28px_rgba(255,122,0,0.45)]" : "bg-[#015EEF] hover:bg-[#004cc7] text-white shadow-[0_10px_28px_rgba(1,94,239,0.3)]"}`}
                         data-testid={`contract-${p.productId}`} onClick={() => navigate(`/contratar/${p.productId}`)}>
                         Contratar <ArrowRight size={16} />
                       </button>
@@ -254,17 +278,27 @@ export default function PublicCatalog() {
         </Tabs>
       </section>
 
-      {/* Cobertura fibra */}
-      <section id="cobertura" className="bg-[#0033ff] text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28 grid lg:grid-cols-2 gap-12 items-center">
-          <div>
-            <p className="text-xs tracking-[0.2em] font-bold uppercase text-white/60 mb-3">{coverage.eyebrow}</p>
+      {/* Cobertura fibra — dark immersive */}
+      <section id="cobertura" className="relative overflow-hidden bg-[#0A0A0A] text-white">
+        <div className="absolute inset-0 opacity-25">
+          <img src={FIBER_BG} alt="" aria-hidden className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-[#0A0A0A]/70 to-transparent" />
+        </div>
+        <div className="pointer-events-none absolute -bottom-24 right-0 h-[420px] w-[420px] rounded-full bg-[#015EEF]/25 blur-[120px]" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28 grid lg:grid-cols-2 gap-12 items-center">
+          <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.6 }}>
+            <p className="text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] mb-3">{coverage.eyebrow}</p>
             <h2 className="font-heading text-4xl sm:text-5xl font-extrabold tracking-tight">{coverage.title}</h2>
-            <p className="text-white/80 mt-5 text-lg max-w-md leading-relaxed">{coverage.description}</p>
-          </div>
-          <div className="bg-white/10 rounded-3xl p-6 backdrop-blur-sm border border-white/10">
+            <p className="text-white/75 mt-5 text-lg max-w-md leading-relaxed">{coverage.description}</p>
+            <div className="flex flex-wrap gap-x-8 gap-y-3 mt-8 text-sm text-white/70">
+              <span className="inline-flex items-center gap-2"><Wifi size={16} className="text-[#FF7A00]" /> FTTH hasta 1&nbsp;Gb</span>
+              <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-[#FF7A00]" /> Instalación profesional</span>
+            </div>
+          </motion.div>
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ duration: 0.6, delay: 0.1 }}
+            className="bg-white/10 rounded-[2rem] p-6 sm:p-7 backdrop-blur-2xl border border-white/20 shadow-2xl">
             <CoverageChecker dark />
-          </div>
+          </motion.div>
         </div>
       </section>
 
@@ -274,8 +308,8 @@ export default function PublicCatalog() {
           {(trust || []).map((f, i) => {
             const Icon = ICONS[f.icon] || Sparkles;
             return (
-              <motion.div key={i} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.05 }}
-                className="rounded-3xl bg-slate-50 border border-slate-100 p-8">
+              <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.06, duration: 0.5 }}
+                className="rounded-[2rem] bg-slate-50 border border-slate-100 p-8 hover:-translate-y-1.5 hover:shadow-[0_18px_40px_rgb(0,0,0,0.06)] transition-[transform,box-shadow] duration-300">
                 <span className="grid place-items-center h-14 w-14 rounded-2xl bg-[#FF7A00]/10 text-[#FF7A00] mb-5"><Icon size={26} /></span>
                 <h3 className="font-heading font-bold text-xl">{f.title}</h3>
                 <p className="text-slate-500 mt-2 leading-relaxed">{f.desc}</p>
@@ -291,7 +325,7 @@ export default function PublicCatalog() {
           animate={{ x: ["0%", "-50%"] }} transition={{ duration: 34, repeat: Infinity, ease: "linear" }}>
           {[...(cities || []), ...(cities || [])].map((c, i) => (
             <span key={i} className="font-heading text-4xl sm:text-5xl font-black tracking-tighter text-transparent inline-flex items-center gap-4"
-              style={{ WebkitTextStroke: "1.5px rgba(0,51,255,0.18)" }}>
+              style={{ WebkitTextStroke: "1.5px rgba(1,94,239,0.2)" }}>
               Fibra y móvil en {c} <span className="text-[#FF7A00]" style={{ WebkitTextStroke: "0" }}>•</span>
             </span>
           ))}

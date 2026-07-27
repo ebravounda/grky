@@ -120,16 +120,32 @@ export default function Settings() {
                 <Switch data-testid="auto-approve-switch" checked={!!cfg.autoApprove} disabled={savingCfg}
                   onCheckedChange={(v) => saveCfg({ autoApprove: v })} />
               </div>
-              <div className="flex flex-col sm:flex-row sm:items-end gap-3 max-w-md">
-                <div className="flex-1 space-y-1.5">
-                  <Label className="flex items-center gap-1.5"><Euro size={14} /> Cuota de alta (proporcional)</Label>
-                  <Input data-testid="setup-fee-input" type="number" step="0.01" min="0"
-                    value={cfg.setupFee ?? 0} onChange={(e) => setCfg((c) => ({ ...c, setupFee: parseFloat(e.target.value || 0) }))} />
-                  <p className="text-xs text-muted-foreground">Se cobra una sola vez al dar de alta. La cuota mensual se cobra a partir del mes siguiente.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5"><Euro size={14} /> Envío SIM · Península</Label>
+                  <Input data-testid="ship-peninsula-input" type="number" step="0.01" min="0"
+                    value={cfg.shippingFeePeninsula ?? 8} onChange={(e) => setCfg((c) => ({ ...c, shippingFeePeninsula: parseFloat(e.target.value || 0) }))} />
                 </div>
-                <Button data-testid="save-setup-fee-btn" className="rounded-full" disabled={savingCfg}
-                  onClick={() => saveCfg({ setupFee: cfg.setupFee })}>Guardar cuota</Button>
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5"><Euro size={14} /> Envío SIM · Islas</Label>
+                  <Input data-testid="ship-islands-input" type="number" step="0.01" min="0"
+                    value={cfg.shippingFeeIslands ?? 10} onChange={(e) => setCfg((c) => ({ ...c, shippingFeeIslands: parseFloat(e.target.value || 0) }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5"><Euro size={14} /> Día de facturación</Label>
+                  <Input data-testid="billing-day-input" type="number" min="1" max="28"
+                    value={cfg.billingDay ?? 5} onChange={(e) => setCfg((c) => ({ ...c, billingDay: parseInt(e.target.value || 5) }))} />
+                </div>
               </div>
+              <div className="flex items-center gap-3">
+                <Button data-testid="save-billing-btn" className="rounded-full" disabled={savingCfg}
+                  onClick={() => saveCfg({ shippingFeePeninsula: cfg.shippingFeePeninsula, shippingFeeIslands: cfg.shippingFeeIslands, billingDay: cfg.billingDay })}>Guardar facturación</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El cliente <b>no paga cuota de alta</b>. En la primera factura solo se cobra el <b>envío de la SIM</b>
+                (Península {(cfg.shippingFeePeninsula ?? 8).toFixed?.(2) || cfg.shippingFeePeninsula}€ · Islas {(cfg.shippingFeeIslands ?? 10).toFixed?.(2) || cfg.shippingFeeIslands}€ —Canarias/Baleares—)
+                más la <b>parte proporcional</b> de la cuota según los días que falten para la facturación del día <b>{cfg.billingDay ?? 5}</b> de cada mes.
+              </p>
               <p className="text-xs text-muted-foreground">
                 Recordatorios de pago: <b>{(cfg.reminderDays || []).join(" y ")} días</b> antes del cobro ·
                 Suspensión tras <b>{cfg.maxFailed}</b> intentos fallidos.

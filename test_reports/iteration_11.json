@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 11 — Validated new BILLING logic (no setup fee; only SIM shipping + prorated to next billing day) and customerType/docType persistence in public + internal signup flows. Backend: 9/9 pytest passed against public URL. Frontend: /app/settings inputs (ship-peninsula-input=8, ship-islands-input=10, billing-day-input=5) save via PUT /api/admin/settings and persist after reload; /app/customers → Nuevo cliente shows cust-doctype with Pasaporte option available (Society/Freelance/Residential in cust-type).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_billing_signup.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~4000 lines — should be split into routers (applications, billing, admin-settings, lines, customers). Growing risk of merge conflicts and slow startup.",
+    "_create_invoice always sets isFirstInvoice=true regardless of whether it's really the customer's first invoice; if used for recurring billing it will lie. Consider conditioning on prior invoice count.",
+    "_proration clamps billing_day to 1..28 but frontend allows 1..28 so OK. However if today.day == billing_day, next_bill jumps to next month → daysProrated = full month, effectively charging a full month. Consider using >= instead of >.",
+    "Public /api/public/applications does not require captcha or rate-limiting — vulnerable to spam creation of applications/customers with arbitrary NIFs, generating orders on sign.",
+    "On sign, _create_invoice runs unconditionally — even for portability where SIM ship may not apply (still charges shipping). Admin can set shipping=0 in settings but per-application override is missing.",
+    "customerType field values are stored inconsistently: internal accepts Residential/Freelance/Society while public wizard also uses those; ensure UI mapping (Particular/Autónomo/Empresa) is consistent everywhere."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_billing_signup.py",
+    "/app/test_reports/pytest/iter11_results.xml",
+    "/app/test_reports/iteration_11.json"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (used)",
+  "seed_data_creation": "Test data created: ~5 customers with fiscalId prefixed TEST_ (or synthetic NIFs starting with random 8 digits + check letter) + associated applications and pending invoices. Also 2 additional /api/customers created (TEST_Passport One, TEST_Freelance_NIE X). These are labeled TEST_ in name field for easy cleanup by admin. Billing settings restored to defaults (8/10/5).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_iter11_billing_signup.py auto-restores billing settings to defaults after PUT tests. It creates ~5 TEST_ customers per full run — main agent may want to clean db.customers/db.invoices/db.applications where name starts with TEST_. Public sign endpoint POST /api/public/applications/{token}/sign requires only signerName OR signatureImage. Invoice fields on first invoice: shippingFee, proratedAmount, daysProrated, isFirstInvoice=true, billingDay. _is_islands = postal[:2] in ('35','38','07'). Proration formula: price * days_left / days_in_month, days_left = next billing_day date - today.",
+  "rca of the issue": "N/A"
+}

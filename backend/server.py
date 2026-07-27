@@ -400,6 +400,9 @@ class ServiceChargeBody(BaseModel):
 class AppSettingsBody(BaseModel):
     autoApprove: Optional[bool] = None
     setupFee: Optional[float] = None
+    shippingFeePeninsula: Optional[float] = None
+    shippingFeeIslands: Optional[float] = None
+    billingDay: Optional[int] = None
     reminderDays: Optional[List[int]] = None
     maxFailed: Optional[int] = None
     stripeSecretKey: Optional[str] = None
@@ -1188,22 +1191,59 @@ async def _next_contract_number():
     return f"CTR-{datetime.now().year}-{seq:05d}"
 
 
+def _is_islands(postal_code):
+    """Canarias (35xxx, 38xxx) y Baleares (07xxx) tienen tarifa de envío distinta."""
+    p = (postal_code or "").strip()
+    return p[:2] in ("35", "38", "07")
+
+
+def _proration(monthly_price, billing_day=5):
+    """Parte proporcional de la cuota según los días que quedan hasta la próxima facturación (día {billing_day})."""
+    import calendar
+    today = datetime.now(timezone.utc)
+    dim = calendar.monthrange(today.year, today.month)[1]
+    billing_day = max(1, min(28, int(billing_day or 5)))
+    if today.day < billing_day:
+        next_bill = today.replace(day=billing_day)
+    else:
+        y = today.year + (1 if today.month == 12 else 0)
+        m = 1 if today.month == 12 else today.month + 1
+        next_bill = today.replace(year=y, month=m, day=billing_day)
+    days_left = max(1, (next_bill.date() - today.date()).days)
+    prorated = round(float(monthly_price or 0) * days_left / dim, 2)
+    return prorated, days_left
+
+
 async def _create_invoice(customer, product, status="pending"):
-    subtotal = round(product["price"] / 1.21, 2)
-    tax = round(product["price"] - subtotal, 2)
     number = await _next_invoice_number()
     ba = customer.get("billingAddress", {}) or {}
     address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    settings = await get_app_settings()
+    billing_day = int(settings.get("billingDay", 5) or 5)
+    islands = _is_islands(ba.get("postalCode", ""))
+    shipping = float(settings.get("shippingFeeIslands", 10) if islands else settings.get("shippingFeePeninsula", 8))
+    # Solo SVAs físicos (SIM) requieren envío. Para eSIM/fibra sin SIM física, el admin puede poner 0 en ajustes.
+    prorated, days_left = _proration(product["price"], billing_day)
     mobile_lines = await db.lines.find({"fiscalId": customer["fiscalId"], "family": "Mobile"}).to_list(50)
     consumption = [_line_usage(l) for l in mobile_lines]
     now = datetime.now(timezone.utc)
+    items = []
+    if shipping > 0:
+        items.append({"description": "Envío de SIM", "detail": ("Islas" if islands else "Península"),
+                      "quantity": 1, "amount": round(shipping, 2)})
+    items.append({"description": product["productName"],
+                  "detail": f"Parte proporcional ({days_left} días hasta la facturación del día {billing_day})",
+                  "quantity": 1, "amount": prorated})
+    total = round(sum(i["amount"] for i in items), 2)
+    subtotal = round(total / 1.21, 2)
+    tax = round(total - subtotal, 2)
     inv = {
         "invoiceNumber": number, "fiscalId": customer["fiscalId"],
         "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip().upper(),
         "customerEmail": customer.get("email"), "customerAddress": address,
-        "items": [{"description": product["productName"], "detail": "Alta de servicio",
-                   "quantity": 1, "amount": product["price"]}],
-        "subtotal": subtotal, "tax": tax, "total": product["price"],
+        "items": items, "subtotal": subtotal, "tax": tax, "total": total,
+        "shippingFee": round(shipping, 2), "proratedAmount": prorated, "daysProrated": days_left,
+        "isFirstInvoice": True, "billingDay": billing_day,
         "status": status, "date": now.isoformat(),
         "period": _period_label(now), "dueDate": (now + timedelta(days=30)).isoformat(),
         "paymentMethod": customer.get("paymentMethod", "NO"),
@@ -1912,9 +1952,13 @@ async def get_app_settings():
     s = await db.app_settings.find_one({"_id": "config"})
     if not s:
         s = {"_id": "config", "autoApprove": False, "setupFee": 0.0,
+             "shippingFeePeninsula": 8.0, "shippingFeeIslands": 10.0, "billingDay": 5,
              "reminderDays": BILLING_REMINDER_DAYS, "maxFailed": BILLING_MAX_FAILED,
              "created": now_iso()}
         await db.app_settings.insert_one(s)
+    s.setdefault("shippingFeePeninsula", 8.0)
+    s.setdefault("shippingFeeIslands", 10.0)
+    s.setdefault("billingDay", 5)
     return s
 
 

@@ -254,3 +254,8 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
   - `components/LinePanel.js` (compartido admin+cliente): banner `ShippingBanner` con estados Preparando/En camino/Entregada + nº de seguimiento (lee `line.shippingStatus`/`tracking`/`carrier`).
   - `pages/admin/Shipments.js`: botón "Actualizar desde Likes" (`POST /likes/reconcile-all`), columna Producto, sub-línea con el estado raw de Likes, badge source.
 - Verificado con datos simulados + screenshots (panel Envíos y banner en detalle de línea). ⚠️ El poblado real depende de Likes live (preview MOCK): validar en VPS que las órdenes con SIM física reflejan PENDING_MANUAL_SHIPPING/extCarrierId.
+
+### Iteración 2026-06 (fork) — Tarifas agrupadas por servicio + edición de info del catálogo de tienda
+- **Backend**: `_features_to_marketing(features)` parsea líneas "Título: Valor" (o solo "Valor" → title vacío) a `marketingText`. `create_tariff`/`update_tariff` lo usan en lugar del genérico {title:"Incluye"}. Refleja títulos reales en `/public/catalog`.
+- **Frontend `Tariffs.js`**: render agrupado por familia (FAMILY_ORDER: Mobile, Fiber, Satellite, TV + "Otros") con cabecera (icono + label + nº tarifas), ordenado por precio dentro de cada grupo. Card extraída a `renderCard(t)`. La tarjeta muestra la info del catálogo (marketingText, primeras 4 líneas). Formulario: textarea "Información del catálogo (así se ve en la tienda)" con formato Título: Valor + ayuda; `openEdit` reconstruye "title: value" (omite title genérico "Incluye"). `PublicCatalog` ya renderiza `title: value`.
+- Verificado: PUT con features "Datos: 30 GB…" → marketingText con títulos correctos, reflejado en catálogo público; screenshot del panel agrupado.

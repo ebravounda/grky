@@ -58,7 +58,7 @@ export default function Tariffs() {
       costBase: (Number(t.costPrice || 0)).toFixed(2),
       active: t.active !== false,
       storefront: t.storefront !== false,
-      features: (t.marketingText || []).map((m) => m.value).join("\n"),
+      features: (t.marketingText || []).map((m) => (m.title && m.title !== "Incluye") ? `${m.title}: ${m.value}` : m.value).join("\n"),
     });
     setOpen(true);
   };
@@ -122,6 +122,84 @@ export default function Tariffs() {
     acc.sale += m.saleWithIva; acc.cost += m.costWithIva; acc.profit += m.profit;
     return acc;
   }, { sale: 0, cost: 0, profit: 0 });
+
+  const FAMILY_ORDER = ["Mobile", "Fiber", "Satellite", "TV"];
+  const grouped = FAMILY_ORDER
+    .map((fam) => ({
+      fam,
+      items: tariffs.filter((t) => t.family === fam).sort((a, b) => (a.price || 0) - (b.price || 0)),
+    }))
+    .filter((g) => g.items.length > 0);
+  const otherItems = tariffs.filter((t) => !FAMILY_ORDER.includes(t.family));
+  if (otherItems.length) grouped.push({ fam: "Other", items: otherItems });
+
+  const renderCard = (t) => {
+    const Icon = famIcon[t.family] || Tag;
+    const m = metrics(t);
+    return (
+      <div key={t.id} data-testid={`tariff-card-${t.productId}`} className={`rounded-lg border bg-card p-5 card-hover ${t.active === false ? "border-border opacity-60" : "border-border"}`}>
+        <div className="flex items-center justify-between mb-3">
+          <span className="grid place-items-center h-9 w-9 rounded-md bg-primary/10 text-primary"><Icon size={18} /></span>
+          <div className="flex items-center gap-2 text-xs">
+            {t.popular && <span className="rounded-full bg-orange-500/15 text-orange-600 px-2 py-0.5 font-semibold flex items-center gap-1"><Star size={11} className="fill-orange-500" /> Popular</span>}
+            {t.type === "Optional" && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Bono</span>}
+            {t.active === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Inactiva</span>}
+            {t.storefront === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground flex items-center gap-1"><EyeOff size={11} /> Oculta</span>}
+          </div>
+        </div>
+        <h4 className="font-heading font-600">{t.productName}</h4>
+        <p className="mt-1 mb-3"><span className="font-heading text-2xl font-700">{m.saleWithIva.toFixed(2)}</span><span className="text-muted-foreground text-sm"> €/mes <span className="text-xs">con IVA</span></span></p>
+
+        {/* Info del catálogo (así se ve en la tienda) */}
+        {(t.marketingText || []).length > 0 && (
+          <ul className="mb-3 space-y-1 text-xs text-muted-foreground" data-testid={`tariff-catalog-${t.productId}`}>
+            {t.marketingText.slice(0, 4).map((mk, i) => (
+              <li key={i} className="truncate">• {mk.title ? <b className="text-foreground font-500">{mk.title}: </b> : null}{mk.value}</li>
+            ))}
+          </ul>
+        )}
+
+        {/* Controles de tienda */}
+        <div className="flex gap-2 mb-3">
+          <button data-testid={`toggle-storefront-${t.productId}`} onClick={() => toggleStorefront(t)}
+            className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.storefront === false ? "border-border text-muted-foreground hover:bg-muted" : "border-primary/30 bg-primary/5 text-primary"}`}>
+            {t.storefront === false ? <><EyeOff size={13} /> Oculta</> : <><Eye size={13} /> Visible</>}
+          </button>
+          <button data-testid={`toggle-popular-${t.productId}`} onClick={() => togglePopular(t)}
+            className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.popular ? "border-orange-500/40 bg-orange-500/10 text-orange-600" : "border-border text-muted-foreground hover:bg-muted"}`}>
+            <Star size={13} className={t.popular ? "fill-orange-500" : ""} /> {t.popular ? "Más popular" : "Marcar popular"}
+          </button>
+        </div>
+
+        <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1 mb-4" data-testid={`tariff-metrics-${t.productId}`}>
+          <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(m.saleBase)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(m.saleIva)}</span></div>
+          <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Coste sin IVA (Tramo 1)</span><span className="font-500">{eur(m.costBase)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Coste con IVA</span><span className="font-500 text-orange-600">{eur(m.costWithIva)}</span></div>
+          <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Ganancia</span><span className={`font-700 ${m.profit >= 0 ? "text-emerald-600" : "text-destructive"}`}>{eur(m.profit)} <span className="font-500">({m.marginPct.toFixed(0)}%)</span></span></div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1 rounded-full gap-1.5" data-testid={`edit-tariff-${t.productId}`} onClick={() => openEdit(t)}><Pencil size={13} /> Editar</Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" className="rounded-full text-destructive hover:bg-destructive/10" data-testid={`delete-tariff-${t.productId}`}><Trash2 size={14} /></Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Eliminar tarifa</AlertDialogTitle>
+                <AlertDialogDescription>¿Seguro que quieres eliminar "{t.productName}"? Esta acción no se puede deshacer.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction data-testid={`confirm-delete-${t.productId}`} onClick={() => remove(t)} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div data-testid="tariffs-page">
@@ -194,8 +272,9 @@ export default function Tariffs() {
                   <Switch data-testid="tariff-storefront" checked={form.storefront} onCheckedChange={(v) => set("storefront", v)} />
                 </div>
                 <div className="space-y-1.5 col-span-2">
-                  <Label>Características (una por línea)</Label>
-                  <Textarea data-testid="tariff-features" rows={3} value={form.features} onChange={(e) => set("features", e.target.value)} placeholder={"25 GB de datos\nLlamadas ilimitadas\n5G incluido"} />
+                  <Label>Información del catálogo (así se ve en la tienda)</Label>
+                  <p className="text-xs text-muted-foreground">Una característica por línea, en formato <b>Título: Valor</b>. Si no pones «:», se muestra como texto simple.</p>
+                  <Textarea data-testid="tariff-features" rows={4} value={form.features} onChange={(e) => set("features", e.target.value)} placeholder={"Datos: 25 GB\nLlamadas: Ilimitadas\nRed: 5G incluido\nPermanencia: 12 meses"} />
                 </div>
               </div>
               <DialogFooter>
@@ -222,65 +301,27 @@ export default function Tariffs() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {tariffs.map((t) => {
-          const Icon = famIcon[t.family] || Tag;
-          const m = metrics(t);
+      <div className="space-y-8">
+        {grouped.map((g) => {
+          const Icon = famIcon[g.fam] || Tag;
           return (
-            <div key={t.id} data-testid={`tariff-card-${t.productId}`} className={`rounded-lg border bg-card p-5 card-hover ${t.active === false ? "border-border opacity-60" : "border-border"}`}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="grid place-items-center h-9 w-9 rounded-md bg-primary/10 text-primary"><Icon size={18} /></span>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{famLabel[t.family] || t.family}</span>
-                  {t.popular && <span className="rounded-full bg-orange-500/15 text-orange-600 px-2 py-0.5 font-semibold flex items-center gap-1"><Star size={11} className="fill-orange-500" /> Popular</span>}
-                  {t.active === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Inactiva</span>}
-                  {t.storefront === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground flex items-center gap-1"><EyeOff size={11} /> Oculta</span>}
-                </div>
+            <section key={g.fam} data-testid={`family-section-${g.fam}`}>
+              <div className="flex items-center gap-2.5 mb-4">
+                <span className="grid place-items-center h-8 w-8 rounded-lg bg-primary/10 text-primary"><Icon size={17} /></span>
+                <h2 className="font-heading text-lg font-700">{famLabel[g.fam] || "Otros"}</h2>
+                <span className="text-sm text-muted-foreground">· {g.items.length} tarifa{g.items.length !== 1 ? "s" : ""}</span>
               </div>
-              <h4 className="font-heading font-600">{t.productName}</h4>
-              <p className="mt-1 mb-3"><span className="font-heading text-2xl font-700">{m.saleWithIva.toFixed(2)}</span><span className="text-muted-foreground text-sm"> €/mes <span className="text-xs">con IVA</span></span></p>
-
-              {/* Controles de tienda */}
-              <div className="flex gap-2 mb-3">
-                <button data-testid={`toggle-storefront-${t.productId}`} onClick={() => toggleStorefront(t)}
-                  className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.storefront === false ? "border-border text-muted-foreground hover:bg-muted" : "border-primary/30 bg-primary/5 text-primary"}`}>
-                  {t.storefront === false ? <><EyeOff size={13} /> Oculta</> : <><Eye size={13} /> Visible</>}
-                </button>
-                <button data-testid={`toggle-popular-${t.productId}`} onClick={() => togglePopular(t)}
-                  className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.popular ? "border-orange-500/40 bg-orange-500/10 text-orange-600" : "border-border text-muted-foreground hover:bg-muted"}`}>
-                  <Star size={13} className={t.popular ? "fill-orange-500" : ""} /> {t.popular ? "Más popular" : "Marcar popular"}
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {g.items.map(renderCard)}
               </div>
-
-              <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1 mb-4" data-testid={`tariff-metrics-${t.productId}`}>
-                <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(m.saleBase)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">IVA 21%</span><span className="font-500">{eur(m.saleIva)}</span></div>
-                <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Coste sin IVA (Tramo 1)</span><span className="font-500">{eur(m.costBase)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Coste con IVA</span><span className="font-500 text-orange-600">{eur(m.costWithIva)}</span></div>
-                <div className="flex justify-between border-t border-border pt-1 mt-1"><span className="text-muted-foreground">Ganancia</span><span className={`font-700 ${m.profit >= 0 ? "text-emerald-600" : "text-destructive"}`}>{eur(m.profit)} <span className="font-500">({m.marginPct.toFixed(0)}%)</span></span></div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1 rounded-full gap-1.5" data-testid={`edit-tariff-${t.productId}`} onClick={() => openEdit(t)}><Pencil size={13} /> Editar</Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="rounded-full text-destructive hover:bg-destructive/10" data-testid={`delete-tariff-${t.productId}`}><Trash2 size={14} /></Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Eliminar tarifa</AlertDialogTitle>
-                      <AlertDialogDescription>¿Seguro que quieres eliminar "{t.productName}"? Esta acción no se puede deshacer.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction data-testid={`confirm-delete-${t.productId}`} onClick={() => remove(t)} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
+            </section>
           );
         })}
+        {tariffs.length === 0 && (
+          <div className="rounded-lg border border-border bg-card p-12 text-center text-muted-foreground">
+            <Tag size={26} className="mx-auto mb-2 opacity-40" />No hay tarifas todavía. Crea la primera con «Nueva tarifa».
+          </div>
+        )}
       </div>
     </div>
   );

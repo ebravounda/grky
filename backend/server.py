@@ -467,6 +467,21 @@ async def list_tariffs(request: Request):
     return [clean(t) for t in items]
 
 
+def _features_to_marketing(features):
+    """Convierte líneas 'Título: Valor' (o solo 'Valor') en marketingText tal como se ve en la tienda."""
+    out = []
+    for f in (features or []):
+        f = (f or "").strip()
+        if not f:
+            continue
+        if ":" in f:
+            t, v = f.split(":", 1)
+            out.append({"title": t.strip(), "value": v.strip()})
+        else:
+            out.append({"title": "", "value": f})
+    return out
+
+
 @api.post("/tariffs")
 async def create_tariff(body: TariffBody, request: Request):
     await require_admin(request)
@@ -476,7 +491,7 @@ async def create_tariff(body: TariffBody, request: Request):
     doc = {"productId": pid, "productName": body.productName, "family": body.family,
            "type": body.type, "price": body.price, "costPrice": round(body.costPrice or 0, 2),
            "isRecurringPrice": True,
-           "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])],
+           "marketingText": _features_to_marketing(body.features),
            "active": body.active, "storefront": body.storefront is not False, "popular": False,
            "created": now_iso()}
     await db.tariffs.insert_one(doc)
@@ -492,7 +507,7 @@ async def update_tariff(product_id: str, body: TariffBody, request: Request):
     upd = {"productName": body.productName, "family": body.family, "type": body.type,
            "price": body.price, "costPrice": round(body.costPrice or 0, 2), "active": body.active,
            "storefront": body.storefront is not False,
-           "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])]}
+           "marketingText": _features_to_marketing(body.features)}
     await db.tariffs.update_one({"productId": product_id}, {"$set": upd})
     return clean(await db.tariffs.find_one({"productId": product_id}))
 

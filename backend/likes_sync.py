@@ -11,6 +11,7 @@ Todo es tolerante a fallos: si Likes no está conectado (preview/403), devuelve
 synced=False sin romper el flujo interno de GoRoky. En producción (IP autorizada)
 ejecuta el alta real y guarda el log de cada paso.
 """
+import asyncio
 import base64
 import logging
 from bson import ObjectId
@@ -104,14 +105,14 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
     result = {"synced": False, "log": log, "likesOrderId": None}
 
     # 0) ¿Likes conectado?
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         log.append("Likes no conectado (IP no autorizada / MOCK). Alta NO sincronizada.")
         result["reason"] = "not_connected"
         return result
 
     # 1) Crear cliente en Likes
     cust_payload = _customer_payload(customer, app_doc)
-    data, err = likes_client.create_customer(cust_payload)
+    data, err = await asyncio.to_thread(likes_client.create_customer, cust_payload)
     if err:
         log.append(f"POST /customer ERROR: {err}")
         result["reason"] = "customer_failed"
@@ -134,7 +135,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
         if not content:
             log.append(f"Documento {dtype}: fichero no encontrado en GoRoky")
             continue
-        ok, uerr = likes_client.upload_file_to_url(upload_url, content, ctype or "image/jpeg")
+        ok, uerr = await asyncio.to_thread(likes_client.upload_file_to_url, upload_url, content, ctype or "image/jpeg")
         if ok:
             uploaded += 1
             log.append(f"Documento {dtype} subido a Likes")
@@ -148,7 +149,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
         "fiscalId": customer["fiscalId"],
         "products": _products_payload(order, likes_product_id, customer.get("email")),
     }
-    odata, oerr = likes_client.create_order(order_payload)
+    odata, oerr = await asyncio.to_thread(likes_client.create_order, order_payload)
     if oerr:
         log.append(f"POST /signupv2 ERROR: {oerr}")
         result["reason"] = "order_failed"
@@ -159,7 +160,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
 
     # 4) Subir el contrato firmado al 'signedContract' de la orden
     if likes_order_id and contract_pdf_bytes:
-        draft = likes_client.get_order_draft(likes_order_id)
+        draft = await asyncio.to_thread(likes_client.get_order_draft, likes_order_id)
         sc = None
         for d in (draft or {}).get("documentation", []):
             if d.get("type") in ("signedContract", "contract") and d.get("uploadURL"):
@@ -167,7 +168,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
                 if d.get("type") == "signedContract":
                     break
         if sc:
-            ok, uerr = likes_client.upload_file_to_url(sc["uploadURL"], contract_pdf_bytes, "application/pdf")
+            ok, uerr = await asyncio.to_thread(likes_client.upload_file_to_url, sc["uploadURL"], contract_pdf_bytes, "application/pdf")
             log.append("Contrato firmado subido a Likes" if ok else f"Contrato ERROR: {uerr}")
             result["contractUploaded"] = ok
         else:

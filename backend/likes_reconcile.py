@@ -7,6 +7,7 @@ los paneles, para que GoRoky sea un espejo fiel del estado real de Likes.
 Tolerante a fallos: si Likes no está conectado (preview/403) devuelve reconciled=False
 sin tocar nada. Validación real en el VPS.
 """
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -37,7 +38,7 @@ def _norm_svas(raw):
 
 
 async def reconcile_customer(db, fiscal_id):
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         return {"reconciled": False, "reason": "not_connected"}
     now = _now()
     counts = {"orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
@@ -45,7 +46,7 @@ async def reconcile_customer(db, fiscal_id):
 
     # 1) ÓRDENES (estados reales + envío de SIM)
     try:
-        for o in (likes_client.get_customer_orders(fiscal_id) or []):
+        for o in (await asyncio.to_thread(likes_client.get_customer_orders, fiscal_id) or []):
             oid = o.get("orderId")
             if not oid:
                 continue
@@ -91,7 +92,7 @@ async def reconcile_customer(db, fiscal_id):
 
     # 2) SUSCRIPCIONES + LÍNEAS (estado, consumo GB, SVAs, eSIM)
     try:
-        for s in (likes_client.get_subscriptions(fiscal_id) or []):
+        for s in (await asyncio.to_thread(likes_client.get_subscriptions, fiscal_id) or []):
             sid = s.get("subscriptionId")
             products = s.get("products", [])
             main_status = products[0].get("status") if products else None
@@ -111,21 +112,21 @@ async def reconcile_customer(db, fiscal_id):
                 if p.get("eSimData"):
                     line_upd["esimData"] = p["eSimData"]
                 if p.get("family") == "Mobile":
-                    gb = likes_client.get_line_gb(ln)
+                    gb = await asyncio.to_thread(likes_client.get_line_gb, ln)
                     if gb:
                         line_upd.update({"totalGB": gb.get("totalGB"), "usedGB": gb.get("usedGB"),
                                          "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
-                    cl = likes_client.get_credit_limit(ln)
+                    cl = await asyncio.to_thread(likes_client.get_credit_limit, ln)
                     if cl and cl.get("creditLimit") is not None:
                         line_upd["creditLimit"] = cl.get("creditLimit")
-                    svas = likes_client.get_line_svas(ln)
+                    svas = await asyncio.to_thread(likes_client.get_line_svas, ln)
                     if isinstance(svas, list) and svas:
                         svas = _norm_svas(svas)
                         line_upd["svas"] = svas
                         roaming = next((x for x in svas if x.get("code") == "ROAMING"), None)
                         if roaming is not None:
                             line_upd["roaming"] = bool(roaming.get("status"))
-                    info = likes_client.get_line_info(ln)
+                    info = await asyncio.to_thread(likes_client.get_line_info, ln)
                     if info:
                         if info.get("status"):
                             line_upd["status"] = info["status"]
@@ -151,7 +152,7 @@ async def reconcile_customer(db, fiscal_id):
                                                         if si.get(k) is not None}
                             elif si:
                                 line_upd["esimData"] = si
-                    cdrs = likes_client.get_line_cdrs(ln)
+                    cdrs = await asyncio.to_thread(likes_client.get_line_cdrs, ln)
                     if isinstance(cdrs, list):
                         line_upd["cdrs"] = cdrs[:50]
                 # envío de SIM/dispositivo: reflejar estado real en la línea (DELIVERED al activarse)
@@ -170,7 +171,7 @@ async def reconcile_customer(db, fiscal_id):
 
     # 3) PORTABILIDADES del cliente
     try:
-        for pt in (likes_client.get_portabilities() or []):
+        for pt in (await asyncio.to_thread(likes_client.get_portabilities) or []):
             if pt.get("fiscalId") != fiscal_id:
                 continue
             await db.portabilities.update_one(
@@ -193,11 +194,11 @@ async def import_documents(db, fiscal_id):
     """Descarga de Likes los documentos (DNI/NIE, IBAN, contrato firmado) de cada orden del cliente."""
     import base64
     n = 0
-    for o in (likes_client.get_customer_orders(fiscal_id) or []):
+    for o in (await asyncio.to_thread(likes_client.get_customer_orders, fiscal_id) or []):
         oid = o.get("orderId")
         if not oid:
             continue
-        draft = likes_client.get_order_draft(oid) or {}
+        draft = await asyncio.to_thread(likes_client.get_order_draft, oid) or {}
         for d in (draft.get("documentation") or []):
             url = d.get("downloadURL")
             if not url:
@@ -207,7 +208,7 @@ async def import_documents(db, fiscal_id):
             if await db.customer_documents.find_one(
                     {"fiscalId": fiscal_id, "orderId": oid, "filename": fname}):
                 continue
-            content = likes_client.download_document(url)
+            content = await asyncio.to_thread(likes_client.download_document, url)
             if not content:
                 continue
             await db.customer_documents.insert_one({
@@ -220,7 +221,7 @@ async def import_documents(db, fiscal_id):
 
 async def reconcile_all(db, limit=1000):
     """Reconciliación masiva: importa TODOS los clientes reales de Likes y espeja su estado."""
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         return {"reconciled": False, "reason": "not_connected"}
     imp = await import_customers(db)
     total = {"customers": 0, "orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
@@ -252,11 +253,11 @@ def _map_customer(c):
 
 async def import_customers(db):
     """Trae de Likes la lista completa de clientes y los espeja en la colección local."""
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         return {"imported": False, "reason": "not_connected"}
     now = _now()
     n = 0
-    for c in (likes_client.get_customers() or []):
+    for c in (await asyncio.to_thread(likes_client.get_customers) or []):
         fid = c.get("fiscalId")
         if not fid:
             continue

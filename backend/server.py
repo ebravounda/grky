@@ -6,6 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 import os
 import io
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -99,12 +100,12 @@ def _enrich_line(line: dict) -> dict:
 
 async def _refresh_line_live(line: dict) -> dict:
     """Trae de Likes en vivo SVAs/roaming/consumo/estado de la línea y lo persiste (espejo instantáneo)."""
-    if line.get("source") != "likes" or not likes_client.get_token():
+    if line.get("source") != "likes" or not await asyncio.to_thread(likes_client.get_token):
         return line
     ln = line.get("lineNumber")
     upd = {}
     try:
-        svas = likes_client.get_line_svas(ln)
+        svas = await asyncio.to_thread(likes_client.get_line_svas, ln)
         if isinstance(svas, list) and svas:
             svas = likes_reconcile._norm_svas(svas)
             upd["svas"] = svas
@@ -112,14 +113,14 @@ async def _refresh_line_live(line: dict) -> dict:
             if roaming is not None:
                 upd["roaming"] = bool(roaming.get("status"))
         if line.get("family") == "Mobile":
-            gb = likes_client.get_line_gb(ln)
+            gb = await asyncio.to_thread(likes_client.get_line_gb, ln)
             if gb:
                 upd.update({"totalGB": gb.get("totalGB"), "usedGB": gb.get("usedGB"),
                             "leftGB": gb.get("leftGB"), "lastDailyGB": gb.get("lastDailyGB")})
-            cl = likes_client.get_credit_limit(ln)
+            cl = await asyncio.to_thread(likes_client.get_credit_limit, ln)
             if cl and cl.get("creditLimit") is not None:
                 upd["creditLimit"] = cl.get("creditLimit")
-        info = likes_client.get_line_info(ln)
+        info = await asyncio.to_thread(likes_client.get_line_info, ln)
         if info:
             if info.get("status"):
                 upd["status"] = info["status"]
@@ -144,7 +145,7 @@ async def _refresh_line_live(line: dict) -> dict:
                                        ("icc", "pin", "puk", "smdpAddress", "activationCode",
                                         "qrUrl", "qrDownloadUrl") if si.get(k) is not None}
             if line.get("family") == "Mobile":
-                cdrs = likes_client.get_line_cdrs(ln)
+                cdrs = await asyncio.to_thread(likes_client.get_line_cdrs, ln)
                 if isinstance(cdrs, list):
                     upd["cdrs"] = cdrs[:50]
     except Exception as e:  # noqa
@@ -555,25 +556,25 @@ async def delete_tariff(product_id: str, request: Request):
 @api.get("/donor-operators")
 async def donor_operators(request: Request):
     await current_user(request)
-    return likes_client.get_donor_operators()
+    return await asyncio.to_thread(likes_client.get_donor_operators)
 
 
 @api.get("/public/donor-operators")
 async def public_donor_operators():
     """Operadores donantes para el asistente de alta público (portabilidad)."""
-    return likes_client.get_donor_operators()
+    return await asyncio.to_thread(likes_client.get_donor_operators)
 
 
 @api.get("/ticket-typologies")
 async def ticket_typologies(request: Request):
     await current_user(request)
-    return likes_client.get_ticket_typologies()
+    return await asyncio.to_thread(likes_client.get_ticket_typologies)
 
 
 @api.post("/coverage")
 async def coverage(body: CoverageRequest, request: Request):
     await current_user(request)
-    return likes_client.check_coverage(address=body.address)
+    return await asyncio.to_thread(likes_client.check_coverage, address=body.address)
 
 
 # ------------------------- cobertura de fibra (flujo real Likes) -------------------------
@@ -583,15 +584,15 @@ class CoverageCheckBody(BaseModel):
 
 
 async def _coverage_search(label):
-    return likes_client.search_address(label)
+    return await asyncio.to_thread(likes_client.search_address, label)
 
 
 async def _coverage_buildings(gescal, session_id):
-    return likes_client.get_buildings(gescal, session_id)
+    return await asyncio.to_thread(likes_client.get_buildings, gescal, session_id)
 
 
 async def _coverage_check(gescal37, session_id):
-    res = likes_client.check_coverage(gescal37=gescal37, session_id=session_id)
+    res = await asyncio.to_thread(likes_client.check_coverage, gescal37=gescal37, session_id=session_id)
     # Likes devuelve una lista de opciones (FTTH/NEBA...); normalizamos a un objeto
     if isinstance(res, list):
         options = res
@@ -915,8 +916,8 @@ async def toggle_block(lineNumber: str, request: Request):
     new_status = "SUSPENDED" if line["status"] == "ACTIVE" else "ACTIVE"
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"status": new_status}})
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.block_line_remote(lineNumber, block=(new_status == "SUSPENDED"))
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.block_line_remote, lineNumber, block=(new_status == "SUSPENDED"))
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes toggle-block %s: %s", lineNumber, err)
@@ -945,9 +946,9 @@ async def update_svas(lineNumber: str, body: SvaUpdate, request: Request):
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"svas": svas}})
     # Sincronizar con Likes (fail-safe: si falla, el cambio local queda igual)
     likes_sync = None
-    if updates and likes_client.get_token():
+    if updates and await asyncio.to_thread(likes_client.get_token):
         payload = [{"code": c, "status": bool(st)} for c, st in updates.items()]
-        _data, err = likes_client.set_line_svas(lineNumber, payload)
+        _data, err = await asyncio.to_thread(likes_client.set_line_svas, lineNumber, payload)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes set_line_svas %s: %s", lineNumber, err)
@@ -985,8 +986,8 @@ async def set_spend_limit(lineNumber: str, body: dict, request: Request):
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"spendLimit": limit, "autoCut": auto_cut, "creditLimit": limit}})
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.set_credit_limit_remote(lineNumber, limit)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.set_credit_limit_remote, lineNumber, limit)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes credit-limit %s: %s", lineNumber, err)
@@ -999,8 +1000,8 @@ async def set_roaming(lineNumber: str, body: dict, request: Request):
     enabled = bool(body.get("enabled", False))
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"roaming": enabled}})
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.set_line_svas(lineNumber, [{"code": "ROAMING", "status": enabled}])
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.set_line_svas, lineNumber, [{"code": "ROAMING", "status": enabled}])
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes roaming %s: %s", lineNumber, err)
@@ -1018,12 +1019,12 @@ async def set_barring(lineNumber: str, body: dict, request: Request):
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"barrings": barrings}})
     # Un "barring" activo = desactivar el SVA correspondiente en Likes
     likes_sync = None
-    if likes_client.get_token():
+    if await asyncio.to_thread(likes_client.get_token):
         svas = [{"code": "OUTBOUND_PREMIUM_CALLS", "status": not barrings["premium"]},
                 {"code": "INTERNATIONAL_OUTBOUND_CALLS", "status": not barrings["international"]},
                 {"code": "ROAMING", "status": not barrings["dataRoaming"]},
                 {"code": "VOICEMAIL", "status": not barrings["voicemail"]}]
-        _d, err = likes_client.set_line_svas(lineNumber, svas)
+        _d, err = await asyncio.to_thread(likes_client.set_line_svas, lineNumber, svas)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes barring %s: %s", lineNumber, err)
@@ -1037,10 +1038,10 @@ async def set_call_forward(lineNumber: str, body: dict, request: Request):
           "voicemail": bool(body.get("voicemail", False))}
     await db.lines.update_one({"lineNumber": lineNumber}, {"$set": {"callForward": cf}})
     likes_sync = None
-    if likes_client.get_token():
+    if await asyncio.to_thread(likes_client.get_token):
         svas = [{"code": "FORWARD_UNCONDITIONAL", "status": cf["enabled"]},
                 {"code": "VOICEMAIL", "status": cf["voicemail"]}]
-        _d, err = likes_client.set_line_svas(lineNumber, svas)
+        _d, err = await asyncio.to_thread(likes_client.set_line_svas, lineNumber, svas)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes call-forward %s: %s", lineNumber, err)
@@ -1054,8 +1055,8 @@ async def suspend_line(lineNumber: str, body: dict, request: Request):
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"status": "SUSPENDED", "suspendReason": reason}})
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.block_line_remote(lineNumber, block=True)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.block_line_remote, lineNumber, block=True)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes block %s: %s", lineNumber, err)
@@ -1069,8 +1070,8 @@ async def reactivate_line(lineNumber: str, request: Request):
     await db.lines.update_one({"lineNumber": lineNumber},
                               {"$set": {"status": "ACTIVE"}, "$unset": {"suspendReason": ""}})
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.block_line_remote(lineNumber, block=False)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.block_line_remote, lineNumber, block=False)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes unblock %s: %s", lineNumber, err)
@@ -1083,8 +1084,8 @@ async def terminate_line(lineNumber: str, body: dict, request: Request):
     line = await _get_line_admin(lineNumber, request)
     likes_sync = None
     # Likes no expone baja definitiva de línea main: bloqueamos en Likes para cortar servicio.
-    if likes_client.get_token():
-        _d, err = likes_client.block_line_remote(lineNumber, block=True)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.block_line_remote, lineNumber, block=True)
         likes_sync = {"synced": err is None, "error": err,
                       "note": "Baja definitiva requiere ticket en Likes; línea bloqueada."}
         if err:
@@ -1107,8 +1108,8 @@ async def transfer_line(lineNumber: str, body: dict, request: Request):
     subs = await db.subscriptions.find({"products.lineNumber": lineNumber}).to_list(50)
     sub_ids = [s.get("subscriptionId") for s in subs if s.get("subscriptionId")]
     likes_sync = None
-    if likes_client.get_token() and sub_ids:
-        _d, err = likes_client.change_titular_remote(sub_ids, actual_fiscal, new_fiscal)
+    if await asyncio.to_thread(likes_client.get_token) and sub_ids:
+        _d, err = await asyncio.to_thread(likes_client.change_titular_remote, sub_ids, actual_fiscal, new_fiscal)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes changeTitular %s: %s", lineNumber, err)
@@ -1165,9 +1166,10 @@ async def change_tariff(body: TariffChange, request: Request):
                                   {"$set": {"productId": prod["productId"], "productName": prod["productName"],
                                             "price": prod["price"]}})
     likes_sync = None
-    if likes_client.get_token():
+    if await asyncio.to_thread(likes_client.get_token):
         likes_pid = prod.get("likesProductId") or prod["productId"]
-        _d, err = likes_client.change_product_remote(
+        _d, err = await asyncio.to_thread(
+            likes_client.change_product_remote,
             body.subscriptionId, sub.get("fiscalId"), likes_pid,
             sub.get("family") or prod.get("family"), line_number=ln)
         likes_sync = {"synced": err is None, "error": err}
@@ -1214,26 +1216,35 @@ def _proration(monthly_price, billing_day=5):
     return prorated, days_left
 
 
-async def _create_invoice(customer, product, status="pending"):
+async def _create_invoice(customer, product, status="pending", first=True):
     number = await _next_invoice_number()
     ba = customer.get("billingAddress", {}) or {}
     address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
-    islands = _is_islands(ba.get("postalCode", ""))
-    shipping = float(settings.get("shippingFeeIslands", 10) if islands else settings.get("shippingFeePeninsula", 8))
-    # Solo SVAs físicos (SIM) requieren envío. Para eSIM/fibra sin SIM física, el admin puede poner 0 en ajustes.
-    prorated, days_left = _proration(product["price"], billing_day)
     mobile_lines = await db.lines.find({"fiscalId": customer["fiscalId"], "family": "Mobile"}).to_list(50)
     consumption = [_line_usage(l) for l in mobile_lines]
     now = datetime.now(timezone.utc)
     items = []
-    if shipping > 0:
-        items.append({"description": "Envío de SIM", "detail": ("Islas" if islands else "Península"),
-                      "quantity": 1, "amount": round(shipping, 2)})
-    items.append({"description": product["productName"],
-                  "detail": f"Parte proporcional ({days_left} días hasta la facturación del día {billing_day})",
-                  "quantity": 1, "amount": prorated})
+    if first:
+        # PRIMERA factura del alta: sin cuota de alta → envío de SIM + parte proporcional hasta el día {billing_day}
+        islands = _is_islands(ba.get("postalCode", ""))
+        shipping = float(settings.get("shippingFeeIslands", 10) if islands else settings.get("shippingFeePeninsula", 8))
+        prorated, days_left = _proration(product["price"], billing_day)
+        if shipping > 0:
+            items.append({"description": "Envío de SIM", "detail": ("Islas" if islands else "Península"),
+                          "quantity": 1, "amount": round(shipping, 2)})
+        items.append({"description": product["productName"],
+                      "detail": f"Parte proporcional ({days_left} días hasta la facturación del día {billing_day})",
+                      "quantity": 1, "amount": prorated})
+    else:
+        # Facturación RECURRENTE (mensual): cuota completa, sin envío ni prorrateo.
+        shipping = 0.0
+        prorated = round(float(product["price"] or 0), 2)
+        days_left = 0
+        items.append({"description": product["productName"],
+                      "detail": f"Cuota mensual · {_period_label(now)}",
+                      "quantity": 1, "amount": round(float(product["price"] or 0), 2)})
     total = round(sum(i["amount"] for i in items), 2)
     subtotal = round(total / 1.21, 2)
     tax = round(total - subtotal, 2)
@@ -1243,7 +1254,7 @@ async def _create_invoice(customer, product, status="pending"):
         "customerEmail": customer.get("email"), "customerAddress": address,
         "items": items, "subtotal": subtotal, "tax": tax, "total": total,
         "shippingFee": round(shipping, 2), "proratedAmount": prorated, "daysProrated": days_left,
-        "isFirstInvoice": True, "billingDay": billing_day,
+        "isFirstInvoice": first, "billingDay": billing_day,
         "status": status, "date": now.isoformat(),
         "period": _period_label(now), "dueDate": (now + timedelta(days=30)).isoformat(),
         "paymentMethod": customer.get("paymentMethod", "NO"),
@@ -1292,6 +1303,71 @@ async def _email_invoice(inv):
     return ok
 
 
+_bg_tasks = set()
+
+
+def _spawn_bg(coro):
+    """Lanza una corrutina en segundo plano manteniendo la referencia (evita que el GC la cancele)."""
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
+
+
+async def _post_create_order_bg(fiscal_id, order_id):
+    """Tras crear el alta en Likes: reconcilia los datos reales y crea los registros dependientes
+    (comisión, instalación, portabilidad). Se ejecuta fuera de la petición HTTP."""
+    try:
+        await likes_reconcile.reconcile_customer(db, fiscal_id)
+    except Exception as e:  # noqa
+        logger.warning("reconcile create_order bg %s: %s", fiscal_id, e)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        return
+    likes_pid = order.get("likesProductId") or order.get("productId")
+    line = await db.lines.find_one(
+        {"fiscalId": fiscal_id, "productId": {"$in": [likes_pid, order.get("productId")]}, "source": "likes"},
+        sort=[("likesSyncedAt", -1)])
+    if not line:
+        line = await db.lines.find_one({"fiscalId": fiscal_id, "source": "likes"}, sort=[("likesSyncedAt", -1)])
+    line_number = (line or {}).get("lineNumber")
+    if not line_number:
+        return
+    await db.orders.update_one({"orderId": order_id},
+                               {"$set": {"lineNumber": line_number,
+                                         "status": (line or {}).get("status") or "PROVISIONING"}})
+    customer = await db.customers.find_one({"fiscalId": fiscal_id}) or {}
+    cust_name = order.get("customerName")
+    owner_id = order.get("ownerId")
+    if owner_id:
+        owner = await db.users.find_one({"_id": _OID(owner_id)})
+        if owner and owner.get("role") == "reseller" and (owner.get("commissionPerSim") or 0) > 0:
+            if not await db.commissions.find_one({"lineNumber": line_number, "resellerId": owner_id}):
+                await db.commissions.insert_one({
+                    "commissionId": str(uuid.uuid4().int)[:10], "resellerId": owner_id,
+                    "resellerName": owner.get("name"), "lineNumber": line_number,
+                    "customerName": cust_name, "amount": owner["commissionPerSim"],
+                    "created": now_iso()})
+    if order.get("family") in ("Fiber", "TV"):
+        if not await db.installations.find_one({"lineNumber": line_number}):
+            await db.installations.insert_one({
+                "installationId": str(uuid.uuid4().int)[:12], "fiscalId": fiscal_id,
+                "customerName": cust_name, "lineNumber": line_number,
+                "productName": order.get("productName"), "status": "PENDING_APPOINTMENT",
+                "address": (customer.get("billingAddress") or {}).get("street", ""),
+                "appointment": None, "created": now_iso()})
+    if order.get("portability"):
+        if not await db.portabilities.find_one({"lineNumber": line_number, "type": "IN"}):
+            await db.portabilities.insert_one({
+                "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": fiscal_id,
+                "customerName": cust_name, "lineNumber": line_number,
+                "type": "IN", "donorOperatorId": order.get("donorOperatorId"),
+                "status": "IN_PROGRESS", "created": now_iso()})
+    await log_event("order", "success",
+                    f"Datos reconciliados · orden {order_id} · línea {line_number}",
+                    {"orderId": order_id})
+
+
 @api.get("/orders")
 async def list_orders(request: Request):
     user = await require_perm(request, "orders.manage")
@@ -1310,7 +1386,7 @@ async def create_order(body: OrderCreate, request: Request):
     if not product:
         raise HTTPException(status_code=400, detail="Producto no válido")
 
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         raise HTTPException(status_code=503,
             detail="Likes no está conectado. No se pueden crear altas con datos reales sin conexión con Likes.")
 
@@ -1326,24 +1402,16 @@ async def create_order(body: OrderCreate, request: Request):
         prod_payload["donorOperatorId"] = body.donorOperatorId
         if body.lineNumber:
             prod_payload["lineNumber"] = body.lineNumber
-    odata, oerr = likes_client.create_order(
+    odata, oerr = await asyncio.to_thread(
+        likes_client.create_order,
         {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
     if oerr:
         raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {oerr}")
     likes_order_id = (odata or {}).get("orderId")
 
-    # 2) Espejar los datos REALES desde Likes (nº línea, ICC, PIN/PUK, SVAs, GB, estado…)
-    try:
-        await likes_reconcile.reconcile_customer(db, body.fiscalId)
-    except Exception as e:  # noqa
-        logger.warning("reconcile create_order %s: %s", body.fiscalId, e)
-    line = await db.lines.find_one(
-        {"fiscalId": body.fiscalId, "productId": {"$in": [likes_pid, product["productId"]]}, "source": "likes"},
-        sort=[("likesSyncedAt", -1)])
-    if not line:
-        line = await db.lines.find_one({"fiscalId": body.fiscalId, "source": "likes"}, sort=[("likesSyncedAt", -1)])
-    line_number = (line or {}).get("lineNumber")
-
+    # 2) Crear factura + orden inmediatamente (estado PROVISIONING). El espejo de los datos
+    #    reales (nº de línea, ICC, PIN/PUK, GB…) se ejecuta en segundo plano para no superar
+    #    el timeout del proxy en altas largas con muchas llamadas a Likes.
     invoice = await _create_invoice(customer, product, status="pending")
     contract_number = await _next_contract_number()
 
@@ -1351,9 +1419,10 @@ async def create_order(body: OrderCreate, request: Request):
     order = {
         "orderId": order_id, "likesOrderId": likes_order_id, "fiscalId": body.fiscalId,
         "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip(),
-        "status": (line or {}).get("status") or "PROVISIONING", "channel": "WD", "price": product["price"],
+        "status": "PROVISIONING", "channel": "WD", "price": product["price"],
         "productName": product["productName"], "family": product["family"], "productId": product["productId"],
-        "lineNumber": line_number, "portability": body.portability,
+        "likesProductId": likes_pid,
+        "lineNumber": None, "portability": body.portability,
         "donorOperatorId": body.donorOperatorId,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
         "contractNumber": contract_number, "signed": False, "source": "likes",
@@ -1363,32 +1432,13 @@ async def create_order(body: OrderCreate, request: Request):
     await db.orders.insert_one(order)
 
     await log_event("order", "success",
-                    f"Alta creada en Likes · {order['customerName']} · {product['productName']} · Likes {likes_order_id} · línea {line_number or 'pendiente'}",
+                    f"Alta creada en Likes · {order['customerName']} · {product['productName']} · Likes {likes_order_id} · reconciliando datos…",
                     {"orderId": order_id, "channel": "WD"})
-    if is_reseller and (user.get("commissionPerSim") or 0) > 0 and line_number:
-        await db.commissions.insert_one({
-            "commissionId": str(uuid.uuid4().int)[:10], "resellerId": str(user["_id"]),
-            "resellerName": user.get("name"), "lineNumber": line_number,
-            "customerName": order["customerName"], "amount": user["commissionPerSim"],
-            "created": now_iso()})
-    # instalación (fibra) o portabilidad (si aplica) — se espeja el estado real de Likes en reconciliaciones
-    if product["family"] in ("Fiber", "TV") and line_number:
-        await db.installations.insert_one({
-            "installationId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
-            "customerName": order["customerName"], "lineNumber": line_number,
-            "productName": product["productName"], "status": "PENDING_APPOINTMENT",
-            "address": (customer.get("billingAddress") or {}).get("street", ""),
-            "appointment": None, "created": now_iso()})
-    if body.portability and line_number:
-        await db.portabilities.insert_one({
-            "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
-            "customerName": order["customerName"], "lineNumber": line_number,
-            "type": "IN", "donorOperatorId": body.donorOperatorId,
-            "status": "IN_PROGRESS", "created": now_iso()})
+    _spawn_bg(_post_create_order_bg(body.fiscalId, order_id))
 
     return {"order": clean(order), "invoiceId": str(invoice["_id"]),
             "invoiceNumber": invoice["invoiceNumber"], "contractNumber": contract_number,
-            "likesOrderId": likes_order_id, "lineNumber": line_number}
+            "likesOrderId": likes_order_id, "lineNumber": None}
 
 
 async def _build_contract(order):
@@ -1397,7 +1447,7 @@ async def _build_contract(order):
     address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
     donor = None
     if order.get("donorOperatorId"):
-        donor = next((d["Name"] for d in likes_client.get_donor_operators() if d.get("Code") == order["donorOperatorId"]), order["donorOperatorId"])
+        donor = next((d["Name"] for d in (await asyncio.to_thread(likes_client.get_donor_operators)) if d.get("Code") == order["donorOperatorId"]), order["donorOperatorId"])
     # Firma: recuperar de la solicitud (application) asociada al nº de contrato
     sig_img, signer = None, None
     app_doc = await db.applications.find_one({"contractCode": order.get("contractNumber")})
@@ -1466,7 +1516,7 @@ async def _trigger_likes_sync(contract_code):
     # Generar el contrato firmado (PDF) con la plantilla editable
     tpl = await _get_contract_template()
     try:
-        ct = _app_to_contract(app_doc) if app_doc else await _build_contract(order)
+        ct = await _app_to_contract(app_doc) if app_doc else await _build_contract(order)
         contract_pdf = generate_contract_pdf(ct, tpl)
     except Exception:  # noqa
         contract_pdf = None
@@ -1499,7 +1549,7 @@ async def sync_customer_likes(fiscalId: str, request: Request):
 @api.get("/likes/status")
 async def likes_status(request: Request):
     await current_user(request)
-    likes_client.get_token()  # refresca estado
+    await asyncio.to_thread(likes_client.get_token)  # refresca estado
     return {"live": likes_client.CONNECTION_STATE.get("live"),
             "lastError": likes_client.CONNECTION_STATE.get("last_error")}
 
@@ -1541,11 +1591,11 @@ async def sync_order_likes(order_id: str, request: Request):
 async def customer_likes_mirror(fiscalId: str, request: Request):
     """Vista espejo en vivo desde Likes: órdenes, suscripciones y portabilidades del cliente."""
     await require_perm(request, "customers.view")
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         return {"live": False, "orders": [], "subscriptions": [], "portabilities": []}
-    subs = likes_client.get_subscriptions(fiscalId)
-    orders = likes_client.get_customer_orders(fiscalId)
-    ports = [p for p in likes_client.get_portabilities() if p.get("fiscalId") == fiscalId]
+    subs = await asyncio.to_thread(likes_client.get_subscriptions, fiscalId)
+    orders = await asyncio.to_thread(likes_client.get_customer_orders, fiscalId)
+    ports = [p for p in (await asyncio.to_thread(likes_client.get_portabilities)) if p.get("fiscalId") == fiscalId]
     return {"live": True, "orders": orders, "subscriptions": subs, "portabilities": ports}
 
 
@@ -1553,9 +1603,9 @@ async def customer_likes_mirror(fiscalId: str, request: Request):
 async def sync_catalog_from_likes(request: Request):
     """Trae los productos reales de Likes y los upserta en tarifas, conservando coste/precio editados."""
     await require_perm(request, "tariffs.manage")
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         raise HTTPException(status_code=503, detail="Likes no conectado (IP no autorizada / preview)")
-    real = likes_client.get_products()
+    real = await asyncio.to_thread(likes_client.get_products)
     n = 0
     for p in real:
         pid = p.get("productId")
@@ -1830,7 +1880,7 @@ async def my_contract_pdf(request: Request):
     tpl = await _get_contract_template()
     appc = await db.applications.find_one({"fiscalId": fid, "status": "COMPLETED"}, sort=[("signedAt", -1)])
     if appc:
-        ct = _app_to_contract(appc)
+        ct = await _app_to_contract(appc)
         code = appc.get("contractCode", "contrato")
     else:
         order = await db.orders.find_one({"fiscalId": fid, "contractNumber": {"$exists": True}}, sort=[("created", -1)])
@@ -2156,6 +2206,21 @@ async def _do_activate_order(order):
                             f"Comisión {owner['commissionPerSim']:.2f}€ para {owner.get('name')} · línea {order.get('lineNumber')}")
 
 
+async def _post_provision_bg(fiscal_id, contract_code):
+    """Espeja los datos reales de Likes y activa el servicio (email bienvenida + acceso app).
+    Se ejecuta fuera de la petición HTTP para no superar el timeout del proxy."""
+    try:
+        await likes_reconcile.reconcile_customer(db, fiscal_id)
+    except Exception as e:  # noqa
+        logger.warning("reconcile tras aprobar bg %s: %s", fiscal_id, e)
+    order = await db.orders.find_one({"contractNumber": contract_code})
+    if order:
+        try:
+            await _do_activate_order(order)
+        except Exception as e:  # noqa
+            logger.warning("activate bg %s: %s", contract_code, e)
+
+
 async def _provision_via_likes(a):
     """Aprueba un alta: crea la orden REAL en Likes (cliente + docs + signupv2 + contrato),
     espeja los datos 100% reales (nº línea, ICC, PIN/PUK, SVAs, GB, estado, CDRs) y activa el
@@ -2171,14 +2236,11 @@ async def _provision_via_likes(a):
             raise HTTPException(status_code=503,
                 detail="Likes no está conectado (IP no autorizada). El alta se crea en Likes al aprobar; no se puede aprobar sin conexión con Likes.")
         raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {reason or 'error desconocido'}")
-    # 2) Espejar los datos REALES desde Likes
-    try:
-        await likes_reconcile.reconcile_customer(db, a["fiscalId"])
-    except Exception as e:  # noqa
-        logger.warning("reconcile tras aprobar %s: %s", a.get("fiscalId"), e)
-    # 3) Activar servicio (email de bienvenida con datos reales + acceso a la app)
+    # 2) Reconciliación de datos reales + activación del servicio EN SEGUNDO PLANO
+    #    (evita superar el timeout del proxy en altas largas con muchas llamadas a Likes).
+    #    El email de bienvenida se envía con los datos reales ya espejados.
+    _spawn_bg(_post_provision_bg(a["fiscalId"], a.get("contractCode")))
     order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
-    await _do_activate_order(order)
     return result, order
 
 
@@ -2512,7 +2574,7 @@ async def _billing_success(sub):
     customer = await db.customers.find_one({"fiscalId": sub["fiscalId"]})
     amount = sub.get("billing", {}).get("amount") or sum(p.get("price", 0) for p in sub.get("products", []))
     product = {"productName": sub["products"][0]["productName"], "price": amount}
-    inv = await _create_invoice(customer, product, status="paid") if customer else None
+    inv = await _create_invoice(customer, product, status="paid", first=False) if customer else None
     next_charge = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
     await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
         {"$set": {"billing.failedAttempts": 0, "billing.status": "active",
@@ -2632,7 +2694,7 @@ _likes_last_live = None
 
 async def likes_health_job():
     global _likes_last_live
-    likes_client.get_token()
+    await asyncio.to_thread(likes_client.get_token)
     live = likes_client.CONNECTION_STATE["live"]
     if live == _likes_last_live:
         return
@@ -2651,7 +2713,7 @@ async def likes_health_job():
 
 
 async def likes_reconcile_job():
-    if not likes_client.get_token():
+    if not await asyncio.to_thread(likes_client.get_token):
         return
     try:
         res = await likes_reconcile.reconcile_all(db)
@@ -3068,15 +3130,16 @@ async def sim_duplicate(lineNumber: str, request: Request):
     is_esim = bool(line.get("eSim"))
     likes_sync = None
     new_icc = None
-    if likes_client.get_token():
-        data, err = likes_client.change_sim_remote(
+    if await asyncio.to_thread(likes_client.get_token):
+        data, err = await asyncio.to_thread(
+            likes_client.change_sim_remote,
             lineNumber, esim=is_esim, esim_email=line.get("eSimEmail"), reason="Others")
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes changeSim %s: %s", lineNumber, err)
         else:
             # tras el cambio, refrescar la SIM real desde Likes
-            info = likes_client.get_line_info(lineNumber)
+            info = await asyncio.to_thread(likes_client.get_line_info, lineNumber)
             if info and info.get("icc"):
                 new_icc = info["icc"]
     if not new_icc:
@@ -3096,8 +3159,8 @@ async def set_spn(lineNumber: str, body: SpnUpdate, request: Request):
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.set_spn_remote(lineNumber, body.spn)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.set_spn_remote, lineNumber, body.spn)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes spn %s: %s", lineNumber, err)
@@ -3129,8 +3192,8 @@ async def set_credit_limit(lineNumber: str, body: CreditLimitBody, request: Requ
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.set_credit_limit_remote(lineNumber, body.creditLimit)
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(likes_client.set_credit_limit_remote, lineNumber, body.creditLimit)
         likes_sync = {"synced": err is None, "error": err}
         if err:
             logger.warning("Likes credit-limit %s: %s", lineNumber, err)
@@ -3149,8 +3212,9 @@ async def change_titular(body: ChangeTitular, request: Request):
         raise HTTPException(status_code=404, detail="Nuevo titular no encontrado")
     line_numbers = [p.get("lineNumber") for p in sub.get("products", []) if p.get("lineNumber")]
     likes_sync = None
-    if likes_client.get_token():
-        _d, err = likes_client.change_titular_remote(
+    if await asyncio.to_thread(likes_client.get_token):
+        _d, err = await asyncio.to_thread(
+            likes_client.change_titular_remote,
             [body.subscriptionId], sub.get("fiscalId"), body.newFiscalId)
         likes_sync = {"synced": err is None, "error": err}
         if err:
@@ -3190,9 +3254,10 @@ async def add_optional(body: OptionalProductBody, request: Request):
                      "price": prod["price"], "finalPrice": round(prod["price"] * 1.21, 2)})
     ln = products[0].get("lineNumber") if products else None
     likes_sync = None
-    if likes_client.get_token():
+    if await asyncio.to_thread(likes_client.get_token):
         likes_pid = prod.get("likesProductId") or prod["productId"]
-        _d, err = likes_client.add_optional_remote(
+        _d, err = await asyncio.to_thread(
+            likes_client.add_optional_remote,
             body.subscriptionId, sub.get("fiscalId"), likes_pid, prod["family"], line_number=ln)
         likes_sync = {"synced": err is None, "error": err}
         if err:
@@ -3210,9 +3275,10 @@ async def terminate_optional(body: OptionalProductBody, request: Request):
     target = next((p for p in sub.get("products", [])
                    if p.get("productId") == body.productId and p.get("type") == "Optional"), None)
     likes_sync = None
-    if target and likes_client.get_token():
+    if target and await asyncio.to_thread(likes_client.get_token):
         likes_pid = target.get("likesProductId") or body.productId
-        _d, err = likes_client.terminate_optional_remote(
+        _d, err = await asyncio.to_thread(
+            likes_client.terminate_optional_remote,
             body.subscriptionId, sub.get("fiscalId"), likes_pid,
             target.get("family") or sub.get("family"), line_number=target.get("lineNumber"))
         likes_sync = {"synced": err is None, "error": err}
@@ -3294,7 +3360,7 @@ async def cancel_portability(portability_id: str, body: CancelBody, request: Req
 @api.get("/resources")
 async def list_resources(request: Request):
     await require_admin(request)
-    return likes_client.get_brand_resources()
+    return await asyncio.to_thread(likes_client.get_brand_resources)
 
 
 @api.get("/resources/download")
@@ -3344,7 +3410,7 @@ async def upload_document(fiscalId: str, body: DocUpload, request: Request):
 @api.post("/coverage/address")
 async def coverage_address(body: AddressSearch, request: Request):
     await current_user(request)
-    return likes_client.search_address(body.label)
+    return await asyncio.to_thread(likes_client.search_address, body.label)
 
 
 @api.post("/orders/{order_id}/send-tracking")
@@ -3588,11 +3654,11 @@ async def get_application(token: str):
     return _app_public_view(app_doc)
 
 
-def _app_to_contract(app_doc):
+async def _app_to_contract(app_doc):
     is_port = bool(app_doc.get("portability"))
     donor = None
     if is_port and app_doc.get("donorOperatorId"):
-        donor = next((d["Name"] for d in likes_client.get_donor_operators()
+        donor = next((d["Name"] for d in (await asyncio.to_thread(likes_client.get_donor_operators))
                       if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
     return {
         "contractNumber": app_doc["contractCode"], "date": app_doc.get("signedAt") or app_doc["createdAt"],
@@ -3625,7 +3691,8 @@ async def public_contract_pdf(token: str):
     if not app_doc:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
     tpl = await _get_contract_template()
-    pdf_bytes = generate_contract_pdf(_app_to_contract(app_doc), tpl)
+    ct = await _app_to_contract(app_doc)
+    pdf_bytes = generate_contract_pdf(ct, tpl)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={app_doc['contractCode']}.pdf"})
 
@@ -3680,7 +3747,7 @@ async def sign_application(token: str, body: SignBody):
     invoice = await _create_invoice(customer, product, status="pending")
     donor_name = None
     if is_port and app_doc.get("donorOperatorId"):
-        donor_name = next((d["Name"] for d in likes_client.get_donor_operators()
+        donor_name = next((d["Name"] for d in (await asyncio.to_thread(likes_client.get_donor_operators))
                            if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
     # Orden PENDIENTE DE APROBACIÓN. No se crea línea/SIM ni datos de red: el alta real
     # (nº de línea, ICC, PIN/PUK, SVAs, GB…) se crea y se trae de Likes al aprobar en el CRM.

@@ -35,6 +35,7 @@ import PaymentResult from "@/pages/PaymentResult";
 import PublicCatalog from "@/pages/public/PublicCatalog";
 import SignupWizard from "@/pages/public/SignupWizard";
 import SignContract from "@/pages/public/SignContract";
+import ResubmitDocs from "@/pages/public/ResubmitDocs";
 
 function Loading() {
   return (
@@ -85,6 +86,7 @@ function App() {
           <Route path="/contratar" element={<PublicCatalog />} />
           <Route path="/contratar/:productId" element={<SignupWizard />} />
           <Route path="/firmar/:token" element={<SignContract />} />
+          <Route path="/corregir/:token" element={<ResubmitDocs />} />
 
           <Route path="/app" element={<RequireRole role="staff"><AdminLayout /></RequireRole>}>
             <Route index element={<Dashboard />} />

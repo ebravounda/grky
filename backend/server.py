@@ -407,6 +407,16 @@ class AppSettingsBody(BaseModel):
 
 class RejectBody(BaseModel):
     reason: Optional[str] = ""
+    category: Optional[str] = ""
+
+
+class ResubmitBody(BaseModel):
+    docFront: Optional[str] = None
+    docBack: Optional[str] = None
+    selfie: Optional[str] = None
+    iban: Optional[str] = None
+    contactPhone: Optional[str] = None
+    email: Optional[str] = None
 
 
 class SimulateBody(BaseModel):
@@ -1214,72 +1224,76 @@ async def create_order(body: OrderCreate, request: Request):
     if not product:
         raise HTTPException(status_code=400, detail="Producto no válido")
 
-    order_id = str(uuid.uuid4())
-    # crear línea
-    line_number = body.lineNumber or ("6" + str(uuid.uuid4().int)[:8] if product["family"] == "Mobile"
-                                      else "9" + str(uuid.uuid4().int)[:8])
-    icc = "8934" + str(uuid.uuid4().int)[:16]
+    if not likes_client.get_token():
+        raise HTTPException(status_code=503,
+            detail="Likes no está conectado. No se pueden crear altas con datos reales sin conexión con Likes.")
+
     is_mobile = product["family"] == "Mobile"
-    line = {
-        "lineNumber": line_number, "fiscalId": body.fiscalId, "family": product["family"],
-        "status": "ACTIVE", "productId": product["productId"], "productName": product["productName"],
-        "price": product["price"], "icc": icc, "spn": "GOROKY",
-        "eSim": is_mobile, "esimData": likes_client.esim_data(icc) if is_mobile else None,
-        "totalGB": 50 if is_mobile else 0,
-        "usedGB": round(__import__("random").uniform(2, 40), 1) if is_mobile else 0,
-        "creditLimit": 30, "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
-        "cdrs": _gen_cdrs() if is_mobile else [],
-        "created": now_iso(),
-    }
-    await db.lines.insert_one(line)
+    likes_pid = product.get("likesProductId") or product["productId"]
+    # 1) Crear el alta REAL en Likes (signupv2). Nada de datos ficticios.
+    prod_payload = {"family": product["family"], "productId": likes_pid, "portability": bool(body.portability)}
+    if is_mobile:
+        prod_payload["eSim"] = True
+        if customer.get("email"):
+            prod_payload["eSimEmail"] = customer["email"]
+    if body.portability:
+        prod_payload["donorOperatorId"] = body.donorOperatorId
+        if body.lineNumber:
+            prod_payload["lineNumber"] = body.lineNumber
+    odata, oerr = likes_client.create_order(
+        {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
+    if oerr:
+        raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {oerr}")
+    likes_order_id = (odata or {}).get("orderId")
 
-    # crear suscripción
-    sub_id = str(uuid.uuid4())
-    await db.subscriptions.insert_one({
-        "subscriptionId": sub_id, "fiscalId": body.fiscalId, "family": product["family"],
-        "status": "ACTIVE", "pendingChange": False, "created": now_iso(),
-        "products": [{"productId": product["productId"], "productName": product["productName"],
-                      "family": product["family"], "type": "Main", "status": "ACTIVE",
-                      "lineNumber": line_number, "price": product["price"],
-                      "finalPrice": round(product["price"] * 1.21, 2)}],
-    })
+    # 2) Espejar los datos REALES desde Likes (nº línea, ICC, PIN/PUK, SVAs, GB, estado…)
+    try:
+        await likes_reconcile.reconcile_customer(db, body.fiscalId)
+    except Exception as e:  # noqa
+        logger.warning("reconcile create_order %s: %s", body.fiscalId, e)
+    line = await db.lines.find_one(
+        {"fiscalId": body.fiscalId, "productId": {"$in": [likes_pid, product["productId"]]}, "source": "likes"},
+        sort=[("likesSyncedAt", -1)])
+    if not line:
+        line = await db.lines.find_one({"fiscalId": body.fiscalId, "source": "likes"}, sort=[("likesSyncedAt", -1)])
+    line_number = (line or {}).get("lineNumber")
 
-    # factura PDF (siempre que se crea un servicio)
     invoice = await _create_invoice(customer, product, status="pending")
     contract_number = await _next_contract_number()
 
+    order_id = likes_order_id or str(uuid.uuid4())
     order = {
-        "orderId": order_id, "fiscalId": body.fiscalId,
+        "orderId": order_id, "likesOrderId": likes_order_id, "fiscalId": body.fiscalId,
         "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip(),
-        "status": "COMPLETED", "channel": "WD", "price": product["price"],
-        "productName": product["productName"], "family": product["family"],
+        "status": (line or {}).get("status") or "PROVISIONING", "channel": "WD", "price": product["price"],
+        "productName": product["productName"], "family": product["family"], "productId": product["productId"],
         "lineNumber": line_number, "portability": body.portability,
         "donorOperatorId": body.donorOperatorId,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
-        "contractNumber": contract_number, "signed": False,
+        "contractNumber": contract_number, "signed": False, "source": "likes",
         "ownerId": str(user["_id"]) if is_reseller else None,
         "created": now_iso(),
     }
     await db.orders.insert_one(order)
 
     await log_event("order", "success",
-                    f"Orden creada · {order['customerName']} · {product['productName']} · línea {line_number}",
+                    f"Alta creada en Likes · {order['customerName']} · {product['productName']} · Likes {likes_order_id} · línea {line_number or 'pendiente'}",
                     {"orderId": order_id, "channel": "WD"})
-    if is_reseller and (user.get("commissionPerSim") or 0) > 0:
+    if is_reseller and (user.get("commissionPerSim") or 0) > 0 and line_number:
         await db.commissions.insert_one({
             "commissionId": str(uuid.uuid4().int)[:10], "resellerId": str(user["_id"]),
             "resellerName": user.get("name"), "lineNumber": line_number,
             "customerName": order["customerName"], "amount": user["commissionPerSim"],
             "created": now_iso()})
-    # instalación (fibra) o portabilidad (si aplica)
-    if product["family"] in ("Fiber", "TV"):
+    # instalación (fibra) o portabilidad (si aplica) — se espeja el estado real de Likes en reconciliaciones
+    if product["family"] in ("Fiber", "TV") and line_number:
         await db.installations.insert_one({
             "installationId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
             "customerName": order["customerName"], "lineNumber": line_number,
             "productName": product["productName"], "status": "PENDING_APPOINTMENT",
             "address": (customer.get("billingAddress") or {}).get("street", ""),
             "appointment": None, "created": now_iso()})
-    if body.portability:
+    if body.portability and line_number:
         await db.portabilities.insert_one({
             "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": body.fiscalId,
             "customerName": order["customerName"], "lineNumber": line_number,
@@ -1287,7 +1301,8 @@ async def create_order(body: OrderCreate, request: Request):
             "status": "IN_PROGRESS", "created": now_iso()})
 
     return {"order": clean(order), "invoiceId": str(invoice["_id"]),
-            "invoiceNumber": invoice["invoiceNumber"], "contractNumber": contract_number}
+            "invoiceNumber": invoice["invoiceNumber"], "contractNumber": contract_number,
+            "likesOrderId": likes_order_id, "lineNumber": line_number}
 
 
 async def _build_contract(order):
@@ -1965,8 +1980,8 @@ async def _do_activate_order(order):
     cust = await db.customers.find_one({"fiscalId": order["fiscalId"]})
     to = cust.get("email") if cust else None
     pins = (line or {}).get("pins") or {}
-    body = (f"Hola {order.get('customerName', '')},<br><br>¡Tu línea ya está <b>activada</b>! "
-            f"Ya puedes disfrutar de <b>{order.get('productName', '')}</b>.<br><br>"
+    body = (f"Hola {order.get('customerName', '')},<br><br>¡<b>Enhorabuena! Tu pedido se ha procesado correctamente</b> "
+            f"y tu línea ya está <b>activada</b>. Ya puedes disfrutar de <b>{order.get('productName', '')}</b>.<br><br>"
             "<b>Datos de tu línea:</b><br>"
             f"• Número: <b>{order.get('lineNumber', '')}</b><br>"
             f"• PIN: <b>{pins.get('pin', '—')}</b> · PUK: <b>{pins.get('puk', '—')}</b><br>"
@@ -1980,8 +1995,8 @@ async def _do_activate_order(order):
                  f"Código de activación: <b>{e.get('activationCode')}</b><br>"
                  f"SM-DP+: {e.get('smdpAddress')}<br>")
     body += "<br>Gracias por confiar en GoRoky. 🎉"
-    await _send_mail_safe("email", to, "¡Bienvenido a GoRoky! Tu línea está activada",
-                          emailer.base_template("¡Bienvenido a GoRoky! Tu línea ya está activada", body))
+    await _send_mail_safe("email", to, "¡Enhorabuena! Tu pedido se ha procesado correctamente · GoRoky",
+                          emailer.base_template("¡Enhorabuena! Tu pedido se ha procesado correctamente", body))
     # crear acceso a la app + enviar credenciales (si aún no tiene usuario)
     if cust:
         await _ensure_client_access(cust)
@@ -2054,26 +2069,43 @@ async def approve_application(token: str, request: Request):
     return {"ok": True, "reviewStatus": "APPROVED", "likesOrderId": result.get("likesOrderId")}
 
 
+REJECT_REASONS = {
+    "incomplete_data": "Datos incompletos",
+    "doc_quality": "Foto del DNI/Pasaporte con mala resolución o ilegible",
+    "doc_mismatch": "Los datos no coinciden con el documento",
+    "selfie_issue": "Selfie de verificación no válida",
+    "iban_issue": "IBAN / datos bancarios incorrectos",
+    "address_issue": "Dirección incorrecta o incompleta",
+    "other": "Otro motivo",
+}
+
+
 @api.post("/applications/{token}/reject")
 async def reject_application(token: str, body: RejectBody, request: Request):
     await require_admin(request)
     a = await db.applications.find_one({"token": token})
     if not a:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    label = REJECT_REASONS.get(body.category or "", "")
+    reason_full = " · ".join([x for x in [label, (body.reason or "").strip()] if x]) or "Documentación incompleta"
+    # Se devuelve al cliente para corrección (no es un rechazo terminal): puede reenviar sus datos.
     await db.applications.update_one({"token": token},
-        {"$set": {"reviewStatus": "REJECTED", "rejectReason": body.reason, "rejectedAt": now_iso()}})
+        {"$set": {"reviewStatus": "CHANGES_REQUESTED", "rejectReason": body.reason or "",
+                  "rejectCategory": body.category or "", "rejectLabel": label, "rejectedAt": now_iso()}})
     order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
     if order:
-        await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {"status": "CANCELLED"}})
-        if order.get("lineNumber"):
-            await db.lines.update_one({"lineNumber": order["lineNumber"]}, {"$set": {"status": "SUSPENDED"}})
-    await _send_mail_safe("email", a.get("email"), "Sobre tu solicitud en GoRoky",
-        emailer.base_template("No hemos podido completar tu alta",
-            f"Hola {a.get('name','')},<br><br>Lamentamos informarte de que tu solicitud no ha podido "
-            f"ser aprobada.<br><br>Motivo: {body.reason or 'documentación incompleta'}.<br><br>"
-            "Contacta con soporte para más información."))
-    await log_event("order", "warning", f"Solicitud rechazada · {a.get('name')} ({a.get('fiscalId')})")
-    return {"ok": True, "reviewStatus": "REJECTED"}
+        await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {"status": "ON_HOLD"}})
+    link = f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/corregir/{token}"
+    await _send_mail_safe("email", a.get("email"), "Necesitamos que revises tu solicitud · GoRoky",
+        emailer.base_template("Necesitamos que corrijas algunos datos",
+            f"Hola {a.get('name','')},<br><br>Para poder completar tu alta necesitamos que revises tu solicitud.<br><br>"
+            f"<b>Motivo:</b> {reason_full}<br><br>"
+            "Por favor, vuelve a subir tu documentación y reenvía tu solicitud desde este enlace:<br><br>"
+            f"<a href='{link}' style='background:#0033ff;color:#fff;padding:11px 20px;border-radius:22px;text-decoration:none;font-weight:bold'>Corregir mi solicitud</a>"
+            "<br><br>En cuanto la reenvíes, la revisaremos de nuevo lo antes posible."))
+    await log_event("order", "warning",
+                    f"Solicitud devuelta al cliente para corrección · {a.get('name')} ({a.get('fiscalId')}): {reason_full}")
+    return {"ok": True, "reviewStatus": "CHANGES_REQUESTED"}
 
 
 # ------------------------- recurring billing (card / SEPA) -------------------------
@@ -3366,7 +3398,48 @@ def _app_public_view(app_doc):
             "portability": bool(app_doc.get("portability")),
             "portMsisdn": app_doc.get("portMsisdn"),
             "donorOperatorId": app_doc.get("donorOperatorId"),
-            "paymentStatus": app_doc.get("paymentStatus", "pending")}
+            "paymentStatus": app_doc.get("paymentStatus", "pending"),
+            "reviewStatus": app_doc.get("reviewStatus", "PENDING_REVIEW"),
+            "rejectReason": app_doc.get("rejectReason", ""),
+            "rejectLabel": app_doc.get("rejectLabel", ""),
+            "rejectCategory": app_doc.get("rejectCategory", ""),
+            "contactPhone": app_doc.get("contactPhone", ""),
+            "iban": app_doc.get("iban", ""),
+            "docs": {"front": bool((app_doc.get("fileIds") or {}).get("front")),
+                     "back": bool((app_doc.get("fileIds") or {}).get("back")),
+                     "selfie": bool((app_doc.get("fileIds") or {}).get("selfie"))}}
+
+
+@api.post("/public/applications/{token}/resubmit")
+async def resubmit_application(token: str, body: ResubmitBody):
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if a.get("reviewStatus") not in ("CHANGES_REQUESTED", "REJECTED"):
+        raise HTTPException(status_code=400, detail="Esta solicitud no requiere correcciones")
+    file_ids = dict(a.get("fileIds") or {})
+    if body.docFront:
+        file_ids["front"] = await _save_file("doc_front", body.docFront, a["fiscalId"])
+    if body.docBack:
+        file_ids["back"] = await _save_file("doc_back", body.docBack, a["fiscalId"])
+    if body.selfie:
+        file_ids["selfie"] = await _save_file("selfie", body.selfie, a["fiscalId"])
+    upd = {"fileIds": file_ids, "reviewStatus": "PENDING_REVIEW", "resubmittedAt": now_iso()}
+    if body.iban:
+        upd["iban"] = body.iban
+    if body.contactPhone:
+        upd["contactPhone"] = body.contactPhone
+    if body.email:
+        upd["email"] = body.email.lower()
+    await db.applications.update_one({"token": token},
+        {"$set": upd, "$unset": {"rejectReason": "", "rejectCategory": "", "rejectLabel": ""}})
+    await db.customers.update_one({"fiscalId": a["fiscalId"]}, {"$set": {"kyc.fileIds": file_ids}})
+    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
+    if order:
+        await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {"status": "PENDING_REVIEW"}})
+    await log_event("order", "info",
+                    f"Cliente reenvió documentación corregida · {a.get('name')} ({a.get('fiscalId')})")
+    return {"ok": True, "reviewStatus": "PENDING_REVIEW"}
 
 
 @api.get("/public/applications/{token}")

@@ -88,25 +88,28 @@ export default function SignupWizard() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-5 py-8">
-        <div className="rounded-lg border border-border bg-accent/40 p-4 mb-6 flex items-center justify-between">
-          <div><p className="text-sm text-muted-foreground">Contratando</p><p className="font-heading font-600">{product.productName}</p></div>
-          <p className="font-heading text-2xl font-700">{product.price.toFixed(2)} €<span className="text-sm text-muted-foreground">/mes</span></p>
+      <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
+        <div className="rounded-2xl border border-border bg-accent/40 p-4 mb-6 flex items-center justify-between gap-3">
+          <div className="min-w-0"><p className="text-xs text-muted-foreground">Contratando</p><p className="font-heading font-600 truncate">{product.productName}</p></div>
+          <p className="font-heading text-xl sm:text-2xl font-700 shrink-0">{product.price.toFixed(2)} €<span className="text-sm text-muted-foreground">/mes</span></p>
         </div>
 
         {/* progreso */}
-        <div className="flex items-center gap-2 mb-8">
-          {STEPS.map((s, i) => (
-            <div key={s} className="flex-1">
-              <div className={`h-1.5 rounded-full ${i <= step ? "bg-primary" : "bg-muted"}`} />
-              <p className={`text-xs mt-1.5 ${i === step ? "text-primary font-semibold" : "text-muted-foreground"}`}>{s}</p>
-            </div>
-          ))}
+        <div className="mb-7">
+          <p className="text-sm font-semibold text-primary mb-2">Paso {step + 1} de {STEPS.length} · <span className="text-foreground">{STEPS[step]}</span></p>
+          <div className="flex items-center gap-1.5">
+            {STEPS.map((s, i) => (
+              <div key={s} className="flex-1">
+                <div className={`h-1.5 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-muted"}`} />
+                <p className={`text-[11px] mt-1.5 hidden sm:block ${i === step ? "text-primary font-semibold" : "text-muted-foreground"}`}>{s}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <motion.div key={step} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="rounded-lg border border-border bg-card p-6">
+        <motion.div key={step} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-sm">
           {step === 0 && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Tipo de documento</Label>
                 <Select value={f.docType} onValueChange={(v) => set("docType", v)}>
@@ -124,7 +127,7 @@ export default function SignupWizard() {
               <div className="space-y-1.5"><Label>Apellidos</Label><Input data-testid="w-surname" value={f.firstSurname} onChange={(e) => set("firstSurname", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Fecha de nacimiento *</Label><Input data-testid="w-dob" type="date" value={f.dob} onChange={(e) => set("dob", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Teléfono de contacto *</Label><Input data-testid="w-phone" value={f.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
-              <div className="space-y-1.5 col-span-2"><Label>Email *</Label><Input data-testid="w-email" type="email" value={f.email} onChange={(e) => set("email", e.target.value)} /></div>
+              <div className="space-y-1.5 sm:col-span-2"><Label>Email *</Label><Input data-testid="w-email" type="email" value={f.email} onChange={(e) => set("email", e.target.value)} /></div>
             </div>
           )}
 
@@ -175,7 +178,7 @@ export default function SignupWizard() {
                       <span className="text-sm text-muted-foreground">El número está a nombre de <b className="text-foreground">otra persona</b> (cambio de titular)</span>
                     </label>
                     {f.changeHolder && (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5"><Label>Nombre del titular actual</Label><Input data-testid="w-holder-name" value={f.currentHolderName} onChange={(e) => set("currentHolderName", e.target.value)} /></div>
                         <div className="space-y-1.5"><Label>NIF/NIE del titular actual</Label><Input data-testid="w-holder-fiscal" value={f.currentHolderFiscalId} onChange={(e) => set("currentHolderFiscalId", e.target.value)} /></div>
                       </div>
@@ -204,22 +207,22 @@ export default function SignupWizard() {
           )}
 
           {step === 2 && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-2"><Label>Dirección *</Label><Input data-testid="w-address" value={f.address} onChange={(e) => set("address", e.target.value)} placeholder="Calle, número, piso" /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5 sm:col-span-2"><Label>Dirección *</Label><Input data-testid="w-address" value={f.address} onChange={(e) => set("address", e.target.value)} placeholder="Calle, número, piso" /></div>
               <div className="space-y-1.5"><Label>Ciudad *</Label><Input data-testid="w-city" value={f.city} onChange={(e) => set("city", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Código postal *</Label><Input data-testid="w-postal" value={f.postalCode} onChange={(e) => set("postalCode", e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Provincia *</Label><Input data-testid="w-province" value={f.province} onChange={(e) => set("province", e.target.value)} /></div>
 
-              <div className="col-span-2 mt-2">
+              <div className="sm:col-span-2 mt-2">
                 <Label className="mb-2 block">Método de pago *</Label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button type="button" data-testid="pay-sepa" onClick={() => set("paymentMethod", "sepa")}
-                    className={`rounded-lg border p-3 text-left transition ${f.paymentMethod === "sepa" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                    className={`rounded-xl border p-3 text-left transition ${f.paymentMethod === "sepa" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
                     <p className="font-medium text-sm">Domiciliación SEPA</p>
                     <p className="text-xs text-muted-foreground">Cobro mensual en tu cuenta bancaria</p>
                   </button>
                   <button type="button" data-testid="pay-card" onClick={() => set("paymentMethod", "card")}
-                    className={`rounded-lg border p-3 text-left transition ${f.paymentMethod === "card" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
+                    className={`rounded-xl border p-3 text-left transition ${f.paymentMethod === "card" ? "border-primary ring-2 ring-primary/30 bg-primary/5" : "border-border"}`}>
                     <p className="font-medium text-sm">Tarjeta</p>
                     <p className="text-xs text-muted-foreground">Cobro mensual automático a tu tarjeta</p>
                   </button>
@@ -229,7 +232,7 @@ export default function SignupWizard() {
               {f.paymentMethod === "sepa" && (
                 <>
                   <div className="space-y-1.5"><Label>Banco</Label><Input data-testid="w-bank" value={f.bank} onChange={(e) => set("bank", e.target.value)} /></div>
-                  <div className="space-y-1.5 col-span-2"><Label>IBAN (cuenta bancaria) *</Label><Input data-testid="w-iban" value={f.iban} onChange={(e) => set("iban", e.target.value)} placeholder="ES.." /></div>
+                  <div className="space-y-1.5 sm:col-span-2"><Label>IBAN (cuenta bancaria) *</Label><Input data-testid="w-iban" value={f.iban} onChange={(e) => set("iban", e.target.value)} placeholder="ES.." /></div>
                 </>
               )}
             </div>
@@ -251,7 +254,7 @@ export default function SignupWizard() {
           {step === 4 && (
             <div className="space-y-4">
               <h3 className="font-heading font-600">Revisa tus datos</h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <Info l="Titular" v={`${f.name} ${f.firstSurname}`} />
                 <Info l="Documento" v={`${f.docType} ${f.fiscalId}`} />
                 <Info l="Nacimiento" v={f.dob} />

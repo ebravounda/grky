@@ -7,14 +7,24 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { ClipboardCheck, Check, X, Eye, CreditCard, Landmark, Smartphone, FileText } from "lucide-react";
+import { ClipboardCheck, Check, X, Eye, CreditCard, Landmark, Smartphone, FileText, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 const REVIEW = {
   PENDING_REVIEW: { c: "bg-warning/15 text-warning", t: "Pendiente" },
   APPROVED: { c: "bg-success/12 text-success", t: "Aprobada" },
+  CHANGES_REQUESTED: { c: "bg-orange-500/15 text-orange-600", t: "Corrección pedida" },
   REJECTED: { c: "bg-destructive/12 text-destructive", t: "Rechazada" },
 };
+const REJECT_OPTIONS = [
+  { v: "incomplete_data", t: "Datos incompletos" },
+  { v: "doc_quality", t: "Foto DNI/Pasaporte mala resolución o ilegible" },
+  { v: "doc_mismatch", t: "Los datos no coinciden con el documento" },
+  { v: "selfie_issue", t: "Selfie de verificación no válida" },
+  { v: "iban_issue", t: "IBAN / datos bancarios incorrectos" },
+  { v: "address_issue", t: "Dirección incorrecta o incompleta" },
+  { v: "other", t: "Otro motivo" },
+];
 const PAY = { paid: { c: "text-success", t: "Pagado" }, pending: { c: "text-warning", t: "Pago pendiente" } };
 
 export default function Solicitudes() {
@@ -22,6 +32,7 @@ export default function Solicitudes() {
   const [detail, setDetail] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState("");
+  const [category, setCategory] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = () => api.get("/applications").then((r) => setApps(r.data));
@@ -39,8 +50,13 @@ export default function Solicitudes() {
   };
 
   const reject = async () => {
+    if (!category) { toast.error("Selecciona un motivo"); return; }
     setBusy(true);
-    try { await api.post(`/applications/${rejecting}/reject`, { reason }); toast.success("Solicitud rechazada"); setRejecting(null); setReason(""); setDetail(null); load(); }
+    try {
+      await api.post(`/applications/${rejecting}/reject`, { category, reason });
+      toast.success("Solicitud devuelta al cliente para corrección · email enviado");
+      setRejecting(null); setReason(""); setCategory(""); setDetail(null); load();
+    }
     catch (e) { toast.error(apiErr(e)); } finally { setBusy(false); }
   };
 
@@ -159,15 +175,30 @@ export default function Solicitudes() {
         </DialogContent>
       </Dialog>
 
-      {/* Rechazo */}
-      <Dialog open={!!rejecting} onOpenChange={(o) => !o && setRejecting(null)}>
+      {/* Rechazo / corrección */}
+      <Dialog open={!!rejecting} onOpenChange={(o) => { if (!o) { setRejecting(null); setCategory(""); setReason(""); } }}>
         <DialogContent data-testid="reject-dialog">
-          <DialogHeader><DialogTitle>Rechazar solicitud</DialogTitle>
-            <DialogDescription>Se cancelará el alta y se avisará al cliente por email.</DialogDescription>
+          <DialogHeader><DialogTitle>Devolver solicitud para corrección</DialogTitle>
+            <DialogDescription>El cliente recibirá un email con el motivo y un enlace para volver a subir su documentación.</DialogDescription>
           </DialogHeader>
-          <Textarea data-testid="reject-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo del rechazo (documentación ilegible, datos incorrectos…)" />
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase text-muted-foreground">Motivo</label>
+              <div className="grid gap-1.5">
+                {REJECT_OPTIONS.map((o) => (
+                  <button key={o.v} type="button" data-testid={`reject-cat-${o.v}`}
+                    onClick={() => setCategory(o.v)}
+                    className={`text-left text-sm rounded-lg border px-3 py-2 transition-colors ${category === o.v ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-primary/40"}`}>
+                    {o.t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Textarea data-testid="reject-reason" value={reason} onChange={(e) => setReason(e.target.value)}
+              placeholder="Detalle adicional para el cliente (opcional)…" rows={2} />
+          </div>
           <DialogFooter>
-            <Button data-testid="confirm-reject-btn" variant="outline" className="rounded-full text-destructive border-destructive/30" onClick={reject} disabled={busy}>Confirmar rechazo</Button>
+            <Button data-testid="confirm-reject-btn" variant="outline" className="rounded-full text-destructive border-destructive/30" onClick={reject} disabled={busy || !category}>Enviar corrección al cliente</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

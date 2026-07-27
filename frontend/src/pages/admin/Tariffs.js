@@ -20,9 +20,9 @@ import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receip
 import { toast } from "sonner";
 
 const IVA = 1.21;
-const famIcon = { Mobile: Signal, Fiber: Wifi, M2M: Radio, PBX: Phone, TV: Tv, Satellite: Satellite, Bonos: Boxes, Paquetes: Package };
-const famLabel = { Mobile: "Móvil", Fiber: "Fibra", M2M: "M2M", PBX: "PBX / Centralita", TV: "TV", Satellite: "Satélite", Bonos: "Bonos", Paquetes: "Paquetes" };
-const FAMILY_ORDER = ["Mobile", "Fiber", "M2M", "PBX", "TV", "Satellite", "Bonos", "Paquetes"];
+const famIcon = { Mobile: Signal, Fiber: Wifi, Fixed: Wifi, Convergent: Package, M2M: Radio, PBX: Phone, TV: Tv, Satellite: Satellite, Energy: Boxes, Device: Radio, International: Signal, Bonos: Boxes, Paquetes: Package };
+const famLabel = { Mobile: "Móvil", Fiber: "Fibra", Fixed: "Fibra", Convergent: "Paquetes", M2M: "M2M", PBX: "PBX / Centralita", TV: "TV", Satellite: "Satélite", Energy: "Energía", Device: "Dispositivos", International: "Internacional", Bonos: "Bonos", Paquetes: "Paquetes" };
+const FAMILY_ORDER = ["Mobile", "Fiber", "Fixed", "Convergent", "M2M", "PBX", "TV", "Satellite", "Energy", "Device", "International", "Bonos", "Paquetes"];
 const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true, storefront: true };
 const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
 

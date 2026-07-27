@@ -1,103 +1,110 @@
 {
-  "theme": "light",
-  "typography": {
-    "font_family_headings": "Outfit, sans-serif",
-    "font_family_body": "Manrope, sans-serif",
-    "h1": "text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-tight",
-    "h2": "text-4xl sm:text-5xl font-extrabold tracking-tight",
-    "h3": "text-2xl sm:text-3xl font-bold tracking-tight",
-    "h4": "text-xl sm:text-2xl font-bold",
-    "body": "text-base sm:text-lg leading-relaxed text-slate-700",
-    "small": "text-sm font-medium text-slate-500",
-    "labels": "text-xs font-bold uppercase tracking-[0.2em] text-[#FF7A00]"
+  "theme_and_identity": {
+    "archetype": "ARCHETYPE 7 (Electric & Neon) mixed with ARCHETYPE 4 (Swiss High Contrast)",
+    "description": "A bold, rebellious, yet professional B2C/B2B telecom storefront inspired by wom.cl and entel.cl. High energy, stark contrasts, massive typography, and distinct vibrant brand colors.",
+    "primary_mode": "Hybrid (Light theme for product conversion & readable tables, Dark theme for immersive Hero, Coverage, and Footer sections to create depth)."
   },
   "colors": {
-    "primary": "#0033ff",
-    "accent": "#FF7A00",
-    "background": "#FFFFFF",
-    "surface": "#F8F9FB",
-    "surface_glass": "rgba(255, 255, 255, 0.8)",
-    "text_main": "#050505",
-    "text_muted": "#64748B",
-    "border": "rgba(0, 51, 255, 0.1)",
-    "footer_bg": "#0A0A0A"
+    "primary": {
+      "hex": "#015EEF",
+      "hsl": "216 99% 47%",
+      "usage": "Main CTA buttons, popular pricing card backgrounds, active tab text, critical highlights."
+    },
+    "accent": {
+      "hex": "#FF7A00",
+      "hsl": "29 100% 50%",
+      "usage": "Secondary CTAs, 'Más popular' badges, notification dots, dynamic hovers, 'promo' elements."
+    },
+    "backgrounds": {
+      "dark_obsidian": "#0A0A0A",
+      "light_base": "#F8FAFC",
+      "pure_white": "#FFFFFF"
+    },
+    "tailwind_config_overrides": {
+      "--primary": "216 99% 47%",
+      "--accent": "29 100% 50%",
+      "--background": "210 40% 98%",
+      "--foreground": "222 47% 11%"
+    }
   },
-  "visual_enhancers": {
-    "header_glassmorphism": "backdrop-blur-2xl bg-white/80 border-b border-black/5",
-    "card_shadows": "shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)]",
-    "primary_glow": "shadow-[0_8px_24px_rgba(0,51,255,0.3)]",
-    "accent_glow": "shadow-[0_8px_24px_rgba(255,122,0,0.3)]"
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "Manrope, sans-serif",
+    "rules": {
+      "h1": "text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.95]",
+      "h2": "text-4xl sm:text-5xl font-extrabold tracking-tight",
+      "h3": "text-2xl font-bold tracking-tight",
+      "body": "text-base sm:text-lg leading-relaxed text-slate-600 (or white/80 in dark sections)",
+      "overline": "text-xs tracking-[0.2em] font-bold uppercase"
+    }
+  },
+  "layouts_and_grids": {
+    "hero_section": "Dark theme. Split layout (grid-cols-1 lg:grid-cols-2). Left side: Massive text, floating badges, multiple stacked CTAs. Right side: Bleeding-edge lifestyle image overlapping a neon glow. Add absolute positioned blur-3xl colored orbs (bg-[#015EEF]/20 and bg-[#FF7A00]/20) behind the content.",
+    "pricing_section": "Light theme (bg-slate-50). Bento-style horizontal density. grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6. Add high padding (p-8).",
+    "coverage_section": "Dark theme (bg-[#0A0A0A]). Split layout. Left: Typography + selling points. Right: The CoverageChecker component wrapped inside a 'Crystal Glass' container (bg-white/10 backdrop-blur-2xl border border-white/20). Add an abstract fiber optic background image at 30% opacity.",
+    "trust_section": "Light theme. grid-cols-1 sm:grid-cols-2 lg:grid-cols-4. Cardless approach or extremely subtle bordered cards with a light hover lift."
   },
   "components": {
+    "header": {
+      "style": "Crystal Glassmorphism: bg-white/70 backdrop-blur-xl border-b border-black/5. Must have z-50 and sticky top-0.",
+      "links": "font-bold text-sm tracking-wide text-slate-800 hover:text-[#015EEF] transition-colors."
+    },
+    "tabs_selector": {
+      "style": "Pill-shaped container (bg-slate-200/50 p-1.5 rounded-full). Triggers are rounded-full px-6 py-2.5 text-sm font-bold.",
+      "active_state": "bg-white text-[#015EEF] shadow-sm",
+      "inactive_state": "text-slate-500 hover:text-slate-900"
+    },
+    "pricing_cards": {
+      "standard_card": "bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8. Hover: -translate-y-2 shadow-[0_20px_40px_rgba(0,0,0,0.08)].",
+      "popular_card": "bg-[#015EEF] text-white rounded-[2rem] shadow-[0_20px_40px_rgba(1,94,239,0.3)] p-8 scale-100 lg:scale-105 z-10 relative overflow-hidden. Add an orange (#FF7A00) badge for 'Más popular'.",
+      "price_display": "font-heading text-6xl font-black tracking-tighter."
+    },
     "buttons": {
-      "primary": "rounded-full bg-[#0033ff] hover:bg-[#0022cc] text-white font-bold px-8 py-4 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(0,51,255,0.3)]",
-      "accent": "rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 transition-all hover:-translate-y-1 shadow-[0_8px_24px_rgba(255,122,0,0.3)]",
-      "outline": "rounded-full border-2 border-[#0033ff] text-[#0033ff] hover:bg-[#0033ff] hover:text-white font-bold px-8 py-4 transition-all"
+      "primary": "rounded-full bg-[#015EEF] text-white font-bold px-8 py-4 transition-all hover:bg-[#004cc7] hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(1,94,239,0.3)]",
+      "accent": "rounded-full bg-[#FF7A00] text-white font-bold px-8 py-4 transition-all hover:bg-[#e66e00] hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(255,122,0,0.4)]"
     },
-    "cards": {
-      "tariff_base": "relative bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group p-8 flex flex-col",
-      "tariff_highlighted": "relative bg-[#0033ff] text-white rounded-3xl shadow-2xl transition-all duration-300 p-8 flex flex-col scale-100 lg:scale-105 z-10 border border-[#0033ff]",
-      "popular_badge": "absolute top-0 right-0 bg-[#FF7A00] text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-bl-xl rounded-tr-3xl"
-    },
-    "tabs": {
-      "list": "inline-flex bg-slate-100 p-1 rounded-full w-full sm:w-auto",
-      "trigger": "rounded-full px-6 py-2.5 text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-[#0033ff] data-[state=active]:shadow-sm"
+    "marquee": {
+      "style": "High energy kinetic typography. text-5xl font-black. Text is transparent with a 1.5px stroke of rgba(1,94,239,0.2) (WebkitTextStroke). Add solid #FF7A00 bullet separators."
     }
   },
-  "grids": {
-    "bento": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
-    "benefits": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
+  "motion_and_interactions": {
+    "page_load": "Framer motion stagger children. Hero text slides up (y: 24 to 0, opacity 0 to 1, duration: 0.6s).",
+    "scroll_reveal": "Pricing cards and trust badges use `whileInView={{ opacity: 1, y: 0 }}` with `viewport={{ once: true }}`.",
+    "hover_effects": "All cards lift up (-translate-y-2). Buttons expand shadow and shift up. Avoid `transition-all` on root elements to prevent performance lag; specify `transition-transform, transition-shadow, transition-colors`."
   },
-  "layouts": {
-    "hero_section": "grid grid-cols-1 lg:grid-cols-12 gap-12 items-center min-h-[85vh] pt-28 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
-    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
-    "section_spacing": "py-20 md:py-32"
-  },
-  "motion": {
-    "hover_interactions": "Buttons and cards scale up slightly (hover:-translate-y-1).",
-    "framer_motion_entrances": "Use staggered fade-in-up animations for hero content and tariff cards using framer-motion.",
-    "tab_indicator": "Animate the active tab background smoothly using framer-motion layoutId."
+  "image_urls": {
+    "hero_lifestyle": {
+      "url": "https://images.unsplash.com/photo-1761499413046-08ac70109128?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxsaWZlc3R5bGUlMjB5b3V0aCUyMHVzaW5nJTIwc21hcnRwaG9uZSUyMG91dGRvb3JzfGVufDB8fHx8MTc4NTE5NTM1NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Young woman using phone with building in background. Represents urban lifestyle telecom usage."
+    },
+    "coverage_background": {
+      "url": "https://images.unsplash.com/photo-1597733336794-12d05021d510?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwZ2xvd2luZyUyMHRlY2h8ZW58MHx8fHwxNzg1MTk1MzM1fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Purple and blue glowing fiber optic light. Represents high-speed fiber coverage."
+    }
   },
   "accessibility": {
-    "contrast": "Ensure white text is used over the primary blue (#0033ff) and accent orange (#FF7A00).",
-    "focus_states": "Add focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2 to all buttons and inputs.",
-    "test_ids": "Mandatory data-testid attributes on all interactive elements (e.g., data-testid='contract-button')."
-  },
-  "image_urls": [
-    {
-      "url": "https://images.unsplash.com/photo-1694057336527-fbc3e7c84890?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbmVyZ2V0aWMlMjBzbWlsaW5nJTIwcGVyc29uJTIwcGhvbmUlMjBzb2xpZCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg1MTA4ODgxfDA&ixlib=rb-4.1.0&q=85",
-      "category": "hero",
-      "description": "Energetic woman in yellow jacket holding a smartphone, perfect for a dynamic telecom hero image."
-    },
-    {
-      "url": "https://images.unsplash.com/photo-1750711158632-5273ec9b9b86?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBmYXN0JTIwaW50ZXJuZXQlMjBob21lJTIwd2lmaXxlbnwwfHx8fDE3ODUxMDg4NzF8MA&ixlib=rb-4.1.0&q=85",
-      "category": "fiber_section",
-      "description": "Wi-fi router to represent the Fiber product/service."
-    }
-  ],
-  "3d_libraries": {
-    "usage": "Not recommended for this specific fast-loading telecom e-commerce page. Focus on high-performance 2D framer-motion micro-interactions."
+    "contrast": "Ensure white text on #015EEF and #FF7A00 passes WCAG AA (minimum 4.5:1 for normal text). Both colors are dark/saturated enough.",
+    "focus": "All buttons and inputs MUST have `focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2`.",
+    "testing": "All interactive elements (buttons, tabs, inputs, dialog triggers) MUST retain their current `data-testid` attributes (e.g., `data-testid=\"public-tab-Mobile\"`)."
   },
   "instructions_to_main_agent": [
-    "Develop a React SPA (.js, not .tsx) using Tailwind CSS and shadcn/ui.",
-    "Build a sticky glass header (`backdrop-blur-2xl bg-white/80`) with the Logo (left), Nav links (center), and 'Mi cuenta' outline button (right). Hide Nav on mobile behind a hamburger menu.",
-    "Hero Section: Use a 12-col grid. Left side has massive 'Outfit' heading (`text-5xl md:text-7xl`), subtext, and two buttons: Primary 'Ver tarifas' (#0033ff) and Secondary 'Comprobar fibra' (#FF7A00). Right side contains the energetic hero image.",
-    "Tariffs Grid: Use customized shadcn Tabs to switch between Móvil, Fibra, Satélite, TV. The cards must have huge prices (`text-6xl font-black`), feature list with Lucide Check icons, and a 'Contratar' CTA. Highlight the main plan with a solid primary blue background, scaling it up slightly, and adding a 'Más popular' badge.",
-    "Fiber Coverage Checker: Full width section with solid #0033ff background. Include a simple address input and 'Comprobar fibra' button. Make it spacious.",
-    "Trust Row: 4 items (Icon + text). Include 'Portabilidad gratis', 'Alta 100% online', 'App GoRoky', and 'Atención 24/7'. DO NOT INCLUDE 'Sin permanencia'.",
-    "SEO Marquee: Implement `react-fast-marquee`. Display scrolling Spanish cities (Madrid, Barcelona, Valencia, Alicante, etc.) using massive outline text (e.g., text-transparent text-stroke).",
-    "Footer: Dark theme (#0A0A0A) with white text. Include links and legal text: 'TRAMILEX GLOBAL SERVICE SL · B21796925'."
+    "Modify `/app/frontend/src/pages/public/PublicCatalog.js` directly to apply these styles.",
+    "Do NOT change the data fetching logic or state management.",
+    "Ensure `data-testid` attributes are strictly preserved as they are critical for automated testing.",
+    "Replace the existing generic `HERO_IMG` with the `hero_lifestyle` URL provided.",
+    "Add the `coverage_background` image as an absolute positioned, low-opacity background behind the coverage checker section.",
+    "Update standard tailwind classes: replace `bg-[#0033ff]` with `bg-[#015EEF]` and standardize `text-[#FF7A00]`.",
+    "Enhance the 'Planes' cards using the `pricing_cards` guidelines above (Bento-like, strong shadow on popular).",
+    "Change the Hero Section to a dark background (#0A0A0A) so the vibrant colors pop more aggressively (Entel/WOM style). Re-style text to be white/light in that section.",
+    "Ensure the Header is Crystal Glassmorphism."
   ],
-  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
-    "You MUST NOT use 'sin permanencia' in any copy, as fiber does have a commitment period. CRITICAL RULE.",
-    "The website must look hyper-professional, mimicking the bold and spacious aesthetic of www.wom.cl.",
-    "Use custom .js components, not .tsx files.",
-    "Do not use generic centered layouts for the entire page. Rely on asymmetrical grids.",
-    "Implement extreme spacing (e.g., py-24, gap-8) to give a 'spacious' ('amplia') premium feel.",
-    "NEVER use generic placeholder images or text like 'Lorem ipsum'. Use Spanish language for all text.",
-    "Include 'data-testid' on all interactive elements to support testing.",
-    "Install and use `lucide-react` for iconography.",
-    "Install and use `framer-motion` for entry animations and interactive tab highlights.",
-    "Use standard Tailwind classes. Avoid custom CSS files unless necessary for the marquee outline effect."
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not use default generic centered layouts or simplistic gradients.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for floating elements like navigation and modals.",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements like button, input excluding transforms.",
+    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons. Use Lucide icons instead."
   ]
 }

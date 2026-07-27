@@ -21,10 +21,15 @@ const HERO_IMG = "https://images.unsplash.com/photo-1694057336527-fbc3e7c84890?c
 const TAB_META = {
   Mobile: { label: "Móvil", icon: Signal },
   Fiber: { label: "Fibra", icon: Wifi },
+  Fixed: { label: "Fibra", icon: Wifi },
+  Convergent: { label: "Paquetes", icon: Sparkles },
   M2M: { label: "M2M", icon: Signal },
   PBX: { label: "PBX", icon: Signal },
   TV: { label: "TV", icon: Tv },
   Satellite: { label: "Satélite", icon: Satellite },
+  Energy: { label: "Energía", icon: Zap },
+  Device: { label: "Dispositivos", icon: Smartphone },
+  International: { label: "Internacional", icon: Signal },
   Bonos: { label: "Bonos", icon: Sparkles },
   Paquetes: { label: "Paquetes", icon: Sparkles },
 };

@@ -133,7 +133,8 @@ export default function PublicCatalog() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
                 {(catalog[t.key] || []).map((p, i) => {
                   const list = catalog[t.key] || [];
-                  const popular = i === 1 && list.length >= 3;
+                  const anyPopular = list.some((x) => x.popular);
+                  const popular = anyPopular ? !!p.popular : (i === 1 && list.length >= 3);
                   return (
                     <motion.div key={p.productId} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.06 }}
                       data-testid={`public-product-${p.productId}`}

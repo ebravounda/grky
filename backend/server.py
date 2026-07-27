@@ -301,6 +301,7 @@ class TariffBody(BaseModel):
     costPrice: Optional[float] = 0     # precio de COSTE / cesión (Likes) SIN IVA (Tramo 1)
     features: Optional[List[str]] = None
     active: bool = True
+    storefront: Optional[bool] = True  # visible en la tienda pública
 
 
 class CoverageRequest(BaseModel):
@@ -476,7 +477,8 @@ async def create_tariff(body: TariffBody, request: Request):
            "type": body.type, "price": body.price, "costPrice": round(body.costPrice or 0, 2),
            "isRecurringPrice": True,
            "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])],
-           "active": body.active, "created": now_iso()}
+           "active": body.active, "storefront": body.storefront is not False, "popular": False,
+           "created": now_iso()}
     await db.tariffs.insert_one(doc)
     return clean(doc)
 
@@ -489,9 +491,36 @@ async def update_tariff(product_id: str, body: TariffBody, request: Request):
         raise HTTPException(status_code=404, detail="Tarifa no encontrada")
     upd = {"productName": body.productName, "family": body.family, "type": body.type,
            "price": body.price, "costPrice": round(body.costPrice or 0, 2), "active": body.active,
+           "storefront": body.storefront is not False,
            "marketingText": [{"title": "Incluye", "value": f} for f in (body.features or [])]}
     await db.tariffs.update_one({"productId": product_id}, {"$set": upd})
     return clean(await db.tariffs.find_one({"productId": product_id}))
+
+
+@api.patch("/tariffs/{product_id}/storefront")
+async def set_tariff_storefront(product_id: str, body: dict, request: Request):
+    """Mostrar/ocultar una tarifa en la tienda pública."""
+    await require_admin(request)
+    visible = bool(body.get("visible", True))
+    r = await db.tariffs.update_one({"productId": product_id}, {"$set": {"storefront": visible}})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+    return {"ok": True, "storefront": visible}
+
+
+@api.put("/tariffs/{product_id}/popular")
+async def set_tariff_popular(product_id: str, body: dict, request: Request):
+    """Marca (o desmarca) la tarifa como «Más popular» dentro de su familia (solo una por familia)."""
+    await require_admin(request)
+    t = await db.tariffs.find_one({"productId": product_id})
+    if not t:
+        raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+    make_popular = bool(body.get("popular", True))
+    # desmarcar el resto de la misma familia
+    await db.tariffs.update_many({"family": t.get("family")}, {"$set": {"popular": False}})
+    if make_popular:
+        await db.tariffs.update_one({"productId": product_id}, {"$set": {"popular": True}})
+    return {"ok": True, "popular": make_popular}
 
 
 @api.delete("/tariffs/{product_id}")
@@ -3315,7 +3344,8 @@ async def admin_site_content_put(body: SiteContentBody, request: Request):
 
 @api.get("/public/catalog")
 async def public_catalog():
-    items = await db.tariffs.find({"active": True, "type": "Main"}).sort("price", 1).to_list(500)
+    items = await db.tariffs.find({"active": True, "type": "Main",
+                                   "storefront": {"$ne": False}}).sort("price", 1).to_list(500)
     out = {"Mobile": [], "Fiber": [], "Satellite": [], "TV": []}
     for t in items:
         fam = t.get("family")
@@ -3326,7 +3356,7 @@ async def public_catalog():
 
 @api.get("/public/products/{product_id}")
 async def public_product(product_id: str):
-    t = await db.tariffs.find_one({"productId": product_id, "active": True})
+    t = await db.tariffs.find_one({"productId": product_id, "active": True, "storefront": {"$ne": False}})
     if not t:
         raise HTTPException(status_code=404, detail="Producto no disponible")
     return clean(t)

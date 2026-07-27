@@ -16,13 +16,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt, Star, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 const IVA = 1.21;
 const famIcon = { Mobile: Signal, Fiber: Wifi, TV: Tv, Satellite: Tv };
 const famLabel = { Mobile: "Móvil", Fiber: "Fibra", TV: "TV", Satellite: "Satélite" };
-const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true };
+const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true, storefront: true };
 const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
 
 // Cálculos de rentabilidad (price = venta CON IVA; costPrice = coste SIN IVA)
@@ -57,6 +57,7 @@ export default function Tariffs() {
       saleWithIva: (Number(t.price || 0)).toFixed(2),
       costBase: (Number(t.costPrice || 0)).toFixed(2),
       active: t.active !== false,
+      storefront: t.storefront !== false,
       features: (t.marketingText || []).map((m) => m.value).join("\n"),
     });
     setOpen(true);
@@ -80,6 +81,7 @@ export default function Tariffs() {
       price: Math.round((parseFloat(form.saleWithIva) || 0) * 100) / 100,   // venta CON IVA
       costPrice: Math.round((parseFloat(form.costBase) || 0) * 100) / 100,  // coste SIN IVA
       active: form.active,
+      storefront: form.storefront,
       features: form.features.split("\n").map((s) => s.trim()).filter(Boolean),
     };
     try {
@@ -94,6 +96,24 @@ export default function Tariffs() {
   const remove = async (t) => {
     try { await api.delete(`/tariffs/${t.productId}`); toast.success("Tarifa eliminada"); load(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const toggleStorefront = async (t) => {
+    const visible = t.storefront === false;
+    try {
+      await api.patch(`/tariffs/${t.productId}/storefront`, { visible });
+      toast.success(visible ? "Tarifa visible en la tienda" : "Tarifa oculta de la tienda");
+      load();
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const togglePopular = async (t) => {
+    const makePopular = !t.popular;
+    try {
+      await api.put(`/tariffs/${t.productId}/popular`, { popular: makePopular });
+      toast.success(makePopular ? `"${t.productName}" marcada como Más popular` : "Marca «Más popular» quitada");
+      load();
+    } catch (e) { toast.error(apiErr(e)); }
   };
 
   // Totales (solo tarifas activas y principales cuentan para "cartera mensual")
@@ -166,8 +186,12 @@ export default function Tariffs() {
                 </div>
 
                 <div className="space-y-1.5 col-span-2 flex items-center justify-between rounded-md border border-border p-2.5">
-                  <span className="text-sm">Activa</span>
+                  <span className="text-sm">Activa (disponible internamente)</span>
                   <Switch data-testid="tariff-active" checked={form.active} onCheckedChange={(v) => set("active", v)} />
+                </div>
+                <div className="space-y-1.5 col-span-2 flex items-center justify-between rounded-md border border-border p-2.5">
+                  <div><span className="text-sm">Mostrar en la tienda pública</span><p className="text-xs text-muted-foreground">Si lo desactivas, no aparece en rokymovil.com</p></div>
+                  <Switch data-testid="tariff-storefront" checked={form.storefront} onCheckedChange={(v) => set("storefront", v)} />
                 </div>
                 <div className="space-y-1.5 col-span-2">
                   <Label>Características (una por línea)</Label>
@@ -208,11 +232,25 @@ export default function Tariffs() {
                 <span className="grid place-items-center h-9 w-9 rounded-md bg-primary/10 text-primary"><Icon size={18} /></span>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{famLabel[t.family] || t.family}</span>
+                  {t.popular && <span className="rounded-full bg-orange-500/15 text-orange-600 px-2 py-0.5 font-semibold flex items-center gap-1"><Star size={11} className="fill-orange-500" /> Popular</span>}
                   {t.active === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Inactiva</span>}
+                  {t.storefront === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground flex items-center gap-1"><EyeOff size={11} /> Oculta</span>}
                 </div>
               </div>
               <h4 className="font-heading font-600">{t.productName}</h4>
               <p className="mt-1 mb-3"><span className="font-heading text-2xl font-700">{m.saleWithIva.toFixed(2)}</span><span className="text-muted-foreground text-sm"> €/mes <span className="text-xs">con IVA</span></span></p>
+
+              {/* Controles de tienda */}
+              <div className="flex gap-2 mb-3">
+                <button data-testid={`toggle-storefront-${t.productId}`} onClick={() => toggleStorefront(t)}
+                  className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.storefront === false ? "border-border text-muted-foreground hover:bg-muted" : "border-primary/30 bg-primary/5 text-primary"}`}>
+                  {t.storefront === false ? <><EyeOff size={13} /> Oculta</> : <><Eye size={13} /> Visible</>}
+                </button>
+                <button data-testid={`toggle-popular-${t.productId}`} onClick={() => togglePopular(t)}
+                  className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${t.popular ? "border-orange-500/40 bg-orange-500/10 text-orange-600" : "border-border text-muted-foreground hover:bg-muted"}`}>
+                  <Star size={13} className={t.popular ? "fill-orange-500" : ""} /> {t.popular ? "Más popular" : "Marcar popular"}
+                </button>
+              </div>
 
               <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1 mb-4" data-testid={`tariff-metrics-${t.productId}`}>
                 <div className="flex justify-between"><span className="text-muted-foreground">Venta base (sin IVA)</span><span className="font-500">{eur(m.saleBase)}</span></div>

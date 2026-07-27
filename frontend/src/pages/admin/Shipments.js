@@ -10,7 +10,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Package, Truck, CheckCircle2, Send } from "lucide-react";
+import { Package, Truck, CheckCircle2, Send, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS = {
@@ -24,11 +24,18 @@ export default function Shipments() {
   const [edit, setEdit] = useState(null);
   const [form, setForm] = useState({ status: "PENDING", carrier: "", tracking: "" });
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = () => api.get("/shipments").then((r) => setShips(r.data));
   useEffect(() => { load(); }, []);
 
   const openEdit = (s) => { setForm({ status: s.status, carrier: s.carrier || "", tracking: s.tracking || "" }); setEdit(s); };
+
+  const syncLikes = async () => {
+    setSyncing(true);
+    try { const { data } = await api.post("/likes/reconcile-all"); toast.success(`Sincronizado con Likes · ${data?.totals?.orders ?? 0} órdenes`); load(); }
+    catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -39,7 +46,12 @@ export default function Shipments() {
   return (
     <div data-testid="shipments-page">
       <PageHeader overline="Logística" title="Envíos de SIM"
-        subtitle="Coordina el envío de las tarjetas SIM físicas de las altas móviles." />
+        subtitle="Estado de envío de las SIM físicas sincronizado con Likes (PENDING_MANUAL_SHIPPING + seguimiento). El cliente lo ve en su área."
+        action={
+          <Button data-testid="sync-shipments-btn" onClick={syncLikes} disabled={syncing} className="rounded-full gap-2">
+            <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando…" : "Actualizar desde Likes"}
+          </Button>
+        } />
 
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
@@ -47,7 +59,7 @@ export default function Shipments() {
             <tr>
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium">Línea</th>
-              <th className="px-4 py-3 font-medium hidden md:table-cell">Dirección</th>
+              <th className="px-4 py-3 font-medium hidden md:table-cell">Producto</th>
               <th className="px-4 py-3 font-medium hidden sm:table-cell">Seguimiento</th>
               <th className="px-4 py-3 font-medium">Estado</th>
               <th className="px-4 py-3 font-medium text-right">Acción</th>
@@ -59,10 +71,13 @@ export default function Shipments() {
               return (
                 <tr key={s.shipmentId} data-testid={`shipment-row-${s.shipmentId}`}>
                   <td className="px-4 py-3 font-medium">{s.customerName}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.lineNumber}</td>
-                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{s.address || "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.lineNumber || "—"}</td>
+                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{s.productName || s.address || "—"}</td>
                   <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground text-xs">{s.tracking ? `${s.carrier || ""} ${s.tracking}` : "—"}</td>
-                  <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${st.c}`}><st.icon size={12} /> {st.t}</span></td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${st.c}`}><st.icon size={12} /> {st.t}</span>
+                    {s.source === "likes" && <span className="block text-[10px] text-muted-foreground mt-0.5">Likes: {s.likesOrderStatus || "—"}</span>}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <Button data-testid={`edit-shipment-${s.shipmentId}`} size="sm" variant="outline" className="h-8 rounded-full" onClick={() => openEdit(s)}>Gestionar</Button>
                   </td>

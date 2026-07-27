@@ -245,3 +245,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Frontend `PublicCatalog.js`**: la tarjeta destacada usa `p.popular` (si hay alguno marcado en la familia); fallback al 2º si ninguno marcado.
 - **Frontend `Tariffs.js`**: switch "Mostrar en la tienda pública" en el formulario; en cada tarjeta botones rápidos "Visible/Oculta" (toggle storefront) y "Marcar popular/Más popular" (toggle popular) + badges. Nota: `active` = disponibilidad interna; `storefront` = visibilidad en tienda (independientes).
 - Verificado por curl (ocultar baja Mobile 14→13; popular aparece en catálogo público) y screenshot del panel de Tarifas.
+
+### Iteración 2026-06 (fork) — Sincronización de estado de envío de SIM desde Likes (admin + cliente)
+- **Modelo Likes** (openapi): el envío va por el ESTADO de la orden `PENDING_MANUAL_SHIPPING` y el tracking en `extCarrierId` del producto; existe `POST /draft-order-v2/send-order-tracking`.
+- **`likes_reconcile.reconcile_customer`**: bucle de órdenes ampliado → detecta `PENDING_MANUAL_SHIPPING`/`extCarrierId`, hace upsert en `db.shipments` (status PENDING→SHIPPED, tracking=extCarrierId, likesOrderStatus raw, source=likes) y guarda `shippingStatus`/`tracking` en la orden. En el bucle de líneas refleja `shippingStatus`/`tracking` en la línea y marca DELIVERED cuando la línea pasa a ACTIVE (actualiza shipment + línea). `import uuid` añadido.
+- **`update_shipment` (admin manual)**: al cambiar estado/tracking propaga `shippingStatus`/`tracking`/`carrier` a la línea (para que el cliente lo vea) + email al cliente en SHIPPED.
+- **Frontend**:
+  - `components/LinePanel.js` (compartido admin+cliente): banner `ShippingBanner` con estados Preparando/En camino/Entregada + nº de seguimiento (lee `line.shippingStatus`/`tracking`/`carrier`).
+  - `pages/admin/Shipments.js`: botón "Actualizar desde Likes" (`POST /likes/reconcile-all`), columna Producto, sub-línea con el estado raw de Likes, badge source.
+- Verificado con datos simulados + screenshots (panel Envíos y banner en detalle de línea). ⚠️ El poblado real depende de Likes live (preview MOCK): validar en VPS que las órdenes con SIM física reflejan PENDING_MANUAL_SHIPPING/extCarrierId.

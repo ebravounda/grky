@@ -2507,6 +2507,13 @@ async def update_shipment(shipment_id: str, body: ShipmentUpdate, request: Reque
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Envío no encontrado")
     ship = await db.shipments.find_one({"shipmentId": shipment_id})
+    # reflejar en la línea para que el cliente lo vea en su área
+    if ship.get("lineNumber"):
+        line_set = {k: ship.get(k) for k in ("carrier", "tracking") if ship.get(k) is not None}
+        if body.status:
+            line_set["shippingStatus"] = body.status
+        if line_set:
+            await db.lines.update_one({"lineNumber": ship["lineNumber"]}, {"$set": line_set})
     if body.status == "SHIPPED":
         cust = await db.customers.find_one({"fiscalId": ship["fiscalId"]})
         await _send_mail_safe("email", cust.get("email") if cust else None,

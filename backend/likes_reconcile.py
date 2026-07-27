@@ -8,6 +8,7 @@ Tolerante a fallos: si Likes no está conectado (preview/403) devuelve reconcile
 sin tocar nada. Validación real en el VPS.
 """
 import logging
+import uuid
 from datetime import datetime, timezone
 import likes_client
 
@@ -40,23 +41,49 @@ async def reconcile_customer(db, fiscal_id):
         return {"reconciled": False, "reason": "not_connected"}
     now = _now()
     counts = {"orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
+    ship_info = {}  # lineNumber -> {status, tracking, likesOrderStatus} (envío de SIM/router)
 
-    # 1) ÓRDENES (estados reales)
+    # 1) ÓRDENES (estados reales + envío de SIM)
     try:
         for o in (likes_client.get_customer_orders(fiscal_id) or []):
             oid = o.get("orderId")
             if not oid:
                 continue
             prods = o.get("products") or [{}]
-            upd = {"status": o.get("status"), "price": o.get("price"), "likesOrderId": oid,
-                   "productName": prods[0].get("productName"), "lineNumber": prods[0].get("lineNumber"),
+            p0 = prods[0]
+            ext_carrier = p0.get("extCarrierId")
+            ostatus = o.get("status")
+            ln0 = p0.get("lineNumber")
+            cust = o.get("customer") or {}
+            cust_name = (f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip()
+                         or o.get("customerName") or o.get("name"))
+            upd = {"status": ostatus, "price": o.get("price"), "likesOrderId": oid,
+                   "productName": p0.get("productName"), "lineNumber": ln0,
                    "source": "likes", "likesSyncedAt": now}
+            # --- envío de SIM/dispositivo (espejo fiel de Likes) ---
+            needs_ship = (ostatus == "PENDING_MANUAL_SHIPPING") or bool(ext_carrier)
+            if needs_ship:
+                ship_status = "SHIPPED" if ext_carrier else "PENDING"
+                upd["shippingStatus"] = ship_status
+                upd["tracking"] = ext_carrier
+                if ln0:
+                    ship_info[ln0] = {"status": ship_status, "tracking": ext_carrier,
+                                      "likesOrderStatus": ostatus}
+                await db.shipments.update_one(
+                    {"$or": [{"likesOrderId": oid}, {"orderId": oid}]},
+                    {"$set": {"fiscalId": fiscal_id, "orderId": oid, "likesOrderId": oid,
+                              "lineNumber": ln0, "productName": p0.get("productName"),
+                              "customerName": cust_name, "status": ship_status,
+                              "tracking": ext_carrier, "likesOrderStatus": ostatus,
+                              "source": "likes", "likesSyncedAt": now},
+                     "$setOnInsert": {"shipmentId": str(uuid.uuid4().int)[:10],
+                                      "carrier": None, "created": now}},
+                    upsert=True)
             res = await db.orders.update_one({"$or": [{"likesOrderId": oid}, {"orderId": oid}]}, {"$set": upd})
             if res.matched_count == 0:
-                cust = o.get("customer") or {}
                 await db.orders.insert_one({
                     "orderId": oid, "fiscalId": fiscal_id, "likesOrderId": oid,
-                    "customerName": f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip(),
+                    "customerName": cust_name,
                     "channel": o.get("channel", "WD"), "created": now, **upd})
             counts["orders"] += 1
     except Exception as e:  # noqa
@@ -127,6 +154,13 @@ async def reconcile_customer(db, fiscal_id):
                     cdrs = likes_client.get_line_cdrs(ln)
                     if isinstance(cdrs, list):
                         line_upd["cdrs"] = cdrs[:50]
+                # envío de SIM/dispositivo: reflejar estado real en la línea (DELIVERED al activarse)
+                if ln in ship_info:
+                    sh = "DELIVERED" if p.get("status") == "ACTIVE" else ship_info[ln]["status"]
+                    line_upd["shippingStatus"] = sh
+                    line_upd["tracking"] = ship_info[ln]["tracking"]
+                    await db.shipments.update_one({"lineNumber": ln, "source": "likes"},
+                                                  {"$set": {"status": sh, "likesSyncedAt": now}})
                 res = await db.lines.update_one({"lineNumber": ln}, {"$set": line_upd})
                 if res.matched_count == 0:
                     await db.lines.insert_one({"lineNumber": ln, "created": now, "spn": "GOROKY", **line_upd})

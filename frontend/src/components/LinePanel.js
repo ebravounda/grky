@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Signal, Wifi, Lock, Unlock, Gauge, Phone, MessageSquare, Database, QrCode, RefreshCw, CreditCard, ScanLine, PlusCircle, Globe, PhoneForwarded, UserCog, Hash, XOctagon, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Signal, Wifi, Lock, Unlock, Gauge, Phone, MessageSquare, Database, QrCode, RefreshCw, CreditCard, ScanLine, PlusCircle, Globe, PhoneForwarded, UserCog, Hash, XOctagon, ShieldAlert, Truck, Package, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -133,6 +133,8 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
           </Button>
         </div>
       </div>
+
+      {line.shippingStatus && <ShippingBanner status={line.shippingStatus} tracking={line.tracking} carrier={line.carrier} />}
 
       {isMobile && (
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -338,6 +340,31 @@ function Row({ l, v }) {
     <div className="flex justify-between gap-4 text-sm border-b border-border/60 pb-2">
       <span className="text-muted-foreground">{l}</span>
       <span className="font-medium text-right break-all">{v || "—"}</span>
+    </div>
+  );
+}
+
+const SHIP = {
+  PENDING: { icon: Package, t: "Preparando envío", d: "Tu SIM se está preparando para el envío.", c: "border-amber-300 bg-amber-50 text-amber-800", i: "text-amber-500" },
+  SHIPPED: { icon: Truck, t: "SIM en camino", d: "Tu SIM ya ha sido enviada y llegará en breve.", c: "border-blue-300 bg-blue-50 text-blue-800", i: "text-blue-500" },
+  DELIVERED: { icon: CheckCircle2, t: "SIM entregada", d: "Tu SIM ha sido entregada y la línea está activa.", c: "border-emerald-300 bg-emerald-50 text-emerald-800", i: "text-emerald-500" },
+};
+
+function ShippingBanner({ status, tracking, carrier }) {
+  const s = SHIP[status] || SHIP.PENDING;
+  const Icon = s.icon;
+  return (
+    <div data-testid="shipping-banner" className={`rounded-xl border p-4 mb-6 flex items-start gap-3 ${s.c}`}>
+      <Icon size={22} className={`shrink-0 mt-0.5 ${s.i}`} />
+      <div className="min-w-0">
+        <p className="font-heading font-700">{s.t}</p>
+        <p className="text-sm opacity-90">{s.d}</p>
+        {tracking && (
+          <p className="text-sm mt-1" data-testid="shipping-tracking">
+            Seguimiento: <b>{carrier ? `${carrier} · ` : ""}{tracking}</b>
+          </p>
+        )}
+      </div>
     </div>
   );
 }

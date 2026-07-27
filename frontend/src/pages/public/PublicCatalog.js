@@ -18,30 +18,41 @@ import { motion } from "framer-motion";
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 const HERO_IMG = "https://images.unsplash.com/photo-1694057336527-fbc3e7c84890?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbmVyZ2V0aWMlMjBzbWlsaW5nJTIwcGVyc29uJTIwcGhvbmUlMjBzb2xpZCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg1MTA4ODgxfDA&ixlib=rb-4.1.0&q=85";
 
-const TABS = [
-  { key: "Mobile", label: "Móvil", icon: Signal },
-  { key: "Fiber", label: "Fibra", icon: Wifi },
-  { key: "Satellite", label: "Satélite", icon: Satellite },
-  { key: "TV", label: "TV", icon: Tv },
-];
+const TAB_META = {
+  Mobile: { label: "Móvil", icon: Signal },
+  Fiber: { label: "Fibra", icon: Wifi },
+  M2M: { label: "M2M", icon: Signal },
+  PBX: { label: "PBX", icon: Signal },
+  TV: { label: "TV", icon: Tv },
+  Satellite: { label: "Satélite", icon: Satellite },
+  Bonos: { label: "Bonos", icon: Sparkles },
+  Paquetes: { label: "Paquetes", icon: Sparkles },
+};
 
 const ICONS = { Repeat, Zap, Smartphone, Headphones, ShieldCheck, Sparkles, Wifi, Signal };
 
 export default function PublicCatalog() {
   const [catalog, setCatalog] = useState({});
   const [content, setContent] = useState(null);
-  const [tab, setTab] = useState("Mobile");
+  const [tab, setTab] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get("/public/catalog").then((r) => setCatalog(r.data)).catch(() => {});
+    api.get("/public/catalog").then((r) => {
+      setCatalog(r.data);
+      const keys = Object.keys(r.data || {}).filter((k) => (r.data[k] || []).length);
+      if (keys.length) setTab((t) => t || keys[0]);
+    }).catch(() => {});
     api.get("/public/site-content").then((r) => setContent(r.data)).catch(() => {});
   }, []);
 
   if (!content) {
     return <div className="min-h-screen grid place-items-center bg-white"><div className="h-10 w-10 rounded-full border-2 border-[#0033ff] border-t-transparent animate-spin" /></div>;
   }
+
+  const TABS = Object.keys(catalog).filter((k) => (catalog[k] || []).length)
+    .map((k) => ({ key: k, label: (TAB_META[k] || {}).label || k, icon: (TAB_META[k] || {}).icon || Signal }));
 
   const { hero, plans, coverage, trust, cities, footer } = content;
 

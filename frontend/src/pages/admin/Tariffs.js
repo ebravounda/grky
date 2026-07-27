@@ -16,12 +16,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt, Star, Eye, EyeOff } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt, Star, Eye, EyeOff, Info, RefreshCw, Radio, Phone, Satellite, Package, Boxes } from "lucide-react";
 import { toast } from "sonner";
 
 const IVA = 1.21;
-const famIcon = { Mobile: Signal, Fiber: Wifi, TV: Tv, Satellite: Tv };
-const famLabel = { Mobile: "Móvil", Fiber: "Fibra", TV: "TV", Satellite: "Satélite" };
+const famIcon = { Mobile: Signal, Fiber: Wifi, M2M: Radio, PBX: Phone, TV: Tv, Satellite: Satellite, Bonos: Boxes, Paquetes: Package };
+const famLabel = { Mobile: "Móvil", Fiber: "Fibra", M2M: "M2M", PBX: "PBX / Centralita", TV: "TV", Satellite: "Satélite", Bonos: "Bonos", Paquetes: "Paquetes" };
+const FAMILY_ORDER = ["Mobile", "Fiber", "M2M", "PBX", "TV", "Satellite", "Bonos", "Paquetes"];
 const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true, storefront: true };
 const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
 
@@ -43,9 +44,22 @@ export default function Tariffs() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [syncing, setSyncing] = useState(false);
+  const [info, setInfo] = useState(null);
 
   const load = () => api.get("/tariffs").then((r) => setTariffs(r.data));
   useEffect(() => { load(); }, []);
+
+  const syncLikes = async () => {
+    setSyncing(true);
+    try { const { data } = await api.post("/likes/sync-catalog"); toast.success(`Catálogo sincronizado con Likes · ${data.synced} productos (sin duplicados)`); load(); }
+    catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
+  };
+  const deleteAll = async () => {
+    try { const { data } = await api.delete("/tariffs"); toast.success(`Catálogo eliminado · ${data.deleted} tarifas`); load(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -123,14 +137,14 @@ export default function Tariffs() {
     return acc;
   }, { sale: 0, cost: 0, profit: 0 });
 
-  const FAMILY_ORDER = ["Mobile", "Fiber", "Satellite", "TV"];
+  const visible = filter === "all" ? tariffs : tariffs.filter((t) => t.family === filter);
   const grouped = FAMILY_ORDER
     .map((fam) => ({
       fam,
-      items: tariffs.filter((t) => t.family === fam).sort((a, b) => (a.price || 0) - (b.price || 0)),
+      items: visible.filter((t) => t.family === fam).sort((a, b) => (a.price || 0) - (b.price || 0)),
     }))
     .filter((g) => g.items.length > 0);
-  const otherItems = tariffs.filter((t) => !FAMILY_ORDER.includes(t.family));
+  const otherItems = visible.filter((t) => !FAMILY_ORDER.includes(t.family));
   if (otherItems.length) grouped.push({ fam: "Other", items: otherItems });
 
   const renderCard = (t) => {
@@ -181,6 +195,7 @@ export default function Tariffs() {
 
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="flex-1 rounded-full gap-1.5" data-testid={`edit-tariff-${t.productId}`} onClick={() => openEdit(t)}><Pencil size={13} /> Editar</Button>
+          <Button variant="outline" size="sm" className="rounded-full" title="Condiciones del contrato" data-testid={`info-tariff-${t.productId}`} onClick={() => setInfo(t)}><Info size={14} /></Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm" className="rounded-full text-destructive hover:bg-destructive/10" data-testid={`delete-tariff-${t.productId}`}><Trash2 size={14} /></Button>
@@ -207,11 +222,30 @@ export default function Tariffs() {
         overline="Catálogo" title="Tarifas y rentabilidad"
         subtitle="Introduce el precio de venta CON IVA (lo que paga el cliente) y el coste de cesión de Likes SIN IVA (Tramo 1). Verás la base sin IVA, el IVA 21%, el coste con IVA y tu ganancia."
         action={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="new-tariff-btn" className="rounded-full gap-2" onClick={openNew}><Plus size={16} /> Nueva tarifa</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="sync-catalog-btn" variant="outline" className="rounded-full gap-2" onClick={syncLikes} disabled={syncing}>
+              <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando…" : "Sincronizar Likes"}
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button data-testid="delete-all-btn" variant="outline" className="rounded-full gap-2 text-destructive border-destructive/30"><Trash2 size={15} /> Vaciar catálogo</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar TODO el catálogo</AlertDialogTitle>
+                  <AlertDialogDescription>Se eliminarán todas las tarifas (también las visibles en la tienda). Podrás volver a sincronizarlas desde Likes sin duplicados. Esta acción no se puede deshacer.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction data-testid="confirm-delete-all" onClick={deleteAll} className="bg-destructive hover:bg-destructive/90">Eliminar todo</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="new-tariff-btn" className="rounded-full gap-2" onClick={openNew}><Plus size={16} /> Nueva tarifa</Button>
+              </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editing ? "Editar tarifa" : "Nueva tarifa"}</DialogTitle>
                 <DialogDescription>Define nombre, familia, precios y características de la tarifa.</DialogDescription>
@@ -219,14 +253,11 @@ export default function Tariffs() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 col-span-2"><Label>Nombre</Label><Input data-testid="tariff-name" value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="Móvil 25GB" /></div>
                 <div className="space-y-1.5">
-                  <Label>Familia</Label>
+                  <Label>Familia / servicio</Label>
                   <Select value={form.family} onValueChange={(v) => set("family", v)}>
                     <SelectTrigger data-testid="tariff-family"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Mobile">Móvil</SelectItem>
-                      <SelectItem value="Fiber">Fibra</SelectItem>
-                      <SelectItem value="TV">TV</SelectItem>
-                      <SelectItem value="Satellite">Satélite</SelectItem>
+                      {FAMILY_ORDER.map((f) => <SelectItem key={f} value={f}>{famLabel[f]}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -282,6 +313,7 @@ export default function Tariffs() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         }
       />
 
@@ -299,6 +331,23 @@ export default function Tariffs() {
           <div className="flex items-center gap-2 text-emerald-700 text-sm mb-1"><TrendingUp size={16} /> Tu ganancia mensual</div>
           <p className="font-heading text-2xl font-700 text-emerald-700">{eur(totals.profit)}</p>
         </div>
+      </div>
+
+      {/* Filtro por tipo de servicio */}
+      <div className="flex flex-wrap gap-2 mb-6" data-testid="tariff-filters">
+        <button onClick={() => setFilter("all")} data-testid="filter-all"
+          className={`rounded-full px-4 py-1.5 text-sm font-medium border transition-colors ${filter === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+          Todas ({tariffs.length})
+        </button>
+        {FAMILY_ORDER.filter((f) => tariffs.some((t) => t.family === f)).map((f) => {
+          const n = tariffs.filter((t) => t.family === f).length;
+          return (
+            <button key={f} onClick={() => setFilter(f)} data-testid={`filter-${f}`}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium border transition-colors ${filter === f ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+              {famLabel[f]} ({n})
+            </button>
+          );
+        })}
       </div>
 
       <div className="space-y-8">
@@ -323,6 +372,30 @@ export default function Tariffs() {
           </div>
         )}
       </div>
+
+      {/* Condiciones del contrato / catálogo (botón i) */}
+      <Dialog open={!!info} onOpenChange={(o) => !o && setInfo(null)}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto" data-testid="tariff-info-dialog">
+          <DialogHeader>
+            <DialogTitle>{info?.productName}</DialogTitle>
+            <DialogDescription>Condiciones del catálogo tal como se muestran al cliente.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Servicio</span><span className="font-medium">{famLabel[info?.family] || info?.family}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Precio (con IVA)</span><span className="font-medium">{eur((info?.price) || 0)}/mes</span></div>
+            <div className="border-t border-border my-2" />
+            {(info?.marketingText || []).length === 0 && <p className="text-sm text-muted-foreground">Esta tarifa no tiene condiciones definidas. Edítala para añadirlas.</p>}
+            <ul className="space-y-2">
+              {(info?.marketingText || []).map((mk, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                  <span>{mk.title ? <b>{mk.title}: </b> : null}{mk.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

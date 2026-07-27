@@ -244,7 +244,8 @@ def _mail_suspended(name, amount):
 # ------------------------- models -------------------------
 class CustomerCreate(BaseModel):
     fiscalId: str
-    customerType: str = "Residential"
+    customerType: str = "Residential"   # Residential | Freelance | Society
+    fiscalIdType: str = "DNI"            # DNI | NIE | CIF | Passport
     name: str
     firstSurname: Optional[str] = ""
     lastSurname: Optional[str] = ""
@@ -346,7 +347,8 @@ class DocUpload(BaseModel):
 
 class ApplicationCreate(BaseModel):
     productId: str
-    docType: str = "DNI"
+    customerType: str = "Residential"   # Residential | Freelance | Society
+    docType: str = "DNI"                 # DNI | NIE | CIF | Passport
     fiscalId: str
     name: str
     firstSurname: Optional[str] = ""
@@ -825,7 +827,7 @@ async def create_customer(body: CustomerCreate, request: Request):
     if await db.customers.find_one({"fiscalId": body.fiscalId}):
         raise HTTPException(status_code=400, detail="Ya existe un cliente con ese NIF/NIE")
     doc = {
-        "fiscalId": body.fiscalId, "customerType": body.customerType, "name": body.name,
+        "fiscalId": body.fiscalId, "customerType": body.customerType, "fiscalIdType": body.fiscalIdType, "name": body.name,
         "firstSurname": body.firstSurname, "lastSurname": body.lastSurname,
         "email": body.email.lower(), "contactPhone": body.contactPhone,
         "iban": body.iban, "paymentMethod": body.paymentMethod,
@@ -1525,14 +1527,26 @@ async def sync_catalog_from_likes(request: Request):
                 "marketingText": p.get("marketingText", []), "pvpr": p.get("price"),
                 "imageUrl": p.get("imageUrl")}
         if existing:
+            # solo actualiza el precio de cesión (coste) y datos de catálogo; conserva tu PVP de venta
+            base["costPrice"] = p.get("price") or 0
             await db.tariffs.update_one({"_id": existing["_id"]}, {"$set": base})
         else:
             base.update({"productId": pid, "price": round((p.get("price") or 0) * 1.21, 2),
-                         "costPrice": p.get("price") or 0, "active": True, "created": now_iso()})
+                         "costPrice": p.get("price") or 0, "active": True,
+                         "storefront": True, "popular": False, "created": now_iso()})
             await db.tariffs.insert_one(base)
         n += 1
-    await log_event("likes", "success", f"Catálogo sincronizado desde Likes: {n} productos")
+    await log_event("likes", "success", f"Catálogo sincronizado desde Likes: {n} productos (precios de cesión actualizados, sin duplicados)")
     return {"synced": n}
+
+
+@api.delete("/tariffs")
+async def delete_all_tariffs(request: Request):
+    """Elimina TODAS las tarifas del catálogo (admin). Útil para re-sincronizar desde cero con Likes."""
+    await require_perm(request, "tariffs.manage")
+    r = await db.tariffs.delete_many({})
+    await log_event("tariffs", "warning", f"Catálogo eliminado por completo: {r.deleted_count} tarifas")
+    return {"deleted": r.deleted_count}
 
 
 @api.get("/contract-template")
@@ -3394,12 +3408,14 @@ async def admin_site_content_put(body: SiteContentBody, request: Request):
 async def public_catalog():
     items = await db.tariffs.find({"active": True, "type": "Main",
                                    "storefront": {"$ne": False}}).sort("price", 1).to_list(500)
-    out = {"Mobile": [], "Fiber": [], "Satellite": [], "TV": []}
+    order = ["Mobile", "Fiber", "M2M", "PBX", "TV", "Satellite", "Bonos", "Paquetes"]
+    out = {k: [] for k in order}
     for t in items:
-        fam = t.get("family")
-        if fam in out:
-            out[fam].append(clean(t))
-    return out
+        fam = t.get("family") or "Mobile"
+        out.setdefault(fam, [])
+        out[fam].append(clean(t))
+    # solo devolver familias con productos, respetando el orden
+    return {k: v for k, v in out.items() if v}
 
 
 @api.get("/public/products/{product_id}")
@@ -3431,7 +3447,7 @@ async def create_application(body: ApplicationCreate):
         "token": token, "contractCode": contract_code, "status": "PENDING_SIGN",
         "productId": product["productId"], "productName": product["productName"],
         "family": product["family"], "price": product["price"],
-        "docType": body.docType, "fiscalId": body.fiscalId, "name": body.name,
+        "docType": body.docType, "customerType": body.customerType, "fiscalId": body.fiscalId, "name": body.name,
         "firstSurname": body.firstSurname, "lastSurname": body.lastSurname, "dob": body.dob,
         "address": body.address, "city": body.city, "postalCode": body.postalCode,
         "province": body.province, "iban": body.iban, "bank": body.bank,
@@ -3606,7 +3622,8 @@ async def sign_application(token: str, body: SignBody):
                                "provinceName": app_doc.get("province", "")}}})
     else:
         await db.customers.insert_one({
-            "fiscalId": app_doc["fiscalId"], "customerType": "Residential", "name": app_doc["name"],
+            "fiscalId": app_doc["fiscalId"], "customerType": app_doc.get("customerType", "Residential"),
+            "fiscalIdType": app_doc.get("docType", "DNI"), "name": app_doc["name"],
             "firstSurname": app_doc.get("firstSurname", ""), "lastSurname": app_doc.get("lastSurname", ""),
             "email": app_doc["email"], "contactPhone": app_doc["contactPhone"],
             "iban": app_doc["iban"], "paymentMethod": "SEPA CORE",

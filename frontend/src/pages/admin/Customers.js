@@ -16,7 +16,7 @@ import { UserPlus, Search, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 const empty = {
-  fiscalId: "", customerType: "Residential", name: "", firstSurname: "", lastSurname: "",
+  fiscalId: "", customerType: "Residential", fiscalIdType: "DNI", name: "", firstSurname: "", lastSurname: "",
   email: "", contactPhone: "", iban: "", paymentMethod: "NO", street: "", streetNumber: "",
   postalCode: "", cityName: "", provinceName: "", createPortalAccess: false, portalPassword: "",
 };
@@ -63,6 +63,18 @@ export default function Customers() {
                 <DialogDescription>Introduce los datos del cliente y su documentación fiscal.</DialogDescription>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Tipo de documento</Label>
+                  <Select value={form.fiscalIdType} onValueChange={(v) => set("fiscalIdType", v)}>
+                    <SelectTrigger data-testid="cust-doctype"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DNI">DNI</SelectItem>
+                      <SelectItem value="NIE">NIE</SelectItem>
+                      <SelectItem value="CIF">CIF</SelectItem>
+                      <SelectItem value="Passport">Pasaporte</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-1.5"><Label>NIF/NIE</Label><Input data-testid="cust-fiscalId" value={form.fiscalId} onChange={(e) => set("fiscalId", e.target.value)} /></div>
                 <div className="space-y-1.5">
                   <Label>Tipo</Label>

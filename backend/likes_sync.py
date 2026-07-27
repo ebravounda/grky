@@ -43,9 +43,12 @@ async def _file_bytes(db, file_id):
 def _customer_payload(customer, app_doc):
     ba = customer.get("billingAddress", {}) or {}
     phone = (customer.get("contactPhone") or app_doc.get("contactPhone") or "").strip()
+    _dt = (customer.get("kyc") or {}).get("docType") or customer.get("fiscalIdType") or app_doc.get("docType")
+    _dmap = {"DNI": "DNI", "NIE": "NIE", "CIF": "CIF", "PASSPORT": "Passport", "Passport": "Passport", "RED_CARD": "NIE"}
     payload = {
         "fiscalId": customer["fiscalId"],
         "customerType": customer.get("customerType", "Residential"),
+        "fiscalIdType": _dmap.get(_dt, "DNI"),
         "name": customer.get("name", ""),
         "firstSurname": customer.get("firstSurname", "") or app_doc.get("firstSurname", ""),
         "lastSurname": customer.get("lastSurname", "") or app_doc.get("lastSurname", ""),

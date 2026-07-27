@@ -26,7 +26,7 @@ export default function SignupWizard() {
   const [saving, setSaving] = useState(false);
   const [coverageOk, setCoverageOk] = useState(null);
   const [f, setF] = useState({
-    docType: "DNI", fiscalId: "", name: "", firstSurname: "", lastSurname: "", dob: "",
+    docType: "DNI", customerType: "Residential", fiscalId: "", name: "", firstSurname: "", lastSurname: "", dob: "",
     contactPhone: "", email: "", address: "", city: "", postalCode: "", province: "",
     iban: "", bank: "", acceptedTerms: false, docFront: null, docBack: null, selfie: null,
     paymentMethod: "sepa", simType: "esim", simIcc: "",
@@ -110,6 +110,17 @@ export default function SignupWizard() {
         <motion.div key={step} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-sm">
           {step === 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Tipo de cliente</Label>
+                <Select value={f.customerType} onValueChange={(v) => set("customerType", v)}>
+                  <SelectTrigger data-testid="customer-type-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Residential">Particular</SelectItem>
+                    <SelectItem value="Freelance">Autónomo</SelectItem>
+                    <SelectItem value="Society">Empresa / Sociedad</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5">
                 <Label>Tipo de documento</Label>
                 <Select value={f.docType} onValueChange={(v) => set("docType", v)}>
@@ -117,8 +128,8 @@ export default function SignupWizard() {
                   <SelectContent>
                     <SelectItem value="DNI">DNI</SelectItem>
                     <SelectItem value="NIE">NIE</SelectItem>
-                    <SelectItem value="PASSPORT">Pasaporte</SelectItem>
-                    <SelectItem value="RED_CARD">Tarjeta roja / documento</SelectItem>
+                    <SelectItem value="CIF">CIF</SelectItem>
+                    <SelectItem value="Passport">Pasaporte</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

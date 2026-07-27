@@ -34,7 +34,7 @@ export default function Solicitudes() {
 
   const approve = async (token) => {
     setBusy(true);
-    try { await api.post(`/applications/${token}/approve`); toast.success("Solicitud aprobada · línea activada"); setDetail(null); load(); }
+    try { await api.post(`/applications/${token}/approve`); toast.success("Alta aprobada y creada en Likes · datos reales sincronizados"); setDetail(null); load(); }
     catch (e) { toast.error(apiErr(e)); } finally { setBusy(false); }
   };
 

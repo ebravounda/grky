@@ -1957,8 +1957,9 @@ async def _do_activate_order(order):
     """Activa la línea de una orden, envía email de bienvenida (+QR eSIM) y gestiona envío de SIM física."""
     await db.orders.update_one({"orderId": order["orderId"]},
                                {"$set": {"status": "COMPLETED", "activatedAt": now_iso()}})
-    line = await db.lines.find_one({"lineNumber": order.get("lineNumber")})
-    if line:
+    line = await db.lines.find_one({"lineNumber": order.get("lineNumber")}) if order.get("lineNumber") else None
+    # No sobrescribir el estado real de una línea espejada de Likes.
+    if line and line.get("source") != "likes":
         await db.lines.update_one({"lineNumber": line["lineNumber"]},
                                   {"$set": {"status": "ACTIVE"}})
     cust = await db.customers.find_one({"fiscalId": order["fiscalId"]})
@@ -2012,19 +2013,45 @@ async def _do_activate_order(order):
                             f"Comisión {owner['commissionPerSim']:.2f}€ para {owner.get('name')} · línea {order.get('lineNumber')}")
 
 
+async def _provision_via_likes(a):
+    """Aprueba un alta: crea la orden REAL en Likes (cliente + docs + signupv2 + contrato),
+    espeja los datos 100% reales (nº línea, ICC, PIN/PUK, SVAs, GB, estado, CDRs) y activa el
+    servicio. Lanza HTTPException si Likes no está disponible (no se fabrican datos)."""
+    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
+    if not order:
+        raise HTTPException(status_code=400, detail="La solicitud aún no tiene orden (contrato sin firmar)")
+    # 1) Crear el alta real en Likes
+    result = await _trigger_likes_sync(a["contractCode"])
+    if not result.get("synced"):
+        reason = result.get("reason")
+        if reason == "not_connected":
+            raise HTTPException(status_code=503,
+                detail="Likes no está conectado (IP no autorizada). El alta se crea en Likes al aprobar; no se puede aprobar sin conexión con Likes.")
+        raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {reason or 'error desconocido'}")
+    # 2) Espejar los datos REALES desde Likes
+    try:
+        await likes_reconcile.reconcile_customer(db, a["fiscalId"])
+    except Exception as e:  # noqa
+        logger.warning("reconcile tras aprobar %s: %s", a.get("fiscalId"), e)
+    # 3) Activar servicio (email de bienvenida con datos reales + acceso a la app)
+    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
+    await _do_activate_order(order)
+    return result, order
+
+
 @api.post("/applications/{token}/approve")
 async def approve_application(token: str, request: Request):
     await require_admin(request)
     a = await db.applications.find_one({"token": token})
     if not a:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
-    order = await db.orders.find_one({"contractNumber": a.get("contractCode")})
-    if not order:
-        raise HTTPException(status_code=400, detail="La solicitud aún no tiene orden (contrato sin firmar)")
-    await _do_activate_order(order)
+    result, order = await _provision_via_likes(a)
     await db.applications.update_one({"token": token},
-                                    {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso()}})
-    return {"ok": True, "reviewStatus": "APPROVED"}
+        {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso(),
+                  "likesOrderId": result.get("likesOrderId")}})
+    await log_event("order", "success",
+                    f"Alta aprobada y creada en Likes · {a.get('name')} ({a.get('fiscalId')}) · Likes orderId {result.get('likesOrderId')}")
+    return {"ok": True, "reviewStatus": "APPROVED", "likesOrderId": result.get("likesOrderId")}
 
 
 @api.post("/applications/{token}/reject")
@@ -2304,17 +2331,20 @@ async def _on_subscription_checkout(obj):
     await log_event("stripe", "success",
                     f"Cobro recurrente configurado ({label}) · {fiscalId} · próx. cobro {next_charge[:10]}",
                     {"fiscalId": fiscalId})
-    # auto-aprobación
+    # auto-aprobación (crea la orden real en Likes)
     settings = await get_app_settings()
     if settings.get("autoApprove") and token:
-        order = None
-        if meta.get("contractCode"):
-            order = await db.orders.find_one({"contractNumber": meta["contractCode"]})
-        if order:
-            await _do_activate_order(order)
-            await db.applications.update_one({"token": token},
-                {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso(), "autoApproved": True}})
-            await log_event("order", "info", f"Solicitud auto-aprobada · {fiscalId}")
+        a = await db.applications.find_one({"token": token})
+        if a and a.get("contractCode"):
+            try:
+                result, order = await _provision_via_likes(a)
+                await db.applications.update_one({"token": token},
+                    {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso(),
+                              "autoApproved": True, "likesOrderId": result.get("likesOrderId")}})
+                await log_event("order", "info", f"Solicitud auto-aprobada y creada en Likes · {fiscalId}")
+            except HTTPException as e:
+                await log_event("order", "warning",
+                                f"Auto-aprobación no completada ({fiscalId}): {getattr(e, 'detail', e)}")
 
 
 # ------------------------- dunning core (reminders / retries / suspension) -------------------------
@@ -3399,11 +3429,9 @@ async def sign_application(token: str, body: SignBody):
     is_esim = is_mobile and sim_type == "esim"
     is_port = bool(app_doc.get("portability"))
     port_msisdn = app_doc.get("portMsisdn")
-    # En portabilidad el cliente conserva su número; en alta nueva se genera uno.
-    if is_port and port_msisdn:
-        line_number = port_msisdn
-    else:
-        line_number = ("6" if is_mobile else "9") + str(uuid.uuid4().int)[:8]
+    # NO se inventa número de línea: en portabilidad se usa el número real a portar;
+    # en alta nueva lo asigna Likes al aprobar el alta. Nada de datos ficticios.
+    line_number = port_msisdn if (is_port and port_msisdn) else None
     product = await _get_tariff(app_doc["productId"])
 
     customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
@@ -3431,32 +3459,16 @@ async def sign_application(token: str, body: SignBody):
             "kyc": kyc, "created": now_iso()})
     customer = await db.customers.find_one({"fiscalId": app_doc["fiscalId"]})
 
-    icc = (app_doc.get("simIcc") if (is_mobile and sim_type == "physical" and app_doc.get("simIcc"))
-           else "8934" + str(uuid.uuid4().int)[:16])
-    line = {"lineNumber": line_number, "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
-            "status": "PROVISIONING", "productId": product["productId"], "productName": product["productName"],
-            "price": product["price"], "icc": icc, "spn": "GOROKY", "pins": _sim_pins(),
-            "eSim": is_esim, "simType": sim_type,
-            "esimData": likes_client.esim_data(icc) if is_esim else None,
-            "totalGB": 50 if is_mobile else 0, "usedGB": 0, "creditLimit": 30,
-            "svas": [dict(s) for s in likes_client.DEFAULT_SVAS],
-            "cdrs": _gen_cdrs() if is_mobile else [], "created": now_iso()}
-    await db.lines.insert_one(line)
-    await db.subscriptions.insert_one({
-        "subscriptionId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"], "family": app_doc["family"],
-        "status": "ACTIVE", "pendingChange": False, "created": now_iso(),
-        "products": [{"productId": product["productId"], "productName": product["productName"],
-                      "family": app_doc["family"], "type": "Main", "status": "ACTIVE",
-                      "lineNumber": line_number, "price": product["price"],
-                      "finalPrice": round(product["price"] * 1.21, 2)}]})
     invoice = await _create_invoice(customer, product, status="pending")
     donor_name = None
     if is_port and app_doc.get("donorOperatorId"):
         donor_name = next((d["Name"] for d in likes_client.get_donor_operators()
                            if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
+    # Orden PENDIENTE DE APROBACIÓN. No se crea línea/SIM ni datos de red: el alta real
+    # (nº de línea, ICC, PIN/PUK, SVAs, GB…) se crea y se trae de Likes al aprobar en el CRM.
     await db.orders.insert_one({"orderId": str(uuid.uuid4()), "fiscalId": app_doc["fiscalId"],
              "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip(),
-             "status": "PROVISIONING", "channel": "WEB", "price": product["price"],
+             "status": "PENDING_REVIEW", "channel": "WEB", "price": product["price"],
              "productName": product["productName"], "family": app_doc["family"],
              "productId": product["productId"],
              "lineNumber": line_number, "portability": is_port,
@@ -3467,26 +3479,21 @@ async def sign_application(token: str, body: SignBody):
              "currentHolderName": app_doc.get("currentHolderName"),
              "currentHolderFiscalId": app_doc.get("currentHolderFiscalId"),
              "changeHolder": app_doc.get("changeHolder", False),
+             "coverage": app_doc.get("coverage"),
              "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
              "contractNumber": app_doc["contractCode"], "signed": True, "signedAt": now_iso(),
              "created": now_iso()})
 
-    # Registro de portabilidad (espejo del panel de Likes)
+    # Registro de portabilidad (datos reales del solicitante; el estado se espeja de Likes al aprobar)
     if is_port:
         await db.portabilities.insert_one({
             "portabilityId": str(uuid.uuid4().int)[:12], "fiscalId": app_doc["fiscalId"],
-            "lineNumber": line_number, "type": "IN", "status": "INITIATED",
+            "lineNumber": port_msisdn, "type": "IN", "status": "PENDING_APPROVAL",
             "donorOperatorId": app_doc.get("donorOperatorId"), "donorOperator": donor_name,
             "icc": app_doc.get("portIcc"), "currentHolderName": app_doc.get("currentHolderName"),
             "currentHolderFiscalId": app_doc.get("currentHolderFiscalId"),
             "changeHolder": app_doc.get("changeHolder", False),
             "contractNumber": app_doc["contractCode"], "created": now_iso()})
-
-    # Sincronización real con Likes (no bloqueante: en preview/MOCK es no-op)
-    try:
-        await _trigger_likes_sync(app_doc["contractCode"])
-    except Exception as e:  # noqa
-        logger.warning("Likes sync (sign) failed: %s", e)
 
     await db.applications.update_one({"token": token}, {"$set": {
         "status": "COMPLETED", "signerName": body.signerName, "signatureType": body.signatureType,

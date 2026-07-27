@@ -1375,6 +1375,11 @@ async def _build_contract(order):
         "portability": order.get("portability", False), "donorOperator": donor,
         "signed": order.get("signed", False),
         "signerName": signer, "signatureImage": sig_img,
+        "docLabel": {"DNI": "DNI", "NIE": "NIE", "PASSPORT": "PASAPORTE", "RED_CARD": "DOCUMENTO"}.get((app_doc or {}).get("docType"), "NIF/CIF"),
+        "nationality": (app_doc or {}).get("nationality", "España"),
+        "shippingAddress": (app_doc or {}).get("shippingAddress") or address,
+        "products": [{"number": order.get("lineNumber", ""), "name": order.get("productName", ""),
+                      "permanence": order.get("permanence", ""), "price": order.get("price", 0)}],
     }
 
 
@@ -1398,10 +1403,11 @@ class ContractTemplateBody(BaseModel):
 
 async def _get_contract_template():
     doc = await db.contract_template.find_one({"_id": "main"})
-    if not doc:
-        return dict(DEFAULT_CONTRACT_TEMPLATE)
-    doc.pop("_id", None)
-    return doc
+    merged = dict(DEFAULT_CONTRACT_TEMPLATE)
+    if doc:
+        doc.pop("_id", None)
+        merged.update(doc)
+    return merged
 
 
 async def _trigger_likes_sync(contract_code):
@@ -1535,12 +1541,32 @@ async def get_contract_template(request: Request):
     return await _get_contract_template()
 
 
-@api.put("/contract-template")
-async def put_contract_template(body: ContractTemplateBody, request: Request):
+@api.get("/contract-template/preview.pdf")
+async def preview_contract_pdf(request: Request):
     await require_admin(request)
-    doc = body.model_dump()
-    await db.contract_template.update_one({"_id": "main"}, {"$set": doc}, upsert=True)
-    return doc
+    tpl = await _get_contract_template()
+    sample = {
+        "contractNumber": "EJEMPLO-0000-0000", "date": now_iso(),
+        "customerName": "NOMBRE APELLIDOS", "fiscalId": "00000000X", "docLabel": "DNI",
+        "customerAddress": "Calle Ejemplo 1, 28001 Madrid (Madrid)", "nationality": "España",
+        "shippingAddress": "Calle Ejemplo 1, 28001 Madrid (Madrid)",
+        "customerEmail": "cliente@ejemplo.com", "customerPhone": "600000000",
+        "productName": "80 GB Acumulables + Ilimitadas", "family": "Mobile",
+        "lineNumber": "600123456", "price": 11.95, "portability": False, "signed": True,
+        "signerName": "Nombre Apellidos",
+        "products": [{"number": "600123456", "name": "80 GB Acumulables + Ilimitadas", "permanence": "", "price": 11.95}],
+    }
+    pdf = generate_contract_pdf(sample, tpl)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": "inline; filename=contrato-ejemplo.pdf"})
+
+
+@api.put("/contract-template")
+async def put_contract_template(body: dict, request: Request):
+    await require_admin(request)
+    body.pop("_id", None)
+    await db.contract_template.update_one({"_id": "main"}, {"$set": body}, upsert=True)
+    return await _get_contract_template()
 
 
 @api.post("/contract-template/reset")
@@ -3524,6 +3550,12 @@ def _app_to_contract(app_doc):
         "changeHolder": app_doc.get("changeHolder", False),
         "signed": app_doc["status"] in ("SIGNED", "COMPLETED"),
         "signerName": app_doc.get("signerName"), "signatureImage": app_doc.get("signatureImage"),
+        "docLabel": {"DNI": "DNI", "NIE": "NIE", "PASSPORT": "PASAPORTE", "RED_CARD": "DOCUMENTO"}.get(app_doc.get("docType"), "NIF/CIF"),
+        "nationality": app_doc.get("nationality", "España"),
+        "shippingAddress": app_doc.get("shippingAddress") or f"{app_doc['address']}, {app_doc['postalCode']} {app_doc['city']} ({app_doc.get('province', '')})".strip(),
+        "products": [{"number": app_doc.get("portMsisdn") or app_doc.get("lineNumber", ""),
+                      "name": app_doc["productName"],
+                      "permanence": app_doc.get("permanence", ""), "price": app_doc["price"]}],
     }
 
 

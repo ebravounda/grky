@@ -13,11 +13,17 @@ import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
   Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
-const HERO_IMG = "https://images.unsplash.com/photo-1761499413046-08ac70109128?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxsaWZlc3R5bGUlMjB5b3V0aCUyMHVzaW5nJTIwc21hcnRwaG9uZSUyMG91dGRvb3JzfGVufDB8fHx8MTc4NTE5NTM1NXww&ixlib=rb-4.1.0&q=85";
-const FIBER_BG = "https://images.unsplash.com/photo-1597733336794-12d05021d510?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwZ2xvd2luZyUyMHRlY2h8ZW58MHx8fHwxNzg1MTk1MzM1fDA&ixlib=rb-4.1.0&q=85";
+
+const HERO_SLIDES = [
+  { url: "https://images.unsplash.com/photo-1758272420990-30a0735e68a1?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Chica feliz con su móvil" },
+  { url: "https://images.unsplash.com/photo-1758525226705-3061215c7445?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Amigas viendo el móvil juntas" },
+  { url: "https://images.unsplash.com/photo-1758598738092-a7cd486baadd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Familia conectada en casa con fibra" },
+  { url: "https://images.unsplash.com/photo-1682980094726-f3f9be0abbde?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Calle de Madrid, España" },
+  { url: "https://images.unsplash.com/photo-1758272420171-6e7de7b36789?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Joven usando su smartphone en la ciudad" },
+];
 
 const BLUE = "#015EEF";
 const ORANGE = "#FF7A00";
@@ -46,7 +52,13 @@ export default function PublicCatalog() {
   const [content, setContent] = useState(null);
   const [tab, setTab] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [slide, setSlide] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const id = setInterval(() => setSlide((s) => (s + 1) % HERO_SLIDES.length), 4000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     api.get("/public/catalog").then((r) => {
@@ -58,7 +70,7 @@ export default function PublicCatalog() {
   }, []);
 
   if (!content) {
-    return <div className="min-h-screen grid place-items-center bg-[#0A0A0A]"><div className="h-10 w-10 rounded-full border-2 border-[#015EEF] border-t-transparent animate-spin" /></div>;
+    return <div className="min-h-screen grid place-items-center bg-white"><div className="h-10 w-10 rounded-full border-2 border-[#015EEF] border-t-transparent animate-spin" /></div>;
   }
 
   const TABS = Object.keys(catalog).filter((k) => (catalog[k] || []).length)
@@ -96,51 +108,62 @@ export default function PublicCatalog() {
         </div>
       </header>
 
-      {/* Hero — dark obsidian, electric orbs */}
-      <section id="top" className="relative overflow-hidden bg-[#0A0A0A] text-white">
-        <div className="pointer-events-none absolute -top-32 -right-24 h-[560px] w-[560px] rounded-full bg-[#015EEF]/25 blur-[120px]" />
-        <div className="pointer-events-none absolute top-52 -left-32 h-[460px] w-[460px] rounded-full bg-[#FF7A00]/20 blur-[120px]" />
-        <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center pt-32 lg:pt-40 pb-20 lg:pb-28">
+      {/* Hero — light, con carrusel dinámico de imágenes */}
+      <section id="top" className="relative overflow-hidden bg-white">
+        <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
+        <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center pt-32 lg:pt-36 pb-16 lg:pb-24">
           <motion.div initial="hidden" animate="show"
             variants={{ hidden: {}, show: { transition: { staggerChildren: 0.12 } } }}
             className="lg:col-span-6">
             <motion.span variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}
-              className="inline-flex items-center gap-2 text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] bg-[#FF7A00]/15 ring-1 ring-[#FF7A00]/30 rounded-full px-4 py-2 mb-6">
+              className="inline-flex items-center gap-2 text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] bg-[#FF7A00]/10 rounded-full px-4 py-2 mb-6">
               <Star size={14} className="fill-[#FF7A00]" /> {hero.badge}
             </motion.span>
             <motion.h1 variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
-              className="font-heading text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.92]">
-              {hero.title} <span className="text-[#4d94ff]" style={{ textShadow: "0 0 40px rgba(1,94,239,0.55)" }}>{hero.titleHighlight}</span>
+              className="font-heading text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.95]">
+              {hero.title} <span className="text-[#015EEF]">{hero.titleHighlight}</span>
             </motion.h1>
             <motion.p variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
-              className="text-white/70 mt-6 text-lg sm:text-xl leading-relaxed max-w-xl">{hero.subtitle}</motion.p>
+              className="text-slate-600 mt-6 text-lg sm:text-xl leading-relaxed max-w-xl">{hero.subtitle}</motion.p>
             <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
               className="flex flex-col sm:flex-row gap-4 mt-9">
               <a href="#planes" data-testid="hero-cta-planes"
-                className="rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(1,94,239,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0A]">
+                className="rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(1,94,239,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2">
                 {hero.ctaPrimary} <ArrowRight size={18} />
               </a>
               <a href="#cobertura" data-testid="hero-cta-cobertura"
-                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(255,122,0,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0A]">
+                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(255,122,0,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#015EEF] focus-visible:ring-offset-2">
                 {hero.ctaSecondary}
               </a>
             </motion.div>
             <motion.div variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
-              className="flex flex-wrap items-center gap-x-8 gap-y-3 mt-10 text-sm text-white/60">
+              className="flex flex-wrap items-center gap-x-8 gap-y-3 mt-10 text-sm text-slate-500">
               <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Alta 100% online</span>
               <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Cobertura nacional</span>
               <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#FF7A00]" /> Red 4G/5G</span>
             </motion.div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.2 }} className="lg:col-span-6 relative">
-            <div className="absolute -inset-4 rounded-[3rem] bg-gradient-to-tr from-[#015EEF]/40 to-[#FF7A00]/30 blur-2xl" />
-            <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5] ring-1 ring-white/10">
-              <img src={HERO_IMG} alt="Cliente feliz con GoRoky" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A]/50 to-transparent" />
+          <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.15 }} className="lg:col-span-6 relative">
+            {/* Carrusel de imágenes */}
+            <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5] bg-slate-100">
+              <AnimatePresence>
+                <motion.img key={slide} src={HERO_SLIDES[slide].url} alt={HERO_SLIDES[slide].alt}
+                  initial={{ opacity: 0, scale: 1.06 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                  transition={{ duration: 0.9, ease: "easeInOut" }}
+                  className="absolute inset-0 w-full h-full object-cover" data-testid="hero-carousel-img" />
+              </AnimatePresence>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent pointer-events-none" />
+              {/* Puntitos */}
+              <div className="absolute bottom-5 right-5 flex gap-1.5">
+                {HERO_SLIDES.map((_, i) => (
+                  <button key={i} aria-label={`Imagen ${i + 1}`} onClick={() => setSlide(i)} data-testid={`hero-dot-${i}`}
+                    className={`h-2 rounded-full transition-all ${i === slide ? "w-6 bg-white" : "w-2 bg-white/50 hover:bg-white/80"}`} />
+                ))}
+              </div>
             </div>
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}
-              className="absolute -bottom-5 -left-2 sm:left-6 bg-white text-[#0A0A0A] rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+              className="absolute -bottom-5 -left-2 sm:left-6 bg-white text-[#0A0A0A] rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3 border border-slate-100">
               <span className="grid place-items-center h-11 w-11 rounded-xl bg-[#015EEF]/10 text-[#015EEF]"><Repeat size={20} /></span>
               <div><p className="font-heading font-bold leading-tight">Portabilidad gratis</p><p className="text-sm text-slate-500">Conserva tu número</p></div>
             </motion.div>
@@ -278,26 +301,23 @@ export default function PublicCatalog() {
         </Tabs>
       </section>
 
-      {/* Cobertura fibra — dark immersive */}
-      <section id="cobertura" className="relative overflow-hidden bg-[#0A0A0A] text-white">
-        <div className="absolute inset-0 opacity-25">
-          <img src={FIBER_BG} alt="" aria-hidden className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-[#0A0A0A]/70 to-transparent" />
-        </div>
-        <div className="pointer-events-none absolute -bottom-24 right-0 h-[420px] w-[420px] rounded-full bg-[#015EEF]/25 blur-[120px]" />
+      {/* Cobertura fibra — azul */}
+      <section id="cobertura" className="relative overflow-hidden bg-[#015EEF] text-white">
+        <div className="pointer-events-none absolute -top-24 -left-24 h-[420px] w-[420px] rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 right-0 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/25 blur-[120px]" />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28 grid lg:grid-cols-2 gap-12 items-center">
           <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.6 }}>
-            <p className="text-xs tracking-[0.2em] font-bold uppercase text-[#FF7A00] mb-3">{coverage.eyebrow}</p>
+            <p className="text-xs tracking-[0.2em] font-bold uppercase text-[#FFD8B0] mb-3">{coverage.eyebrow}</p>
             <h2 className="font-heading text-4xl sm:text-5xl font-extrabold tracking-tight">{coverage.title}</h2>
-            <p className="text-white/75 mt-5 text-lg max-w-md leading-relaxed">{coverage.description}</p>
-            <div className="flex flex-wrap gap-x-8 gap-y-3 mt-8 text-sm text-white/70">
-              <span className="inline-flex items-center gap-2"><Wifi size={16} className="text-[#FF7A00]" /> FTTH hasta 1&nbsp;Gb</span>
-              <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-[#FF7A00]" /> Instalación profesional</span>
+            <p className="text-white/85 mt-5 text-lg max-w-md leading-relaxed">{coverage.description}</p>
+            <div className="flex flex-wrap gap-x-8 gap-y-3 mt-8 text-sm text-white/85">
+              <span className="inline-flex items-center gap-2"><Wifi size={16} className="text-[#FFB877]" /> FTTH hasta 1&nbsp;Gb</span>
+              <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-[#FFB877]" /> Instalación profesional</span>
             </div>
           </motion.div>
           <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} transition={{ duration: 0.6, delay: 0.1 }}
-            className="bg-white/10 rounded-[2rem] p-6 sm:p-7 backdrop-blur-2xl border border-white/20 shadow-2xl">
-            <CoverageChecker dark />
+            className="bg-white rounded-[2rem] p-6 sm:p-7 shadow-2xl">
+            <CoverageChecker />
           </motion.div>
         </div>
       </section>

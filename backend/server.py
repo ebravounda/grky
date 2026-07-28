@@ -1392,6 +1392,15 @@ async def create_order(body: OrderCreate, request: Request):
 
     is_mobile = product["family"] == "Mobile"
     likes_pid = product.get("likesProductId") or product["productId"]
+    # 0) Asegurar que el cliente existe en Likes: /signupv2 exige un fiscalId ya dado de alta.
+    #    Idempotente: si el cliente ya existe, Likes devuelve error y continuamos igualmente.
+    cust_payload = likes_sync._customer_payload(customer, {})
+    _cd, cust_err = await asyncio.to_thread(likes_client.create_customer, cust_payload)
+    if cust_err:
+        logger.warning("create_customer en alta manual (%s) devolvió: %s (puede que ya exista; se continúa)",
+                       body.fiscalId, cust_err)
+    else:
+        logger.info("Cliente creado en Likes para alta manual: %s", body.fiscalId)
     # 1) Crear el alta REAL en Likes (signupv2). Nada de datos ficticios.
     prod_payload = {"family": product["family"], "productId": likes_pid, "portability": bool(body.portability)}
     if is_mobile:

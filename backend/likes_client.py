@@ -8,6 +8,7 @@ Likes autoriza la IP de salida.
 """
 import os
 import time
+import json
 import logging
 import requests
 
@@ -90,6 +91,8 @@ def _live_post(path, payload):
                           headers={"Authorization": f"Bearer {token}"}, timeout=20)
         if r.status_code in (200, 201):
             return (r.json() if r.text else {}), None
+        logger.error("LIKES POST %s -> HTTP %s | REQUEST=%s | RESPONSE=%s",
+                     path, r.status_code, json.dumps(payload, ensure_ascii=False), r.text[:800])
         return None, f"HTTP {r.status_code}: {r.text[:500]}"
     except Exception as e:  # noqa
         return None, str(e)[:200]

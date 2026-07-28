@@ -90,7 +90,7 @@ def _live_post(path, payload):
                           headers={"Authorization": f"Bearer {token}"}, timeout=20)
         if r.status_code in (200, 201):
             return (r.json() if r.text else {}), None
-        return None, f"HTTP {r.status_code}: {r.text[:200]}"
+        return None, f"HTTP {r.status_code}: {r.text[:500]}"
     except Exception as e:  # noqa
         return None, str(e)[:200]
 

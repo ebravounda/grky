@@ -1406,7 +1406,9 @@ async def create_order(body: OrderCreate, request: Request):
         likes_client.create_order,
         {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
     if oerr:
-        raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {oerr}")
+        logger.error("Likes rechazó el alta (portabilidad=%s, donor=%s, producto=%s, familia=%s): %s",
+                     body.portability, body.donorOperatorId, likes_pid, product["family"], oerr)
+        raise HTTPException(status_code=400, detail=f"Likes no pudo crear el alta: {oerr}")
     likes_order_id = (odata or {}).get("orderId")
 
     # 2) Crear factura + orden inmediatamente (estado PROVISIONING). El espejo de los datos
@@ -2235,7 +2237,8 @@ async def _provision_via_likes(a):
         if reason == "not_connected":
             raise HTTPException(status_code=503,
                 detail="Likes no está conectado (IP no autorizada). El alta se crea en Likes al aprobar; no se puede aprobar sin conexión con Likes.")
-        raise HTTPException(status_code=502, detail=f"No se pudo crear el alta en Likes: {reason or 'error desconocido'}")
+        logger.error("Likes rechazó el alta al aprobar (contrato=%s): %s", a.get("contractCode"), reason)
+        raise HTTPException(status_code=400, detail=f"Likes no pudo crear el alta: {reason or 'error desconocido'}")
     # 2) Reconciliación de datos reales + activación del servicio EN SEGUNDO PLANO
     #    (evita superar el timeout del proxy en altas largas con muchas llamadas a Likes).
     #    El email de bienvenida se envía con los datos reales ya espejados.

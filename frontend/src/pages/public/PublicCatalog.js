@@ -367,9 +367,16 @@ export default function PublicCatalog() {
               </div>
             </div>
           </div>
-          <div className="border-t border-white/10 mt-12 pt-8 text-sm text-slate-500 flex flex-col sm:flex-row justify-between gap-3">
-            <span>© {new Date().getFullYear()} {footer.company}</span>
-            <button onClick={() => navigate("/login")} className="hover:text-white transition-colors text-left" data-testid="footer-login-btn">Acceso clientes</button>
+          <div className="border-t border-white/10 mt-12 pt-8 text-sm text-slate-500 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-slate-300">GoRoky · RokyMovil · Tramilex</span>
+              <span>© {new Date().getFullYear()} {footer.company}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <a href="/privacidad" className="hover:text-white transition-colors" data-testid="footer-privacy-link">Política de privacidad</a>
+              <a href="/terminos" className="hover:text-white transition-colors" data-testid="footer-terms-link">Términos y condiciones</a>
+              <button onClick={() => navigate("/login")} className="hover:text-white transition-colors text-left" data-testid="footer-login-btn">Acceso clientes</button>
+            </div>
           </div>
         </div>
       </footer>

@@ -3531,6 +3531,42 @@ DEFAULT_SITE_CONTENT = {
         "description": "GoRoky (soyroky · roky móvil) es tu operador de móvil y fibra. Portabilidad gratis y alta 100% online con cobertura en las principales ciudades de España.",
         "company": "TRAMILEX GLOBAL SERVICE SL · B21796925",
     },
+    "legal": {
+        "privacy": (
+            "POLÍTICA DE PRIVACIDAD\n\n"
+            "En GoRoky (marca comercial de TRAMILEX GLOBAL SERVICE SL, CIF B21796925) nos tomamos muy en serio la protección de tus datos personales.\n\n"
+            "1. Responsable del tratamiento\n"
+            "TRAMILEX GLOBAL SERVICE SL (roky móvil), con CIF B21796925. Correo de contacto: privacidad@rokymovil.com.\n\n"
+            "2. Datos que recopilamos\n"
+            "Datos identificativos (nombre, apellidos, documento de identidad), de contacto (email, teléfono), de facturación (dirección, IBAN) y de uso del servicio (consumos, líneas contratadas).\n\n"
+            "3. Finalidad\n"
+            "Gestionar el alta y la prestación de los servicios de telecomunicaciones contratados, la facturación, la atención al cliente y el cumplimiento de obligaciones legales.\n\n"
+            "4. Legitimación\n"
+            "Ejecución del contrato, cumplimiento de obligaciones legales y, en su caso, tu consentimiento.\n\n"
+            "5. Conservación\n"
+            "Conservaremos tus datos mientras dure la relación contractual y, posteriormente, durante los plazos legalmente exigidos.\n\n"
+            "6. Cesiones\n"
+            "Tus datos podrán comunicarse al operador de red mayorista (Likes Telecom) para la activación y portabilidad de las líneas, así como a las administraciones públicas cuando la ley lo exija.\n\n"
+            "7. Tus derechos\n"
+            "Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a privacidad@rokymovil.com."
+        ),
+        "terms": (
+            "TÉRMINOS Y CONDICIONES\n\n"
+            "Los presentes términos regulan la contratación de los servicios de telecomunicaciones ofrecidos por GoRoky (marca comercial de TRAMILEX GLOBAL SERVICE SL, CIF B21796925).\n\n"
+            "1. Objeto\n"
+            "La prestación de servicios de telefonía móvil y fibra, así como la portabilidad de líneas, en las condiciones publicadas en cada tarifa.\n\n"
+            "2. Contratación\n"
+            "El alta se realiza de forma online con firma digital. El cliente declara que los datos facilitados son veraces y que es el titular del documento de identidad aportado.\n\n"
+            "3. Precios y facturación\n"
+            "Los precios incluyen los impuestos aplicables. No se cobra cuota de alta; en la primera factura se repercute únicamente el envío de la SIM y la parte proporcional de la tarifa hasta el día de facturación. Las cuotas siguientes se facturan de forma mensual.\n\n"
+            "4. Portabilidad\n"
+            "La portabilidad del número es gratuita y se tramita con el operador donante indicado por el cliente.\n\n"
+            "5. Duración y baja\n"
+            "El contrato no tiene permanencia salvo que se indique expresamente en la tarifa. El cliente puede solicitar la baja en cualquier momento.\n\n"
+            "6. Legislación aplicable\n"
+            "Estas condiciones se rigen por la legislación española. Para cualquier controversia, las partes se someten a los juzgados y tribunales que correspondan conforme a derecho."
+        ),
+    },
 }
 
 

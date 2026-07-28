@@ -135,6 +135,20 @@ export default function SiteContent() {
         <Field label="Datos legales de la empresa" full><Input data-testid="footer-company" value={c.footer?.company || ""} onChange={(e) => setSection("footer", "company", e.target.value)} /></Field>
       </Card>
 
+      {/* Textos legales */}
+      <Card className="p-6 space-y-4">
+        <div>
+          <h2 className="font-heading font-bold">Textos legales</h2>
+          <p className="text-xs text-muted-foreground mt-1">Se publican en <b>/privacidad</b> y <b>/terminos</b>. Se respetan los saltos de línea.</p>
+        </div>
+        <Field label="Política de privacidad" full>
+          <Textarea data-testid="legal-privacy" rows={12} value={c.legal?.privacy || ""} onChange={(e) => setSection("legal", "privacy", e.target.value)} />
+        </Field>
+        <Field label="Términos y condiciones" full>
+          <Textarea data-testid="legal-terms" rows={12} value={c.legal?.terms || ""} onChange={(e) => setSection("legal", "terms", e.target.value)} />
+        </Field>
+      </Card>
+
       <div className="flex justify-end">
         <Button onClick={save} disabled={saving} className="rounded-full gap-1.5" data-testid="save-content-btn-bottom">
           <Save size={15} /> {saving ? "Guardando…" : "Guardar cambios"}

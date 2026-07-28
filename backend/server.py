@@ -1544,6 +1544,48 @@ async def _trigger_likes_sync(contract_code):
     return result
 
 
+@api.post("/customers/{fiscalId}/sync-customer-likes")
+async def sync_customer_only_likes(fiscalId: str, request: Request):
+    """Crea/actualiza SOLO el cliente en Likes (POST /customer), sin servicio asociado.
+    Sube la documentación (DNI/NIE/Pasaporte) si está disponible. Sirve para espejar clientes
+    y para diagnosticar documentos que Likes rechaza (p.ej. pasaporte)."""
+    await require_perm(request, "orders.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if not await asyncio.to_thread(likes_client.get_token):
+        raise HTTPException(status_code=503, detail="Likes no está conectado (IP no autorizada / preview)")
+    log = []
+    cust_payload = likes_sync._customer_payload(customer, {})
+    data, err = await asyncio.to_thread(likes_client.create_customer, cust_payload)
+    if err:
+        logger.error("sync-customer-likes %s: %s", fiscalId, err)
+        exists = "EXIST" in err.upper()
+        log.append(f"POST /customer -> {err}")
+        return {"synced": exists, "customerExists": exists, "error": err, "log": log}
+    log.append(f"POST /customer OK · fiscalId {fiscalId} (Likes infiere el tipo de documento)")
+    documentation = (data or {}).get("documentation", [])
+    file_ids = (customer.get("kyc") or {}).get("fileIds") or {}
+    doc_map = {"obverseDocument": file_ids.get("front"), "reverseDocument": file_ids.get("back")}
+    uploaded = 0
+    for doc in documentation:
+        dtype = doc.get("type")
+        upload_url = doc.get("uploadURL")
+        fid = doc_map.get(dtype)
+        if not upload_url or not fid:
+            log.append(f"Documento {dtype}: sin fichero en GoRoky (no subido)")
+            continue
+        content, ctype = await likes_sync._file_bytes(db, fid)
+        if not content:
+            log.append(f"Documento {dtype}: fichero no encontrado")
+            continue
+        ok, uerr = await asyncio.to_thread(likes_client.upload_file_to_url, upload_url, content, ctype or "image/jpeg")
+        log.append(f"Documento {dtype}: {'subido' if ok else 'ERROR ' + str(uerr)}")
+        if ok:
+            uploaded += 1
+    return {"synced": True, "documentsUploaded": uploaded, "documentationRequired": len(documentation), "log": log}
+
+
 @api.post("/customers/{fiscalId}/sync-likes")
 async def sync_customer_likes(fiscalId: str, request: Request):
     await require_perm(request, "orders.manage")

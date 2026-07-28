@@ -47,6 +47,7 @@ export default function CustomerDetail() {
   const [charge, setCharge] = useState({ concept: "", amount: "", method: "card" });
   const [charging, setCharging] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncingCust, setSyncingCust] = useState(false);
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
@@ -88,6 +89,22 @@ export default function CustomerDetail() {
       try { await api.post(`/customers/${fiscalId}/reconcile`); } catch (_) {}
       load();
     } catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
+  };
+
+  const syncCustomerOnly = async () => {
+    setSyncingCust(true);
+    try {
+      const { data: res } = await api.post(`/customers/${fiscalId}/sync-customer-likes`);
+      if (res.log?.length) console.log("Likes customer-sync log:", res.log);
+      if (res.error) {
+        if (res.customerExists) toast.info("El cliente ya existe en Likes.");
+        else toast.error(`Likes rechazó el cliente: ${res.error}`);
+      } else {
+        toast.success(`Cliente enviado a Likes · ${res.documentsUploaded || 0}/${res.documentationRequired || 0} documentos subidos. Revísalo en el panel de Likes.`);
+      }
+      try { await api.post(`/customers/${fiscalId}/reconcile`); } catch (_) {}
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setSyncingCust(false); }
   };
 
   const onFile = (e) => {
@@ -139,7 +156,10 @@ export default function CustomerDetail() {
       <Link to="/app/customers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-4"><ArrowLeft size={15} /> Clientes</Link>
       <PageHeader overline={customer.customerType} title={`${customer.name} ${customer.firstSurname || ""}`} subtitle={`NIF/NIE: ${customer.fiscalId}`}
         action={hasPerm("billing.manage") && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button data-testid="sync-customer-btn" variant="outline" className="rounded-full gap-2" onClick={syncCustomerOnly} disabled={syncingCust}>
+              <RefreshCw size={16} className={syncingCust ? "animate-spin" : ""} /> {syncingCust ? "Enviando…" : "Crear cliente en Likes"}
+            </Button>
             <Button data-testid="sync-likes-btn" variant="outline" className="rounded-full gap-2" onClick={syncLikes} disabled={syncing}>
               <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando…" : "Sincronizar con Likes"}
             </Button>

@@ -93,7 +93,7 @@ export default function Orders() {
             <DialogTrigger asChild>
               <Button data-testid="new-order-btn" className="rounded-full gap-2"><ShoppingCart size={16} /> Nueva contratación</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Crear servicio / orden</DialogTitle>
                 <DialogDescription>Al crear el servicio se genera automáticamente la factura PDF.</DialogDescription>
               </DialogHeader>

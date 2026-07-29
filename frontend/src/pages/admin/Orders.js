@@ -22,7 +22,7 @@ export default function Orders() {
   const [donors, setDonors] = useState([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, donorOperatorId: "", lineNumber: "" });
+  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFiscalId: "" });
 
   const loadOrders = () => api.get("/orders").then((r) => setOrders(r.data));
   useEffect(() => {
@@ -33,6 +33,9 @@ export default function Orders() {
   }, []);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const selectedProduct = products.find((p) => p.productId === form.productId);
+  const isMobile = selectedProduct?.family === "Mobile";
 
   const sendTracking = async (o) => {
     try { const { data } = await api.post(`/orders/${o.orderId}/send-tracking`); toast.success(`Seguimiento enviado a ${data.to}`); }
@@ -76,7 +79,7 @@ export default function Orders() {
         action: { label: "Ver factura", onClick: () => openInvoicePdf(data.invoiceId) },
       });
       setOpen(false);
-      setForm({ fiscalId: "", productId: "", portability: false, donorOperatorId: "", lineNumber: "" });
+      setForm({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFiscalId: "" });
       loadOrders();
     } catch (e) { toast.error(apiErr(e)); } finally { setSaving(false); }
   };
@@ -134,6 +137,67 @@ export default function Orders() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {/* Titularidad de la línea (igual que Likes) */}
+                    <div className="space-y-1.5">
+                      <Label>Titularidad de la línea</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" data-testid="order-keep-holder"
+                          onClick={() => set("changeHolder", false)}
+                          className={`rounded-md border p-3 text-left text-sm ${!form.changeHolder ? "border-primary ring-1 ring-primary" : "border-border"}`}>
+                          <p className="font-medium">Mantener titular</p>
+                          <p className="text-xs text-muted-foreground">El titular en la otra compañía es el mismo</p>
+                        </button>
+                        <button type="button" data-testid="order-change-holder"
+                          onClick={() => set("changeHolder", true)}
+                          className={`rounded-md border p-3 text-left text-sm ${form.changeHolder ? "border-primary ring-1 ring-primary" : "border-border"}`}>
+                          <p className="font-medium">Cambiar titular</p>
+                          <p className="text-xs text-muted-foreground">El número está a nombre de otra persona</p>
+                        </button>
+                      </div>
+                    </div>
+                    {form.changeHolder && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border border-border p-3">
+                        <div className="space-y-1.5">
+                          <Label>Nombre del titular actual</Label>
+                          <Input data-testid="order-holder-name" placeholder="Nombre y apellidos"
+                            value={form.currentHolderName} onChange={(e) => set("currentHolderName", e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>NIF/NIE del titular actual</Label>
+                          <Input data-testid="order-holder-fiscal" placeholder="00000000X"
+                            value={form.currentHolderFiscalId} onChange={(e) => set("currentHolderFiscalId", e.target.value.toUpperCase())} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Tipo de SIM (solo móvil, igual que Likes) */}
+                {isMobile && (
+                  <div className="space-y-1.5">
+                    <Label>Tipo de SIM</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { v: "physical", l: "SIM física" },
+                        { v: "esim", l: "eSIM" },
+                        { v: "ship", l: "Enviar SIM" },
+                      ].map((o) => (
+                        <button type="button" key={o.v} data-testid={`order-sim-${o.v}`}
+                          onClick={() => set("simType", o.v)}
+                          className={`rounded-md border p-2.5 text-center text-sm ${form.simType === o.v ? "border-primary ring-1 ring-primary" : "border-border"}`}>
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                    {form.simType === "physical" && (
+                      <div className="space-y-1.5 pt-1">
+                        <Label>ICC de la SIM física</Label>
+                        <Input data-testid="order-sim-icc" inputMode="numeric" placeholder="8934120000001234567"
+                          value={form.simIcc} onChange={(e) => set("simIcc", e.target.value.replace(/\D/g, ""))} />
+                      </div>
+                    )}
+                    {form.simType === "ship" && (
+                      <p className="text-xs text-muted-foreground pt-1">Se enviará una SIM física; la línea quedará pendiente de envío hasta la entrega.</p>
+                    )}
                   </div>
                 )}
               </div>

@@ -268,8 +268,14 @@ class OrderCreate(BaseModel):
     fiscalId: str
     productId: str
     portability: bool = False
+    portabilityType: Optional[str] = None       # "postpaid" | "prepaid"
     donorOperatorId: Optional[str] = None
     lineNumber: Optional[str] = None
+    simType: str = "esim"                        # "esim" | "physical" | "ship"
+    simIcc: Optional[str] = None                 # ICC si SIM física
+    changeHolder: bool = False                   # el número está a nombre de otra persona
+    currentHolderName: Optional[str] = None      # titular actual del número (portabilidad)
+    currentHolderFiscalId: Optional[str] = None
     charge: bool = True
 
 
@@ -1405,13 +1411,23 @@ async def create_order(body: OrderCreate, request: Request):
     # 1) Crear el alta REAL en Likes (signupv2). Nada de datos ficticios.
     prod_payload = {"family": product["family"], "productId": likes_pid, "portability": bool(body.portability)}
     if is_mobile:
-        prod_payload["eSim"] = True
-        if customer.get("email"):
-            prod_payload["eSimEmail"] = customer["email"]
+        if body.simType == "esim":
+            prod_payload["eSim"] = True
+            if customer.get("email"):
+                prod_payload["eSimEmail"] = customer["email"]
+        elif body.simType == "physical" and body.simIcc:
+            prod_payload["icc"] = body.simIcc
+        # "ship" (Enviar SIM): se omite icc/eSim → Likes deja la línea en PENDING_MANUAL_SHIPPING
     if body.portability:
         prod_payload["donorOperatorId"] = body.donorOperatorId
         if body.lineNumber:
             prod_payload["lineNumber"] = body.lineNumber
+        # Cambio de titular: enviar los datos del titular anterior del número portado
+        if body.changeHolder and (body.currentHolderName or body.currentHolderFiscalId):
+            prod_payload["formerOwner"] = {
+                "fiscalId": body.currentHolderFiscalId or "",
+                "name": body.currentHolderName or "",
+            }
     odata, oerr = await asyncio.to_thread(
         likes_client.create_order,
         {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
@@ -1435,7 +1451,12 @@ async def create_order(body: OrderCreate, request: Request):
         "productName": product["productName"], "family": product["family"], "productId": product["productId"],
         "likesProductId": likes_pid,
         "lineNumber": None, "portability": body.portability,
+        "portabilityType": body.portabilityType,
         "donorOperatorId": body.donorOperatorId,
+        "simType": body.simType, "simIcc": body.simIcc,
+        "changeHolder": body.changeHolder,
+        "currentHolderName": body.currentHolderName,
+        "currentHolderFiscalId": body.currentHolderFiscalId,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
         "contractNumber": contract_number, "signed": False, "source": "likes",
         "ownerId": str(user["_id"]) if is_reseller else None,

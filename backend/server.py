@@ -274,8 +274,11 @@ class OrderCreate(BaseModel):
     simType: str = "esim"                        # "esim" | "physical" | "ship"
     simIcc: Optional[str] = None                 # ICC si SIM física
     changeHolder: bool = False                   # el número está a nombre de otra persona
-    currentHolderName: Optional[str] = None      # titular actual del número (portabilidad)
+    currentHolderName: Optional[str] = None      # nombre del titular actual (portabilidad)
+    currentHolderFirstSurname: Optional[str] = None
+    currentHolderLastSurname: Optional[str] = None
     currentHolderFiscalId: Optional[str] = None
+    currentHolderDocType: Optional[str] = "DNI"  # DNI | NIE | Passport
     charge: bool = True
 
 
@@ -1423,11 +1426,17 @@ async def create_order(body: OrderCreate, request: Request):
         if body.lineNumber:
             prod_payload["lineNumber"] = body.lineNumber
         # Cambio de titular: enviar los datos del titular anterior del número portado
-        if body.changeHolder and (body.currentHolderName or body.currentHolderFiscalId):
+        # (estructura exacta que espera Likes, confirmada vía draft-order-v2)
+        if body.changeHolder and body.currentHolderFiscalId:
             prod_payload["formerOwner"] = {
-                "fiscalId": body.currentHolderFiscalId or "",
                 "name": body.currentHolderName or "",
+                "firstSurname": body.currentHolderFirstSurname or "",
+                "lastSurname": body.currentHolderLastSurname or "",
+                "fiscalId": body.currentHolderFiscalId,
+                "fiscalIdType": body.currentHolderDocType or "DNI",
+                "representative": {"name": "", "firstSurname": "", "fiscalId": "", "fiscalIdType": ""},
             }
+            prod_payload["hasFormerOwner"] = True
     odata, oerr = await asyncio.to_thread(
         likes_client.create_order,
         {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
@@ -1456,7 +1465,10 @@ async def create_order(body: OrderCreate, request: Request):
         "simType": body.simType, "simIcc": body.simIcc,
         "changeHolder": body.changeHolder,
         "currentHolderName": body.currentHolderName,
+        "currentHolderFirstSurname": body.currentHolderFirstSurname,
+        "currentHolderLastSurname": body.currentHolderLastSurname,
         "currentHolderFiscalId": body.currentHolderFiscalId,
+        "currentHolderDocType": body.currentHolderDocType,
         "invoiceNumber": invoice["invoiceNumber"], "invoiceId": str(invoice["_id"]),
         "contractNumber": contract_number, "signed": False, "source": "likes",
         "ownerId": str(user["_id"]) if is_reseller else None,

@@ -22,7 +22,7 @@ export default function Orders() {
   const [donors, setDonors] = useState([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFiscalId: "" });
+  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFirstSurname: "", currentHolderLastSurname: "", currentHolderFiscalId: "", currentHolderDocType: "DNI" });
 
   const loadOrders = () => api.get("/orders").then((r) => setOrders(r.data));
   useEffect(() => {
@@ -79,7 +79,7 @@ export default function Orders() {
         action: { label: "Ver factura", onClick: () => openInvoicePdf(data.invoiceId) },
       });
       setOpen(false);
-      setForm({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFiscalId: "" });
+      setForm({ fiscalId: "", productId: "", portability: false, portabilityType: "postpaid", donorOperatorId: "", lineNumber: "", simType: "esim", simIcc: "", changeHolder: false, currentHolderName: "", currentHolderFirstSurname: "", currentHolderLastSurname: "", currentHolderFiscalId: "", currentHolderDocType: "DNI" });
       loadOrders();
     } catch (e) { toast.error(apiErr(e)); } finally { setSaving(false); }
   };
@@ -158,14 +158,35 @@ export default function Orders() {
                     {form.changeHolder && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border border-border p-3">
                         <div className="space-y-1.5">
-                          <Label>Nombre del titular actual</Label>
-                          <Input data-testid="order-holder-name" placeholder="Nombre y apellidos"
+                          <Label>Tipo de documento</Label>
+                          <Select value={form.currentHolderDocType} onValueChange={(v) => set("currentHolderDocType", v)}>
+                            <SelectTrigger data-testid="order-holder-doctype"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="DNI">DNI</SelectItem>
+                              <SelectItem value="NIE">NIE</SelectItem>
+                              <SelectItem value="Passport">Pasaporte</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Documento (NIF/NIE/Pasaporte)</Label>
+                          <Input data-testid="order-holder-fiscal" placeholder="00000000X"
+                            value={form.currentHolderFiscalId} onChange={(e) => set("currentHolderFiscalId", e.target.value.toUpperCase())} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Nombre</Label>
+                          <Input data-testid="order-holder-name" placeholder="Nombre"
                             value={form.currentHolderName} onChange={(e) => set("currentHolderName", e.target.value)} />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>NIF/NIE del titular actual</Label>
-                          <Input data-testid="order-holder-fiscal" placeholder="00000000X"
-                            value={form.currentHolderFiscalId} onChange={(e) => set("currentHolderFiscalId", e.target.value.toUpperCase())} />
+                          <Label>Primer apellido</Label>
+                          <Input data-testid="order-holder-surname1" placeholder="Primer apellido"
+                            value={form.currentHolderFirstSurname} onChange={(e) => set("currentHolderFirstSurname", e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Segundo apellido</Label>
+                          <Input data-testid="order-holder-surname2" placeholder="Segundo apellido"
+                            value={form.currentHolderLastSurname} onChange={(e) => set("currentHolderLastSurname", e.target.value)} />
                         </div>
                       </div>
                     )}

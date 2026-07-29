@@ -1439,7 +1439,7 @@ async def create_order(body: OrderCreate, request: Request):
             prod_payload["hasFormerOwner"] = True
     odata, oerr = await asyncio.to_thread(
         likes_client.create_order,
-        {"digitalSignature": False, "fiscalId": body.fiscalId, "products": [prod_payload]})
+        {"digitalSignature": True, "kyc": False, "fiscalId": body.fiscalId, "products": [prod_payload]})
     if oerr:
         logger.error("Likes rechazó el alta (portabilidad=%s, donor=%s, producto=%s, familia=%s): %s",
                      body.portability, body.donorOperatorId, likes_pid, product["family"], oerr)

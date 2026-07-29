@@ -331,3 +331,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - `send-signature-email`: ahora genera token NUEVO y RESETEA la firma anterior (signed/signApproved false, $unset firma) → sirve de "Volver a solicitar firma".
 - Orders.js: columna Contrato con 3 estados → "Contrato/Firmar/Enviar firma" (sin firmar), "⏳ Firmado · pendiente aprobar + Aprobar + Volver a solicitar" (firmado no aprobado), "✓ Firmado y aprobado". "Ver firmado" abre el PDF. data-testids: order-approve-, order-resign-, order-pending-approval-, order-approved-.
 - Verificado por curl: cliente firma→signed/no aprobado (no sube a Likes); admin aprueba→signApproved + push. Solo backend+frontend, desplegar ambos.
+
+### Iteración 2026-06 (fork) — DECISIÓN: firma digital de Likes SIN KYC (Opción A)
+- Con digitalSignature:false la orden se auto-completaba al instante y el cambio de titular no alcanzaba a aplicarse. Con digitalSignature:true la orden espera firma y el cambio de titular SÍ funciona.
+- Decisión del usuario: usar firma digital NATIVA de Likes SIN KYC (gratis, kyc:false). `create_order` ahora envía `{digitalSignature: True, kyc: False,...}`.
+- PENDIENTE VERIFICAR EN VPS: (1) si Likes envía el enlace de firma automáticamente al email del cliente al crear la orden, o si requiere disparar un endpoint interno "Enviar firma digital" (capturar del panel si hace falta). (2) que el cambio de titular (PUT /draft-order-v2/lines) se aplique en este modo.
+- El API público NO expone endpoint de envío de firma; si no es automático, habrá que capturar el interno del panel.

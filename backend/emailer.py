@@ -15,11 +15,19 @@ def _sender() -> str:
     return os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 
 
+def _copy_to() -> str:
+    """Dirección que recibe copia (BCC) de TODOS los correos enviados al cliente."""
+    return (os.environ.get("EMAIL_COPY_TO", "contratos@goroky.com") or "").strip()
+
+
 async def send_email(to: str, subject: str, html: str, attachments=None):
     if not is_configured():
         raise RuntimeError("Email no configurado: falta RESEND_API_KEY")
     resend.api_key = os.environ["RESEND_API_KEY"]
     params = {"from": _sender(), "to": [to], "subject": subject, "html": html}
+    copy = _copy_to()
+    if copy and copy.lower() != (to or "").lower():
+        params["bcc"] = [copy]
     if attachments:
         params["attachments"] = attachments
     result = await asyncio.to_thread(resend.Emails.send, params)

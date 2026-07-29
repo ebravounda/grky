@@ -4,6 +4,7 @@ import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
@@ -21,7 +22,7 @@ export default function Orders() {
   const [donors, setDonors] = useState([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, donorOperatorId: "" });
+  const [form, setForm] = useState({ fiscalId: "", productId: "", portability: false, donorOperatorId: "", lineNumber: "" });
 
   const loadOrders = () => api.get("/orders").then((r) => setOrders(r.data));
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function Orders() {
         action: { label: "Ver factura", onClick: () => openInvoicePdf(data.invoiceId) },
       });
       setOpen(false);
-      setForm({ fiscalId: "", productId: "", portability: false, donorOperatorId: "" });
+      setForm({ fiscalId: "", productId: "", portability: false, donorOperatorId: "", lineNumber: "" });
       loadOrders();
     } catch (e) { toast.error(apiErr(e)); } finally { setSaving(false); }
   };
@@ -112,14 +113,22 @@ export default function Orders() {
                   <Switch data-testid="order-portability" checked={form.portability} onCheckedChange={(v) => set("portability", v)} />
                 </div>
                 {form.portability && (
-                  <div className="space-y-1.5">
-                    <Label>Operador donante</Label>
-                    <Select value={form.donorOperatorId} onValueChange={(v) => set("donorOperatorId", v)}>
-                      <SelectTrigger data-testid="order-donor"><SelectValue placeholder="Operador de origen" /></SelectTrigger>
-                      <SelectContent>
-                        {donors.map((d) => <SelectItem key={d.Code} value={d.Code}>{d.Name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>Número a portar</Label>
+                      <Input data-testid="order-port-number" inputMode="numeric" maxLength={9} placeholder="612345678"
+                        value={form.lineNumber} onChange={(e) => set("lineNumber", e.target.value.replace(/\D/g, ""))} />
+                      <p className="text-xs text-muted-foreground">Número que el cliente quiere conservar (9 dígitos).</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Operador donante</Label>
+                      <Select value={form.donorOperatorId} onValueChange={(v) => set("donorOperatorId", v)}>
+                        <SelectTrigger data-testid="order-donor"><SelectValue placeholder="Operador de origen" /></SelectTrigger>
+                        <SelectContent>
+                          {donors.map((d) => <SelectItem key={d.Code} value={d.Code}>{d.Name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 )}
               </div>

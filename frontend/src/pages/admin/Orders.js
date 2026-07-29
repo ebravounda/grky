@@ -48,7 +48,12 @@ export default function Orders() {
   };
 
   const sendSignEmail = async (o) => {
-    try { const { data } = await api.post(`/orders/${o.orderId}/send-signature-email`); toast.success(`Correo de firma enviado a ${data.to}`); }
+    try { const { data } = await api.post(`/orders/${o.orderId}/send-signature-email`); toast.success(`Correo de firma enviado a ${data.to}`); loadOrders(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const approveSignature = async (o) => {
+    try { await api.post(`/orders/${o.orderId}/approve-signature`); toast.success("Firma aprobada · sincronizando con Likes"); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -286,12 +291,13 @@ export default function Orders() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <button data-testid={`order-contract-${o.orderId}`} onClick={() => openContractPdf(o.orderId)} className="inline-flex items-center gap-1 text-primary hover:underline">
-                      <FileSignature size={14} /> {o.signed ? "Ver" : "Contrato"}
+                      <FileSignature size={14} /> {o.signed ? "Ver firmado" : "Contrato"}
                     </button>
+                    {/* Sin firmar: firmar directo (admin) o enviar enlace al cliente */}
                     {!o.signed && (
-                      <button data-testid={`order-sign-${o.orderId}`} onClick={() => sign(o)} title="Firmar contrato" className="inline-flex items-center gap-1 text-muted-foreground hover:text-success">
+                      <button data-testid={`order-sign-${o.orderId}`} onClick={() => sign(o)} title="Firmar directamente (admin)" className="inline-flex items-center gap-1 text-muted-foreground hover:text-success">
                         <PenLine size={14} /> Firmar
                       </button>
                     )}
@@ -300,7 +306,24 @@ export default function Orders() {
                         <Send size={14} /> Enviar firma
                       </button>
                     )}
-                    {o.signed && <span className="text-xs text-success font-medium">✓ Firmado</span>}
+                    {/* Firmado por el cliente, pendiente de aprobación del admin */}
+                    {o.signed && !o.signApproved && (
+                      <>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 text-warning px-2 py-0.5 text-xs font-medium" data-testid={`order-pending-approval-${o.orderId}`}>
+                          ⏳ Firmado · pendiente aprobar
+                        </span>
+                        <button data-testid={`order-approve-${o.orderId}`} onClick={() => approveSignature(o)} title="Aprobar firma y sincronizar con Likes"
+                          className="inline-flex items-center gap-1 rounded-full border border-success/30 text-success px-2 py-0.5 text-xs hover:bg-success/10">
+                          <CheckCircle2 size={13} /> Aprobar
+                        </button>
+                        <button data-testid={`order-resign-${o.orderId}`} onClick={() => sendSignEmail(o)} title="Volver a solicitar firma al cliente"
+                          className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary text-xs">
+                          <Send size={13} /> Volver a solicitar
+                        </button>
+                      </>
+                    )}
+                    {/* Firma aprobada y sincronizada */}
+                    {o.signed && o.signApproved && <span className="text-xs text-success font-medium" data-testid={`order-approved-${o.orderId}`}>✓ Firmado y aprobado</span>}
                   </div>
                 </td>
               </tr>

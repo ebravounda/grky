@@ -1837,13 +1837,33 @@ async def order_contract_pdf(order_id: str, request: Request):
 
 @api.post("/orders/{order_id}/contract/sign")
 async def sign_contract(order_id: str, request: Request):
+    """Firma directa por el admin (marca firmado + aprobado y sincroniza con Likes)."""
     await require_admin(request)
     order = await db.orders.find_one({"orderId": order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-    await db.orders.update_one({"orderId": order_id}, {"$set": {"signed": True, "signedAt": now_iso()}})
+    await db.orders.update_one({"orderId": order_id}, {"$set": {
+        "signed": True, "signApproved": True, "signedAt": now_iso()}})
     # Subir el contrato firmado (y el cambio de titular si aplica) a Likes para desbloquear la orden
     _spawn_bg(_push_signed_contract_bg(order_id))
+    return {"ok": True}
+
+
+@api.post("/orders/{order_id}/approve-signature")
+async def approve_signature(order_id: str, request: Request):
+    """El admin APRUEBA la firma del cliente → recién entonces se sincroniza con Likes."""
+    await require_admin(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if not order.get("signed"):
+        raise HTTPException(status_code=400, detail="El cliente aún no ha firmado este contrato")
+    await db.orders.update_one({"orderId": order_id}, {"$set": {
+        "signApproved": True, "signApprovedAt": now_iso()}})
+    _spawn_bg(_push_signed_contract_bg(order_id))
+    await log_event("order", "success",
+                    f"Firma APROBADA por el admin · contrato {order.get('contractNumber')} → sincronizando con Likes",
+                    {"orderId": order_id})
     return {"ok": True}
 
 
@@ -1894,7 +1914,8 @@ async def _push_signed_contract_bg(order_id):
 
 @api.post("/orders/{order_id}/send-signature-email")
 async def send_signature_email(order_id: str, request: Request):
-    """El CRM envía al cliente un correo con el enlace para firmar su contrato."""
+    """El CRM envía al cliente el enlace para firmar. Si se reenvía (volver a solicitar firma),
+    invalida la firma anterior y genera un enlace nuevo."""
     await require_admin(request)
     order = await db.orders.find_one({"orderId": order_id})
     if not order:
@@ -1905,10 +1926,11 @@ async def send_signature_email(order_id: str, request: Request):
         raise HTTPException(status_code=400, detail="El cliente no tiene email para enviarle la firma")
     if not emailer.is_configured():
         raise HTTPException(status_code=503, detail="El servicio de email no está configurado")
-    token = order.get("signToken")
-    if not token:
-        token = _secrets.token_urlsafe(24)
-        await db.orders.update_one({"orderId": order_id}, {"$set": {"signToken": token}})
+    # Nuevo token en cada solicitud + reseteo de la firma anterior (no aprobada aún)
+    token = _secrets.token_urlsafe(24)
+    await db.orders.update_one({"orderId": order_id}, {"$set": {
+        "signToken": token, "signed": False, "signApproved": False},
+        "$unset": {"signatureImage": "", "signatureId": "", "signerName": "", "signedAt": ""}})
     link = f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/firmar-contrato/{token}"
     name = order.get("customerName") or "cliente"
     html = emailer.base_template(
@@ -1959,15 +1981,17 @@ async def public_contract_sign(token: str, body: SignBody):
     sig_id = await _save_file("signature", body.signatureImage, order["fiscalId"]) if body.signatureImage else None
     signer = body.signerName or order.get("customerName")
     await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {
-        "signed": True, "signedAt": now_iso(), "signerName": signer,
+        "signed": True, "signApproved": False, "signedAt": now_iso(), "signerName": signer,
         "signatureId": sig_id, "signatureImage": body.signatureImage,
         "signatureType": body.signatureType}})
     # Reflejar la firma en la ficha/KYC del cliente (para que aparezca en el PDF del admin)
     await db.customers.update_one({"fiscalId": order["fiscalId"]}, {"$set": {
         "kyc.signerName": signer, "kyc.signatureId": sig_id,
         "kyc.signedAt": now_iso(), "kyc.contractCode": order.get("contractNumber")}})
-    # Push del contrato firmado a Likes (fail-safe, en segundo plano)
-    _spawn_bg(_push_signed_contract_bg(order["orderId"]))
+    # NO se sube a Likes todavía: el admin debe revisar y APROBAR la firma en el CRM.
+    await log_event("order", "info",
+                    f"Contrato {order.get('contractNumber')} firmado por el cliente · PENDIENTE DE APROBACIÓN del admin",
+                    {"orderId": order["orderId"]})
     # Email de confirmación al cliente
     if emailer.is_configured():
         try:

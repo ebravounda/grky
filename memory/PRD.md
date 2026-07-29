@@ -322,3 +322,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - PROBLEMA: la orden quedaba "Pendiente de firma de contrato" en Likes tras firmar en el CRM. Causa 1: `create_order` usaba `digitalSignature: true` → Likes esperaba enviar SUS propios emails de firma y NO aceptaba el contrato subido por el CRM. Causa 2: el botón admin `POST /orders/{id}/contract/sign` solo marcaba signed=true, NO subía el contrato a Likes.
 - FIX: `create_order` ahora usa `digitalSignature: false` (modo "subir contrato" → Likes da uploadURL para signedContract/signedTitularChange). `sign_contract` ahora dispara `_push_signed_contract_bg` (sube contrato firmado + cambio de titular a Likes). El flujo del cliente (/firmar-contrato) ya lo hacía.
 - Solo backend. Órdenes creadas ANTES del fix (con digitalSignature true) quedan en modo firma digital de Likes; completar desde el panel ("Firma digital sin KYC" con emails) o recrear.
+
+### Iteración 2026-06 (fork) — Firma con APROBACIÓN del admin antes de sincronizar con Likes
+- Flujo pedido: cliente recibe email → firma en enlace → contrato firmado VISIBLE en el CRM → admin REVISA y APRUEBA → recién entonces se sube a Likes. Admin puede "volver a solicitar firma".
+- `public_contract_sign`: al firmar el cliente NO sube a Likes; deja `signed=True, signApproved=False` (pendiente de aprobación). Log "PENDIENTE DE APROBACIÓN".
+- Nuevo `POST /orders/{id}/approve-signature` (admin): valida que esté firmado, marca `signApproved=True/signApprovedAt` y dispara `_push_signed_contract_bg` (sube contrato + cambio de titular a Likes).
+- `sign_contract` (botón Firmar admin directo): marca signed+signApproved y sube a Likes en un paso.
+- `send-signature-email`: ahora genera token NUEVO y RESETEA la firma anterior (signed/signApproved false, $unset firma) → sirve de "Volver a solicitar firma".
+- Orders.js: columna Contrato con 3 estados → "Contrato/Firmar/Enviar firma" (sin firmar), "⏳ Firmado · pendiente aprobar + Aprobar + Volver a solicitar" (firmado no aprobado), "✓ Firmado y aprobado". "Ver firmado" abre el PDF. data-testids: order-approve-, order-resign-, order-pending-approval-, order-approved-.
+- Verificado por curl: cliente firma→signed/no aprobado (no sube a Likes); admin aprueba→signApproved + push. Solo backend+frontend, desplegar ambos.

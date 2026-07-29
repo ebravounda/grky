@@ -1446,6 +1446,47 @@ async def create_order(body: OrderCreate, request: Request):
         raise HTTPException(status_code=400, detail=f"Likes no pudo crear el alta: {oerr}")
     likes_order_id = (odata or {}).get("orderId")
 
+    # 1b) CAMBIO DE TITULAR: signupv2 NO aplica formerOwner. Replicamos el paso del panel de Likes:
+    #     leemos el borrador de la orden, inyectamos formerOwner+hasFormerOwner en la línea Main
+    #     (conservando TODOS los campos existentes) y lo reenviamos por PUT /draft-order-v2/lines.
+    if body.changeHolder and body.currentHolderFiscalId and likes_order_id:
+        try:
+            draft = await asyncio.to_thread(likes_client.get_order_draft, likes_order_id)
+            prods = (draft or {}).get("products") or []
+            if prods:
+                former = {
+                    "name": body.currentHolderName or "",
+                    "firstSurname": body.currentHolderFirstSurname or "",
+                    "lastSurname": body.currentHolderLastSurname or "",
+                    "fiscalId": body.currentHolderFiscalId,
+                    "fiscalIdType": body.currentHolderDocType or "DNI",
+                    "representative": {"name": "", "firstSurname": "", "fiscalId": "", "fiscalIdType": ""},
+                }
+                for p in prods:
+                    if p.get("type") == "Main" or p is prods[0]:
+                        p["formerOwner"] = former
+                        p["hasFormerOwner"] = True
+                put_body = {
+                    "orderId": likes_order_id,
+                    "channel": draft.get("channel"),
+                    "brandId": draft.get("brandId"),
+                    "price": draft.get("price"),
+                    "products": prods,
+                }
+                _r, perr = await asyncio.to_thread(likes_client.update_order_lines, likes_order_id, put_body)
+                if perr:
+                    logger.error("Cambio de titular NO aplicado en Likes (orden %s): %s", likes_order_id, perr)
+                    await log_event("order", "error",
+                                    f"Cambio de titular no aplicado en Likes ({likes_order_id}): {perr}",
+                                    {"orderId": likes_order_id})
+                else:
+                    logger.info("Cambio de titular aplicado en Likes para orden %s", likes_order_id)
+                    await log_event("order", "success",
+                                    f"Cambio de titular aplicado en Likes · titular anterior {body.currentHolderFiscalId}",
+                                    {"orderId": likes_order_id})
+        except Exception as e:  # noqa
+            logger.warning("Cambio de titular (orden %s) falló: %s", likes_order_id, e)
+
     # 2) Crear factura + orden inmediatamente (estado PROVISIONING). El espejo de los datos
     #    reales (nº de línea, ICC, PIN/PUK, GB…) se ejecuta en segundo plano para no superar
     #    el timeout del proxy en altas largas con muchas llamadas a Likes.

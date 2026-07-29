@@ -135,6 +135,12 @@ def create_order(payload):
     return _live_post("/signupv2", payload)
 
 
+def update_order_lines(order_id, payload):
+    """PUT /draft-order-v2/lines → fija/actualiza las líneas de la orden (incluye formerOwner
+    para el cambio de titular en portabilidad). Es el endpoint que usa el panel de Likes."""
+    return _live_put(f"/draft-order-v2/lines?orderId={order_id}", payload)
+
+
 def get_order_draft(order_id):
     """GET /draft-order-v2?orderId= → detalle de orden (documentation, status, products…)."""
     return _live_get("/draft-order-v2", {"orderId": order_id})

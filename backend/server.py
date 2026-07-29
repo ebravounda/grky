@@ -1388,9 +1388,6 @@ async def list_orders(request: Request):
 @api.post("/orders")
 async def create_order(body: OrderCreate, request: Request):
     user = await require_perm(request, "orders.manage")
-    logger.info("create_order DIAG: changeHolder=%s holderFiscal=%s holderName=%s docType=%s portability=%s donor=%s sim=%s producto=%s",
-                body.changeHolder, body.currentHolderFiscalId, body.currentHolderName,
-                body.currentHolderDocType, body.portability, body.donorOperatorId, body.simType, body.productId)
     is_reseller = user.get("role") == "reseller"
     customer = await db.customers.find_one({"fiscalId": body.fiscalId})
     if not customer:

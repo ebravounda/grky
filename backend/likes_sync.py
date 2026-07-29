@@ -204,3 +204,27 @@ async def upload_signed_contract(likes_order_id, contract_pdf_bytes):
     result["uploaded"] = bool(ok)
     log.append("Contrato firmado subido a Likes" if ok else f"Contrato ERROR: {uerr}")
     return result
+
+
+async def upload_signed_titular_change(likes_order_id, pdf_bytes):
+    """Sube el documento de cambio de titular firmado (signedTitularChange) a la orden de Likes. Fail-safe."""
+    result = {"uploaded": False, "log": []}
+    log = result["log"]
+    if not likes_order_id or not pdf_bytes:
+        return result
+    if not await asyncio.to_thread(likes_client.get_token):
+        result["reason"] = "not_connected"
+        return result
+    draft = await asyncio.to_thread(likes_client.get_order_draft, likes_order_id)
+    sc = None
+    for d in (draft or {}).get("documentation", []):
+        if d.get("type") == "signedTitularChange" and d.get("uploadURL"):
+            sc = d
+            break
+    if not sc:
+        log.append("No se encontró uploadURL de 'signedTitularChange' en la orden de Likes")
+        return result
+    ok, uerr = await asyncio.to_thread(likes_client.upload_file_to_url, sc["uploadURL"], pdf_bytes, "application/pdf")
+    result["uploaded"] = bool(ok)
+    log.append("Cambio de titular firmado subido a Likes" if ok else f"Titular ERROR: {uerr}")
+    return result

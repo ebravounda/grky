@@ -1810,8 +1810,22 @@ async def _order_signed_pdf_bytes(order):
     return generate_contract_pdf(ct, tpl)
 
 
+async def _order_titular_change_pdf_bytes(order):
+    """Genera el PDF de cambio de titularidad (con firma) para una orden con cambio de titular."""
+    ct = await _build_contract(order)
+    ct["formerOwnerName"] = " ".join(filter(None, [
+        order.get("currentHolderName"), order.get("currentHolderFirstSurname"),
+        order.get("currentHolderLastSurname")])).strip() or "—"
+    ct["formerOwnerFiscalId"] = order.get("currentHolderFiscalId") or "—"
+    ct["formerOwnerDocType"] = order.get("currentHolderDocType") or "DNI"
+    tpl = await _get_contract_template()
+    from contracts import generate_titular_change_pdf
+    return generate_titular_change_pdf(ct, tpl)
+
+
 async def _push_signed_contract_bg(order_id):
-    """Sube en segundo plano el contrato firmado a Likes (fail-safe)."""
+    """Sube en segundo plano el contrato firmado a Likes (fail-safe). Si hay cambio de titular,
+    también genera y sube el documento de cambio de titularidad firmado (signedTitularChange)."""
     try:
         order = await db.orders.find_one({"orderId": order_id})
         if not order:
@@ -1822,6 +1836,14 @@ async def _push_signed_contract_bg(order_id):
                         f"Firma contrato {order.get('contractNumber')} → Likes: "
                         f"{'subido' if res.get('uploaded') else res.get('reason', 'no subido')}",
                         {"orderId": order_id})
+        # Cambio de titular: subir también el documento de cambio de titularidad firmado
+        if order.get("changeHolder") and order.get("currentHolderFiscalId"):
+            tc_pdf = await _order_titular_change_pdf_bytes(order)
+            tc_res = await likes_sync.upload_signed_titular_change(order.get("likesOrderId"), tc_pdf)
+            await log_event("order", "success" if tc_res.get("uploaded") else "info",
+                            f"Cambio de titular {order.get('contractNumber')} → Likes: "
+                            f"{'subido' if tc_res.get('uploaded') else tc_res.get('reason', 'no subido')}",
+                            {"orderId": order_id})
     except Exception as e:  # noqa
         logger.warning("push signed contract %s: %s", order_id, e)
 

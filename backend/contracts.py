@@ -405,3 +405,68 @@ def generate_contract_pdf(ct: dict, tpl: dict = None) -> bytes:
             d.para(s.get("body", ""), size=7.8, color=GREY)
 
     return d.save()
+
+
+def generate_titular_change_pdf(ct: dict, tpl: dict = None) -> bytes:
+    """Documento de solicitud de cambio de titularidad (portabilidad con cambio de titular).
+    Refleja el titular anterior (formerOwner) y el nuevo titular (cliente GoRoky) + firma."""
+    tpl = {**DEFAULT_TEMPLATE, **(tpl or {})}
+    ctx = dict(ct)
+    ctx.update({
+        "issuerBrand": tpl.get("issuerBrand", ""), "issuerLegal": tpl.get("issuerLegal", ""),
+        "issuerCif": tpl.get("issuerCif", ""), "issuerAddr": tpl.get("issuerAddr", ""),
+        "date": _fmt_date(ct.get("date")),
+        "contractTitle": "Cambio de titularidad",
+    })
+    tpl = {**tpl, "contractTitle": "Cambio de titularidad"}
+    d = _Doc(tpl, ctx)
+
+    d.section("Solicitud de cambio de titularidad")
+    d.para(
+        "Por el presente documento se solicita el cambio de titularidad del número de teléfono indicado a "
+        "continuación, en el marco del proceso de portabilidad hacia Goroky Telecom. El nuevo titular declara "
+        "estar autorizado para realizar dicho cambio y acepta la portabilidad del número.", size=9)
+    d.gap(2)
+
+    d.subheading("Número afectado")
+    d.para(f"Número a portar: {ct.get('lineNumber') or ct.get('portMsisdn') or '—'}", size=9)
+    d.para(f"Operador donante: {ct.get('donorOperator') or ct.get('donorOperatorId') or '—'}", size=9)
+    d.gap(2)
+
+    d.subheading("Titular anterior (cede la línea)")
+    d.para(f"Nombre: {ct.get('formerOwnerName', '—')}", size=9)
+    d.para(f"Documento ({ct.get('formerOwnerDocType', 'DNI')}): {ct.get('formerOwnerFiscalId', '—')}", size=9)
+    d.gap(2)
+
+    d.subheading("Nuevo titular (asume la línea)")
+    d.para(f"Nombre: {ct.get('customerName', '—')}", size=9)
+    d.para(f"Documento: {ct.get('fiscalId', '—')}", size=9)
+    d.gap(4)
+
+    # Firma
+    d.ensure(34 * mm)
+    sig_y = d.y
+    d.c.setFillColor(GREY); d.c.setFont("Helvetica-Bold", 8)
+    d.c.drawString(RM - 62 * mm, sig_y, "FIRMA")
+    d.c.drawString(LM, sig_y, "FECHA")
+    d.c.setFillColor(DARK); d.c.setFont("Helvetica", 9)
+    d.c.drawString(LM, sig_y - 6 * mm, ctx.get("date", ""))
+    sig = ct.get("signatureImage")
+    if sig and isinstance(sig, str) and sig.startswith("data:"):
+        try:
+            import base64 as _b64
+            raw = _b64.b64decode(sig.split(",", 1)[1])
+            d.c.drawImage(ImageReader(io.BytesIO(raw)), RM - 62 * mm, sig_y - 22 * mm,
+                          width=50 * mm, height=18 * mm, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+    elif ct.get("signerName"):
+        d.c.setFillColor(DARK); d.c.setFont("Helvetica-Oblique", 13)
+        d.c.drawString(RM - 62 * mm, sig_y - 14 * mm, ct["signerName"])
+    if ct.get("signed"):
+        d.c.setStrokeColor(LINE); d.c.line(RM - 62 * mm, sig_y - 24 * mm, RM, sig_y - 24 * mm)
+        d.c.setFillColor(GREEN); d.c.setFont("Helvetica-Oblique", 7.5)
+        d.c.drawString(RM - 62 * mm, sig_y - 28 * mm, "Firmado digitalmente")
+    d.y = sig_y - 34 * mm
+
+    return d.save()

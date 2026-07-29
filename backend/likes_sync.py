@@ -176,3 +176,31 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
 
     result["synced"] = True
     return result
+
+
+async def upload_signed_contract(likes_order_id, contract_pdf_bytes):
+    """Sube (o sobreescribe) el contrato firmado en el 'signedContract' de una orden ya existente en Likes.
+    Fail-safe: devuelve dict con el resultado. No lanza excepciones."""
+    result = {"uploaded": False, "log": []}
+    log = result["log"]
+    if not likes_order_id or not contract_pdf_bytes:
+        log.append("Sin orderId de Likes o sin PDF: no se sube contrato firmado")
+        return result
+    if not await asyncio.to_thread(likes_client.get_token):
+        log.append("Likes no conectado (MOCK/preview): contrato firmado NO subido")
+        result["reason"] = "not_connected"
+        return result
+    draft = await asyncio.to_thread(likes_client.get_order_draft, likes_order_id)
+    sc = None
+    for d in (draft or {}).get("documentation", []):
+        if d.get("type") in ("signedContract", "contract") and d.get("uploadURL"):
+            sc = d
+            if d.get("type") == "signedContract":
+                break
+    if not sc:
+        log.append("No se encontró uploadURL de 'signedContract' en la orden de Likes")
+        return result
+    ok, uerr = await asyncio.to_thread(likes_client.upload_file_to_url, sc["uploadURL"], contract_pdf_bytes, "application/pdf")
+    result["uploaded"] = bool(ok)
+    log.append("Contrato firmado subido a Likes" if ok else f"Contrato ERROR: {uerr}")
+    return result

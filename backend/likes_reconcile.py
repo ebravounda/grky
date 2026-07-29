@@ -20,6 +20,14 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+# Estados de orden en Likes que implican que el contrato YA está firmado (firma digital de Likes
+# completada o firma manual con contrato subido). PENDING_CONTRACT_SIGNATURE = aún NO firmado.
+SIGNED_ORDER_STATUSES = {
+    "SIGNATURE_COMPLETED", "PENDING_PROVIDER", "PROCESSING",
+    "PROVISIONING", "ACTIVE", "COMPLETED",
+}
+
+
 def _norm_svas(raw):
     """Normaliza los SVAs de Likes (formato real {spanishName, status, type}) a {code, status, spanishName}."""
     out = []
@@ -58,9 +66,16 @@ async def reconcile_customer(db, fiscal_id):
             cust = o.get("customer") or {}
             cust_name = (f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip()
                          or o.get("customerName") or o.get("name"))
-            upd = {"status": ostatus, "price": o.get("price"), "likesOrderId": oid,
+            upd = {"status": ostatus, "likesPrice": o.get("price"), "likesOrderId": oid,
                    "productName": p0.get("productName"), "lineNumber": ln0,
                    "source": "likes", "likesSyncedAt": now}
+            # --- firma bidireccional: si Likes reporta la firma completada, reflejarlo en el CRM ---
+            os_up = (ostatus or "").upper()
+            if os_up in SIGNED_ORDER_STATUSES:
+                existing = await db.orders.find_one({"$or": [{"likesOrderId": oid}, {"orderId": oid}]})
+                upd["signed"] = True
+                if not (existing or {}).get("signedAt"):
+                    upd["signedAt"] = now
             # --- envío de SIM/dispositivo (espejo fiel de Likes) ---
             needs_ship = (ostatus == "PENDING_MANUAL_SHIPPING") or bool(ext_carrier)
             if needs_ship:

@@ -44,6 +44,11 @@ export default function Orders() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  const sendSignEmail = async (o) => {
+    try { const { data } = await api.post(`/orders/${o.orderId}/send-signature-email`); toast.success(`Correo de firma enviado a ${data.to}`); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
   const activate = async (o) => {
     try { await api.post(`/orders/${o.orderId}/activate`); toast.success("Línea activada · email de bienvenida enviado"); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
@@ -203,6 +208,11 @@ export default function Orders() {
                     {!o.signed && (
                       <button data-testid={`order-sign-${o.orderId}`} onClick={() => sign(o)} title="Firmar contrato" className="inline-flex items-center gap-1 text-muted-foreground hover:text-success">
                         <PenLine size={14} /> Firmar
+                      </button>
+                    )}
+                    {!o.signed && (
+                      <button data-testid={`order-send-sign-${o.orderId}`} onClick={() => sendSignEmail(o)} title="Enviar correo de firma al cliente" className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary">
+                        <Send size={14} /> Enviar firma
                       </button>
                     )}
                     {o.signed && <span className="text-xs text-success font-medium">✓ Firmado</span>}

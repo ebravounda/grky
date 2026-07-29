@@ -35,6 +35,7 @@ import PaymentResult from "@/pages/PaymentResult";
 import PublicCatalog from "@/pages/public/PublicCatalog";
 import SignupWizard from "@/pages/public/SignupWizard";
 import SignContract from "@/pages/public/SignContract";
+import ContractSign from "@/pages/public/ContractSign";
 import ResubmitDocs from "@/pages/public/ResubmitDocs";
 import LegalPage from "@/pages/public/LegalPage";
 
@@ -87,6 +88,7 @@ function App() {
           <Route path="/contratar" element={<PublicCatalog />} />
           <Route path="/contratar/:productId" element={<SignupWizard />} />
           <Route path="/firmar/:token" element={<SignContract />} />
+          <Route path="/firmar-contrato/:token" element={<ContractSign />} />
           <Route path="/corregir/:token" element={<ResubmitDocs />} />
           <Route path="/privacidad" element={<LegalPage type="privacy" />} />
           <Route path="/terminos" element={<LegalPage type="terms" />} />

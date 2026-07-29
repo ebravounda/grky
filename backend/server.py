@@ -9,6 +9,7 @@ import io
 import asyncio
 import logging
 import uuid
+import secrets as _secrets
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
@@ -1452,6 +1453,15 @@ async def create_order(body: OrderCreate, request: Request):
             "likesOrderId": likes_order_id, "lineNumber": None}
 
 
+async def _contract_price(product_id, fallback):
+    """Precio del contrato = SIEMPRE el PVP de venta actual de la tarifa (no el coste/cesión de Likes)."""
+    if product_id:
+        t = await db.tariffs.find_one({"productId": product_id})
+        if t and t.get("price") is not None:
+            return t["price"]
+    return fallback or 0
+
+
 async def _build_contract(order):
     customer = await db.customers.find_one({"fiscalId": order["fiscalId"]})
     ba = (customer.get("billingAddress", {}) if customer else {}) or {}
@@ -1459,12 +1469,15 @@ async def _build_contract(order):
     donor = None
     if order.get("donorOperatorId"):
         donor = next((d["Name"] for d in (await asyncio.to_thread(likes_client.get_donor_operators)) if d.get("Code") == order["donorOperatorId"]), order["donorOperatorId"])
-    # Firma: recuperar de la solicitud (application) asociada al nº de contrato
-    sig_img, signer = None, None
+    # Precio de venta (PVP) actual del catálogo, nunca el coste/cesión de Likes
+    price = await _contract_price(order.get("productId"), order.get("price", 0))
+    # Firma: de la propia orden (firma iniciada desde el CRM) o de la solicitud asociada
+    sig_img = order.get("signatureImage")
+    signer = order.get("signerName")
     app_doc = await db.applications.find_one({"contractCode": order.get("contractNumber")})
     if app_doc:
-        sig_img = app_doc.get("signatureImage")
-        signer = app_doc.get("signerName")
+        sig_img = sig_img or app_doc.get("signatureImage")
+        signer = signer or app_doc.get("signerName")
     if signer is None and customer:
         signer = (customer.get("kyc") or {}).get("signerName")
     return {
@@ -1474,7 +1487,7 @@ async def _build_contract(order):
         "customerEmail": customer.get("email") if customer else "",
         "customerPhone": customer.get("contactPhone") if customer else "",
         "productName": order.get("productName"), "family": order.get("family"),
-        "lineNumber": order.get("lineNumber"), "price": order.get("price", 0),
+        "lineNumber": order.get("lineNumber"), "price": price,
         "portability": order.get("portability", False), "donorOperator": donor,
         "signed": order.get("signed", False),
         "signerName": signer, "signatureImage": sig_img,
@@ -1482,7 +1495,7 @@ async def _build_contract(order):
         "nationality": (app_doc or {}).get("nationality", "España"),
         "shippingAddress": (app_doc or {}).get("shippingAddress") or address,
         "products": [{"number": order.get("lineNumber", ""), "name": order.get("productName", ""),
-                      "permanence": order.get("permanence", ""), "price": order.get("price", 0)}],
+                      "permanence": order.get("permanence", ""), "price": price}],
     }
 
 
@@ -1755,6 +1768,124 @@ async def sign_contract(order_id: str, request: Request):
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
     return {"ok": True}
+
+
+async def _order_signed_pdf_bytes(order):
+    """Genera el PDF del contrato (con firma si existe) para una orden."""
+    ct = await _build_contract(order)
+    tpl = await _get_contract_template()
+    return generate_contract_pdf(ct, tpl)
+
+
+async def _push_signed_contract_bg(order_id):
+    """Sube en segundo plano el contrato firmado a Likes (fail-safe)."""
+    try:
+        order = await db.orders.find_one({"orderId": order_id})
+        if not order:
+            return
+        pdf = await _order_signed_pdf_bytes(order)
+        res = await likes_sync.upload_signed_contract(order.get("likesOrderId"), pdf)
+        await log_event("order", "success" if res.get("uploaded") else "info",
+                        f"Firma contrato {order.get('contractNumber')} → Likes: "
+                        f"{'subido' if res.get('uploaded') else res.get('reason', 'no subido')}",
+                        {"orderId": order_id})
+    except Exception as e:  # noqa
+        logger.warning("push signed contract %s: %s", order_id, e)
+
+
+@api.post("/orders/{order_id}/send-signature-email")
+async def send_signature_email(order_id: str, request: Request):
+    """El CRM envía al cliente un correo con el enlace para firmar su contrato."""
+    await require_admin(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    customer = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+    email = (customer or {}).get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="El cliente no tiene email para enviarle la firma")
+    if not emailer.is_configured():
+        raise HTTPException(status_code=503, detail="El servicio de email no está configurado")
+    token = order.get("signToken")
+    if not token:
+        token = _secrets.token_urlsafe(24)
+        await db.orders.update_one({"orderId": order_id}, {"$set": {"signToken": token}})
+    link = f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/firmar-contrato/{token}"
+    name = order.get("customerName") or "cliente"
+    html = emailer.base_template(
+        "Firma tu contrato",
+        f"Hola {name},<br><br>Para completar tu alta de <b>{order.get('productName', '')}</b> necesitamos tu firma. "
+        f"Firma tu contrato (código <b>{order.get('contractNumber', '')}</b>) de forma segura desde aquí:<br><br>"
+        f"<a href='{link}' style='background:#0033ff;color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none'>Firmar contrato</a>"
+        f"<br><br>Si el botón no funciona, copia este enlace en tu navegador:<br>{link}")
+    try:
+        await emailer.send_email(email, "Firma tu contrato - Goroky Telecom", html)
+    except Exception as e:  # noqa
+        logger.warning("send_signature_email %s: %s", order_id, e)
+        raise HTTPException(status_code=502, detail=f"No se pudo enviar el correo: {e}")
+    await log_event("order", "info", f"Correo de firma enviado a {email} · contrato {order.get('contractNumber')}", {"orderId": order_id})
+    return {"ok": True, "to": email}
+
+
+@api.get("/public/contract-sign/{token}")
+async def public_contract_sign_info(token: str):
+    order = await db.orders.find_one({"signToken": token})
+    if not order:
+        raise HTTPException(status_code=404, detail="Enlace no válido o expirado")
+    price = await _contract_price(order.get("productId"), order.get("price", 0))
+    return {"contractCode": order.get("contractNumber"), "productName": order.get("productName"),
+            "price": price, "customerName": order.get("customerName"),
+            "signed": bool(order.get("signed"))}
+
+
+@api.get("/public/contract-sign/{token}/contract.pdf")
+async def public_contract_sign_pdf(token: str):
+    order = await db.orders.find_one({"signToken": token})
+    if not order:
+        raise HTTPException(status_code=404, detail="Enlace no válido")
+    pdf_bytes = await _order_signed_pdf_bytes(order)
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={order.get('contractNumber', 'contrato')}.pdf"})
+
+
+@api.post("/public/contract-sign/{token}")
+async def public_contract_sign(token: str, body: SignBody):
+    order = await db.orders.find_one({"signToken": token})
+    if not order:
+        raise HTTPException(status_code=404, detail="Enlace no válido o expirado")
+    if order.get("signed"):
+        return {"ok": True, "already": True, "contractCode": order.get("contractNumber")}
+    if not body.signerName and not body.signatureImage:
+        raise HTTPException(status_code=400, detail="Debes firmar o escribir tu nombre")
+    sig_id = await _save_file("signature", body.signatureImage, order["fiscalId"]) if body.signatureImage else None
+    signer = body.signerName or order.get("customerName")
+    await db.orders.update_one({"orderId": order["orderId"]}, {"$set": {
+        "signed": True, "signedAt": now_iso(), "signerName": signer,
+        "signatureId": sig_id, "signatureImage": body.signatureImage,
+        "signatureType": body.signatureType}})
+    # Reflejar la firma en la ficha/KYC del cliente (para que aparezca en el PDF del admin)
+    await db.customers.update_one({"fiscalId": order["fiscalId"]}, {"$set": {
+        "kyc.signerName": signer, "kyc.signatureId": sig_id,
+        "kyc.signedAt": now_iso(), "kyc.contractCode": order.get("contractNumber")}})
+    # Push del contrato firmado a Likes (fail-safe, en segundo plano)
+    _spawn_bg(_push_signed_contract_bg(order["orderId"]))
+    # Email de confirmación al cliente
+    if emailer.is_configured():
+        try:
+            customer = await db.customers.find_one({"fiscalId": order["fiscalId"]})
+            if customer and customer.get("email"):
+                html = emailer.base_template(
+                    "Contrato firmado",
+                    f"Hola {order.get('customerName', '')},<br><br>Hemos recibido correctamente la firma de tu contrato "
+                    f"<b>{order.get('contractNumber', '')}</b> de <b>{order.get('productName', '')}</b>.<br><br>"
+                    f"Gracias por confiar en Goroky Telecom.")
+                await emailer.send_email(customer["email"], "Contrato firmado - Goroky Telecom", html)
+        except Exception:
+            pass
+    await log_event("order", "success", f"Contrato {order.get('contractNumber')} firmado por el cliente", {"orderId": order["orderId"]})
+    return {"ok": True, "contractCode": order.get("contractNumber")}
+
+
 
 
 @api.post("/orders/{order_id}/activate")
@@ -3750,6 +3881,7 @@ async def _app_to_contract(app_doc):
     if is_port and app_doc.get("donorOperatorId"):
         donor = next((d["Name"] for d in (await asyncio.to_thread(likes_client.get_donor_operators))
                       if d.get("Code") == app_doc["donorOperatorId"]), app_doc["donorOperatorId"])
+    price = await _contract_price(app_doc.get("productId"), app_doc.get("price"))
     return {
         "contractNumber": app_doc["contractCode"], "date": app_doc.get("signedAt") or app_doc["createdAt"],
         "customerName": f"{app_doc['name']} {app_doc.get('firstSurname', '')}".strip().upper(),
@@ -3758,7 +3890,7 @@ async def _app_to_contract(app_doc):
         "customerEmail": app_doc["email"], "customerPhone": app_doc["contactPhone"],
         "productName": app_doc["productName"], "family": app_doc["family"],
         "lineNumber": app_doc.get("portMsisdn") or app_doc.get("lineNumber", "Pendiente de asignar"),
-        "price": app_doc["price"],
+        "price": price,
         "portability": is_port, "donorOperator": donor,
         "portMsisdn": app_doc.get("portMsisdn"),
         "currentHolderName": app_doc.get("currentHolderName"),
@@ -3771,7 +3903,7 @@ async def _app_to_contract(app_doc):
         "shippingAddress": app_doc.get("shippingAddress") or f"{app_doc['address']}, {app_doc['postalCode']} {app_doc['city']} ({app_doc.get('province', '')})".strip(),
         "products": [{"number": app_doc.get("portMsisdn") or app_doc.get("lineNumber", ""),
                       "name": app_doc["productName"],
-                      "permanence": app_doc.get("permanence", ""), "price": app_doc["price"]}],
+                      "permanence": app_doc.get("permanence", ""), "price": price}],
     }
 
 

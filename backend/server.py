@@ -1439,7 +1439,7 @@ async def create_order(body: OrderCreate, request: Request):
             prod_payload["hasFormerOwner"] = True
     odata, oerr = await asyncio.to_thread(
         likes_client.create_order,
-        {"digitalSignature": True, "fiscalId": body.fiscalId, "products": [prod_payload]})
+        {"digitalSignature": False, "fiscalId": body.fiscalId, "products": [prod_payload]})
     if oerr:
         logger.error("Likes rechazó el alta (portabilidad=%s, donor=%s, producto=%s, familia=%s): %s",
                      body.portability, body.donorOperatorId, likes_pid, product["family"], oerr)
@@ -1838,9 +1838,12 @@ async def order_contract_pdf(order_id: str, request: Request):
 @api.post("/orders/{order_id}/contract/sign")
 async def sign_contract(order_id: str, request: Request):
     await require_admin(request)
-    r = await db.orders.update_one({"orderId": order_id}, {"$set": {"signed": True, "signedAt": now_iso()}})
-    if r.matched_count == 0:
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
+    await db.orders.update_one({"orderId": order_id}, {"$set": {"signed": True, "signedAt": now_iso()}})
+    # Subir el contrato firmado (y el cambio de titular si aplica) a Likes para desbloquear la orden
+    _spawn_bg(_push_signed_contract_bg(order_id))
     return {"ok": True}
 
 

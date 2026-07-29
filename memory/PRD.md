@@ -317,3 +317,8 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 ### Iteración 2026-06 (fork) — Cambio de titular: VERIFICADO funcionando en producción
 - El endpoint oficial `signupv2` IGNORA `formerOwner`. Solución que FUNCIONA (validada por el usuario en el VPS): tras crear la orden con signupv2, se lee el borrador (`GET /draft-order-v2`), se inyecta `formerOwner`+`hasFormerOwner` en la línea Main conservando todos los campos, y se reenvía por `PUT /draft-order-v2/lines?orderId=` (mismo endpoint interno que usa el panel de Likes). `likes_client.update_order_lines()`.
 - Confirmado por el usuario: Likes ya muestra "Cambiar titular" con el titular anterior tras el alta desde el CRM. Log de diagnóstico temporal retirado.
+
+### Iteración 2026-06 (fork) — Firma que desbloquea la orden en Likes (digitalSignature=false)
+- PROBLEMA: la orden quedaba "Pendiente de firma de contrato" en Likes tras firmar en el CRM. Causa 1: `create_order` usaba `digitalSignature: true` → Likes esperaba enviar SUS propios emails de firma y NO aceptaba el contrato subido por el CRM. Causa 2: el botón admin `POST /orders/{id}/contract/sign` solo marcaba signed=true, NO subía el contrato a Likes.
+- FIX: `create_order` ahora usa `digitalSignature: false` (modo "subir contrato" → Likes da uploadURL para signedContract/signedTitularChange). `sign_contract` ahora dispara `_push_signed_contract_bg` (sube contrato firmado + cambio de titular a Likes). El flujo del cliente (/firmar-contrato) ya lo hacía.
+- Solo backend. Órdenes creadas ANTES del fix (con digitalSignature true) quedan en modo firma digital de Likes; completar desde el panel ("Firma digital sin KYC" con emails) o recrear.

@@ -192,7 +192,7 @@ export default function Settings() {
           </div>
           <div className="rounded-md border border-border bg-accent/30 p-3 text-xs text-muted-foreground">
             URL del webhook (configúrala en tu panel de Stripe → Developers → Webhooks):
-            <code className="ml-1 text-foreground break-all">{`${window.location.origin.replace('http://', 'https://')}/api/webhook/stripe`}</code>
+            <code className="ml-1 text-foreground break-all">{`${window.location.origin.replace('http://', 'https://')}/api/stripe/webhook`}</code>
             <br />Eventos: <code className="text-foreground">checkout.session.completed</code>, <code className="text-foreground">invoice.payment_succeeded</code>, <code className="text-foreground">invoice.payment_failed</code>
           </div>
           <div className="flex justify-end">

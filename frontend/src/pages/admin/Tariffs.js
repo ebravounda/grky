@@ -143,12 +143,15 @@ export default function Tariffs() {
     } catch (e) { toast.error(apiErr(e)); }
   };
 
-  // Totales (solo tarifas activas y principales cuentan para "cartera mensual")
+  // Ingreso/coste/ganancia MENSUAL REAL = precio de cada tarifa × nº de líneas activas (clientes)
   const totals = tariffs.reduce((acc, t) => {
+    const n = Number(t.customerCount) || 0;
+    if (!n) return acc;
     const m = metrics(t);
-    acc.sale += m.saleWithIva; acc.cost += m.costWithIva; acc.profit += m.profit;
+    acc.sale += m.saleWithIva * n; acc.cost += m.costWithIva * n; acc.profit += m.profit * n;
+    acc.lines += n;
     return acc;
-  }, { sale: 0, cost: 0, profit: 0 });
+  }, { sale: 0, cost: 0, profit: 0, lines: 0 });
 
   const q = search.trim().toLowerCase();
   let visible = filter === "all" ? tariffs : tariffs.filter((t) => t.family === filter);
@@ -340,8 +343,8 @@ export default function Tariffs() {
         }
       />
 
-      {/* Resumen de rentabilidad */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      {/* Resumen de rentabilidad — MENSUAL RECURRENTE según líneas activas */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
         <div data-testid="summary-sale" className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><Receipt size={16} /> Ingreso mensual (con IVA)</div>
           <p className="font-heading text-2xl font-700">{eur(totals.sale)}</p>
@@ -355,6 +358,7 @@ export default function Tariffs() {
           <p className="font-heading text-2xl font-700 text-emerald-700">{eur(totals.profit)}</p>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground mb-6">Cálculo mensual recurrente sobre <b>{totals.lines}</b> línea(s) activa(s) (precio × clientes de cada tarifa), no sobre el catálogo completo.</p>
 
       {/* Búsqueda, orden y filtro de publicadas */}
       <div className="flex flex-wrap items-center gap-2 mb-4">

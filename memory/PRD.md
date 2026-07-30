@@ -446,3 +446,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Frontend `Billing.js`: botón "Cobrar pendientes" (con confirmación) en la barra de Cobros.
 - Pendiente despliegue VPS (backend + frontend).
 
+
+---
+## 2026-07-30 (f) · Rediseño profesional de la factura PDF
+
+- `invoices.py` reescrito con **Platypus** (flujo, sin solapamientos). Cabecera con **logo oficial** (`backend/assets/goroky_logo.png`) + bloque emisor; FACTURAR A + meta (nº, emisión, venc., periodo, sello PAGADA); tabla de conceptos (cabecera oscura, filas alternas, soporta descuentos); PAGO (método + IBAN) + totales (Base/IVA/TOTAL azul); detalle de consumo por línea con barra de datos y tabla de llamadas; **página 2 de Aviso Legal** con el texto legal EXACTO facilitado por el usuario (operadores XFERA/MASMEDIA, datos personales privacy@goroky.com, reclamaciones SETID/Juntas Arbitrales, impago).
+- `GET /invoices/{id}/pdf` enriquece con el IBAN del cliente si falta.
+- Verificado: PDF válido HTTP 200, render revisado (2 páginas, sin solapamientos).
+- Despliegue: solo backend → Save to Github + `git pull` + `systemctl restart goroky-api.service`.
+

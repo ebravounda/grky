@@ -2890,11 +2890,11 @@ def _next_billing_day_ts(billing_day=5):
     return int(nb.timestamp())
 
 
-async def _create_recurring_checkout(customer, product, method, origin_url, meta, anchor_billing_day=False):
+async def _create_recurring_checkout(customer, product, method, origin_url, meta, anchor_billing_day=False, include_setup_fee=True):
     """Crea una sesión de Checkout en modo suscripción (card|sepa) con cuota de alta + mensual."""
     cid = await _ensure_stripe_customer(customer)
     settings = await get_app_settings()
-    setup_fee = float(settings.get("setupFee") or 0)
+    setup_fee = float(settings.get("setupFee") or 0) if include_setup_fee else 0.0
     pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
     monthly = float(product["price"])
     line_items = [{
@@ -2999,7 +2999,7 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
             detail="El cliente no tiene una tarifa con importe para domiciliar. Asigna una línea/suscripción primero.")
     product = {"productName": prod_name, "price": monthly}
     session = await _create_recurring_checkout(customer, product, "card", body.origin_url, meta,
-                                               anchor_billing_day=True)
+                                               anchor_billing_day=True, include_setup_fee=False)
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
     emailed = False

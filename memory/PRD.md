@@ -360,3 +360,28 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - NUEVO borrado manual (solo CRM, no toca Likes): `DELETE /lines/{lineNumber}` (borra línea + subscriptions) y `DELETE /orders/{order_id}`. Requieren perms lines.manage / orders.manage. Log de evento. Nota: si existe en Likes, la línea reaparece al reconciliar.
 - Frontend: Lines.js botón papelera por fila (line-delete-{n}) con confirm; Orders.js botón papelera por fila (order-delete-{orderId}) con confirm.
 - Verificado por curl (DELETE línea y orden OK). Desplegar backend+frontend.
+
+---
+## 2026-07-30 · IBAN, tarjeta anclada y CRUD de facturas en perfil de cliente
+
+**Contexto**: continuación tras arreglar el borrado de líneas/órdenes (405 en VPS → cambiado a POST porque Plesk/ModSecurity bloquea el método DELETE; primera funcionalidad de la app que usaba DELETE).
+
+**Implementado (backend `server.py`)**:
+- `POST /api/customers/{fiscalId}/billing` → guarda/edita `iban` y `paymentMethod` del cliente (perm `billing.manage`). El IBAN solo se almacena para consulta (el usuario lo introducirá manualmente en Stripe).
+- `POST /api/invoices` → crea factura manual con múltiples conceptos (`items[]`), opcionalmente adjunta consumo por línea (`lineNumbers[]` → `_line_usage`). Totales: total (IVA incl.) = suma de `amount`; subtotal = total/1.21; IVA = total−subtotal. Envía email opcional.
+- `POST /api/invoices/{id}/update` → edita factura NO pagada (conceptos, periodo, consumo, método, status). Bloquea 400 si `status=="paid"`.
+- `POST /api/invoices/{id}/delete` (+ alias `DELETE`) → elimina factura NO pagada; 400 si pagada. Se usa POST por el bloqueo de DELETE del VPS.
+- `POST /api/customers/{fiscalId}/send-card-link` → genera un enlace hosted de Stripe (Checkout modo suscripción, tarjeta) para que el CLIENTE introduzca su tarjeta; queda anclada a una suscripción mensual con primer cobro el día de facturación (`billingDay`, por defecto 5) vía `trial_end`. NO incluye cuota de alta (`include_setup_fee=False`). Importe = suma de líneas ACTIVE (fallbacks: cualquier línea con precio, o product de la suscripción). Envía el enlace por email al cliente.
+- Helpers: `_invoice_totals`, `_consumption_for`, `_next_billing_day_ts`, parámetros `anchor_billing_day`/`include_setup_fee` en `_create_recurring_checkout`.
+
+**Implementado (frontend `CustomerDetail.js`)**:
+- Botón "Editar cobro" → diálogo IBAN + método de pago.
+- Botón "Enviar enlace tarjeta" en cabecera → llama send-card-link, avisa por toast y abre el checkout.
+- Sección Facturas: botón "Nueva factura" (diálogo con conceptos dinámicos + selección de líneas para consumo + total en vivo + envío por email), iconos por factura de reenviar (Mail), editar (Pencil, solo no pagadas) y eliminar (Trash2, solo no pagadas).
+
+**Testing**: iteration_12.json → 100% backend (pytest 9/1 skip) y 100% frontend (Playwright). Sin issues críticos/menores. Nota: la factura PDF (`invoices.py`) ya renderizaba conceptos + consumo por línea + detalle de llamadas.
+
+**Pendiente de despliegue en VPS** (cambió backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
+
+**Deuda técnica anotada por review** (no bloqueante): modularizar `server.py` (~4850 líneas) en routers; `InvoiceItemBody.quantity` se ignora en los totales (amount = total de línea).
+

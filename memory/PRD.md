@@ -438,3 +438,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 
 **Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
 
+
+---
+## 2026-07-30 (e) · Cobro masivo
+
+- Backend `POST /api/billing/charge-all-pending`: cobra de una vez todas las facturas `status=pending` de clientes con tarjeta guardada (off-session, cachea el pm por cliente). Devuelve {total, charged, failed, skipped}. Validado: 39 pendientes → 39 skipped (sin tarjeta en preview).
+- Frontend `Billing.js`: botón "Cobrar pendientes" (con confirmación) en la barra de Cobros.
+- Pendiente despliegue VPS (backend + frontend).
+

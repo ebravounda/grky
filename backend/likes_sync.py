@@ -95,7 +95,9 @@ def _products_payload(order, likes_product_id, customer_email=None):
             if order.get("donorOperatorId"):
                 prod["donorOperatorId"] = order.get("donorOperatorId")
     elif family == "TV":
-        prod["lineNumber"] = order.get("email") or ""
+        # TV: lineNumber = email de suscripción del cliente (Likes lo exige válido).
+        return [{"family": "TV", "productId": likes_product_id,
+                 "lineNumber": order.get("email") or customer_email or ""}]
     return [prod]
 
 

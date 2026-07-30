@@ -1718,6 +1718,9 @@ async def create_order(body: OrderCreate, request: Request):
         logger.info("Cliente creado en Likes para alta manual: %s", body.fiscalId)
     # 1) Crear el alta REAL en Likes (signupv2). Nada de datos ficticios.
     prod_payload = {"family": product["family"], "productId": likes_pid, "portability": bool(body.portability)}
+    if product["family"] == "TV":
+        # TV: Likes exige lineNumber = email de suscripción del cliente; no lleva portability.
+        prod_payload = {"family": "TV", "productId": likes_pid, "lineNumber": customer.get("email") or ""}
     if is_mobile:
         if body.simType == "esim":
             prod_payload["eSim"] = True
@@ -2897,8 +2900,10 @@ async def _provision_via_likes(a):
         if reason == "not_connected":
             raise HTTPException(status_code=503,
                 detail="Likes no está conectado (IP no autorizada). El alta se crea en Likes al aprobar; no se puede aprobar sin conexión con Likes.")
-        logger.error("Likes rechazó el alta al aprobar (contrato=%s): %s", a.get("contractCode"), reason)
-        raise HTTPException(status_code=400, detail=f"Likes no pudo crear el alta: {reason or 'error desconocido'}")
+        detail = (result.get("log") or [""])[-1] if result.get("log") else ""
+        logger.error("Likes rechazó el alta al aprobar (contrato=%s): %s · %s", a.get("contractCode"), reason, detail)
+        raise HTTPException(status_code=400,
+            detail=f"Likes no pudo crear el alta: {detail or reason or 'error desconocido'}")
     # 2) Reconciliación de datos reales + activación del servicio EN SEGUNDO PLANO
     #    (evita superar el timeout del proxy en altas largas con muchas llamadas a Likes).
     #    El email de bienvenida se envía con los datos reales ya espejados.

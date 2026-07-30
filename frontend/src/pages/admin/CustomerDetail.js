@@ -129,9 +129,10 @@ export default function CustomerDetail() {
 
   const saveInvoice = async () => {
     const items = invForm.items
-      .filter((it) => it.description && parseFloat(it.amount) > 0)
+      .filter((it) => it.description && parseFloat(it.amount) && parseFloat(it.amount) !== 0)
       .map((it) => ({ description: it.description, detail: it.detail || "", quantity: 1, amount: parseFloat(it.amount) }));
     if (items.length === 0) return toast.error("Añade al menos un concepto con importe");
+    if (items.reduce((s, it) => s + it.amount, 0) <= 0) return toast.error("El total debe ser mayor que 0 €");
     setSavingInv(true);
     try {
       const payload = { items, lineNumbers: invForm.lineNumbers, period: invForm.period || undefined, sendEmail: invForm.sendEmail };
@@ -154,6 +155,12 @@ export default function CustomerDetail() {
     try { await api.post(`/invoices/${inv.id}/email`); toast.success("Factura reenviada por email"); }
     catch (e) { toast.error(apiErr(e)); }
   };
+  const markPaid = async (inv) => {
+    if (!window.confirm(`¿Marcar la factura ${inv.invoiceNumber} como pagada? (Cobro recibido por otro medio.)`)) return;
+    try { await api.post(`/invoices/${inv.id}/mark-paid`); toast.success("Factura marcada como pagada"); load(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+  const addDiscount = () => setInvForm((f) => ({ ...f, items: [...f.items, { description: "Descuento", detail: "", amount: "-" }] }));
 
   const syncLikes = async () => {
     setSyncing(true);
@@ -410,6 +417,7 @@ export default function CustomerDetail() {
                       <button data-testid={`inv-resend-${i.invoiceNumber}`} onClick={() => resendInvoice(i)} title="Reenviar por email" className="text-muted-foreground hover:text-primary transition-colors"><Mail size={15} /></button>
                       {i.status !== "paid" && (
                         <>
+                          <button data-testid={`inv-markpaid-${i.invoiceNumber}`} onClick={() => markPaid(i)} title="Marcar como pagada" className="text-muted-foreground hover:text-success transition-colors"><CheckCircle2 size={15} /></button>
                           <button data-testid={`inv-edit-${i.invoiceNumber}`} onClick={() => openEditInvoice(i)} title="Editar factura" className="text-muted-foreground hover:text-primary transition-colors"><Pencil size={15} /></button>
                           <button data-testid={`inv-delete-${i.invoiceNumber}`} onClick={() => deleteInvoice(i)} title="Eliminar factura" className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={15} /></button>
                         </>
@@ -534,11 +542,14 @@ export default function CustomerDetail() {
                 <div key={idx} className="grid grid-cols-12 gap-2 items-start" data-testid={`inv-item-${idx}`}>
                   <Input className="col-span-5" data-testid={`inv-item-desc-${idx}`} value={it.description} onChange={(e) => setItem(idx, "description", e.target.value)} placeholder="Concepto (ej. Cuota mensual)" />
                   <Input className="col-span-4" data-testid={`inv-item-detail-${idx}`} value={it.detail} onChange={(e) => setItem(idx, "detail", e.target.value)} placeholder="Detalle" />
-                  <Input className="col-span-2" data-testid={`inv-item-amount-${idx}`} type="number" step="0.01" min="0" value={it.amount} onChange={(e) => setItem(idx, "amount", e.target.value)} placeholder="€" />
+                  <Input className="col-span-2" data-testid={`inv-item-amount-${idx}`} type="number" step="0.01" value={it.amount} onChange={(e) => setItem(idx, "amount", e.target.value)} placeholder="€" />
                   <button type="button" data-testid={`inv-item-remove-${idx}`} onClick={() => removeItem(idx)} className="col-span-1 h-9 grid place-items-center text-muted-foreground hover:text-destructive" disabled={invForm.items.length === 1}><Trash2 size={15} /></button>
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm" data-testid="inv-add-item-btn" onClick={addItem} className="rounded-full gap-1.5"><Plus size={13} /> Añadir concepto</Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" data-testid="inv-add-item-btn" onClick={addItem} className="rounded-full gap-1.5"><Plus size={13} /> Añadir concepto</Button>
+                <Button type="button" variant="outline" size="sm" data-testid="inv-add-discount-btn" onClick={addDiscount} className="rounded-full gap-1.5">− Añadir descuento</Button>
+              </div>
             </div>
 
             {lines.length > 0 && (

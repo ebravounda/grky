@@ -168,6 +168,8 @@ async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
 # ------------------------- billing config -------------------------
 BILLING_REMINDER_DAYS = [int(x) for x in os.environ.get("BILLING_REMINDER_DAYS", "5,3").split(",") if x.strip()]
 BILLING_MAX_FAILED = int(os.environ.get("BILLING_MAX_FAILED_ATTEMPTS", "3"))
+CARD_REMINDER_DAYS = int(os.environ.get("CARD_REMINDER_INTERVAL_DAYS", "3"))
+CARD_REMINDER_MAX = int(os.environ.get("CARD_REMINDER_MAX", "3"))
 
 
 async def log_event(source: str, level: str, message: str, meta: dict = None):
@@ -2974,16 +2976,21 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
     customer = await db.customers.find_one({"fiscalId": fiscalId})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    await _stripe_apply()
-    # Localizar la tarifa/importe mensual a cobrar (total de líneas activas del cliente)
+    return await _send_card_link(customer, body.origin_url, send_email=body.sendEmail)
+
+
+def _has_card_on_file(customer):
+    """True si el cliente ya tiene tarjeta domiciliada (no hace falta recordarle)."""
+    rec = customer.get("recurring") or {}
+    return (rec.get("method") == "card" and bool(rec.get("stripeSubscriptionId"))) or customer.get("paymentMethod") == "CARD"
+
+
+async def _resolve_monthly(fiscalId):
+    """Importe mensual y nombre de tarifa a domiciliar (líneas activas → fallbacks)."""
     active_lines = await db.lines.find({"fiscalId": fiscalId, "status": "ACTIVE"}).to_list(100)
     monthly = round(sum(float(l.get("price") or 0) for l in active_lines), 2)
     prod_name = active_lines[0].get("productName") if active_lines else "Cuota mensual"
-    meta = {"fiscalId": fiscalId, "purpose": "card_setup"}
     sub = await db.subscriptions.find_one({"fiscalId": fiscalId}, sort=[("created", -1)])
-    if sub:
-        meta["subscriptionId"] = sub["subscriptionId"]
-    # Fallbacks si no hay líneas activas con precio
     if monthly <= 0:
         any_line = await db.lines.find_one({"fiscalId": fiscalId, "price": {"$gt": 0}}, sort=[("created", -1)])
         if any_line:
@@ -2994,20 +3001,32 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
         monthly = round(float(p0.get("price") or p0.get("finalBrandPrice") or p0.get("finalPrice")
                               or p0.get("productBrandPrice") or 0), 2)
         prod_name = p0.get("productName") or prod_name
+    return monthly, prod_name, sub
+
+
+async def _send_card_link(customer, origin_url, send_email=True, is_reminder=False):
+    """Crea el enlace de tarjeta, lo envía por email y registra el seguimiento (para recordatorios)."""
+    fiscalId = customer["fiscalId"]
+    await _stripe_apply()
+    monthly, prod_name, sub = await _resolve_monthly(fiscalId)
     if monthly <= 0:
         raise HTTPException(status_code=400,
             detail="El cliente no tiene una tarifa con importe para domiciliar. Asigna una línea/suscripción primero.")
+    meta = {"fiscalId": fiscalId, "purpose": "card_setup"}
+    if sub:
+        meta["subscriptionId"] = sub["subscriptionId"]
     product = {"productName": prod_name, "price": monthly}
-    session = await _create_recurring_checkout(customer, product, "card", body.origin_url, meta,
+    session = await _create_recurring_checkout(customer, product, "card", origin_url, meta,
                                                anchor_billing_day=True, include_setup_fee=False)
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
     emailed = False
-    if body.sendEmail and customer.get("email"):
+    if send_email and customer.get("email"):
         name = (customer.get("name") or "").title()
+        recordatorio = ("<b>Recordatorio:</b> aún no hemos recibido los datos de tu tarjeta.<br><br>" if is_reminder else "")
         html = emailer.base_template(
             "Añade tu tarjeta de pago",
-            f"Hola {name},<br><br>Para activar el pago con tarjeta de tu servicio "
+            f"Hola {name},<br><br>{recordatorio}Para activar el pago con tarjeta de tu servicio "
             f"<b>{product['productName']}</b> ({float(product['price']):.2f} €/mes), añade tu tarjeta "
             "de forma segura en el siguiente enlace. El pago se procesa directamente por Stripe; "
             "nosotros no almacenamos los datos de tu tarjeta.<br><br>"
@@ -3016,9 +3035,17 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
             f"<br><br>El primer cobro se realizará el día <b>{billing_day}</b> del mes y, a partir de ahí, "
             "cada mes automáticamente. Si tienes cualquier duda, responde a este correo.")
         emailed = await _send_mail_safe("email", customer["email"], "Añade tu tarjeta de pago · GoRoky", html)
-    await log_event("stripe", "info", f"Enlace de tarjeta generado · {fiscalId}", {"fiscalId": fiscalId})
+    # seguimiento para el recordatorio automático
+    reminders = (customer.get("cardLink") or {}).get("remindersSent", 0)
+    await db.customers.update_one({"fiscalId": fiscalId}, {"$set": {"cardLink": {
+        "sentAt": now_iso(), "lastSessionId": session.id, "emailed": emailed,
+        "remindersSent": reminders + (1 if is_reminder else 0), "monthly": monthly}}})
+    await log_event("stripe", "info",
+                    f"Enlace de tarjeta {'(recordatorio) ' if is_reminder else ''}generado · {fiscalId}",
+                    {"fiscalId": fiscalId})
     return {"checkout_url": session.url, "session_id": session.id, "emailed": emailed,
             "email": customer.get("email")}
+
 
 
 
@@ -3416,6 +3443,117 @@ async def billing_daily_job():
                     f"Alerta de consumo {threshold}% enviada · línea {l['lineNumber']}")
 
 
+async def monthly_billing_job(force=False):
+    """Cada día {billingDay}: emite la cuota mensual de cada cliente con líneas activas y,
+    si tiene tarjeta guardada, la cobra automáticamente (off-session). Idempotente por periodo.
+    Los clientes con suscripción de Stripe activa se omiten (Stripe los cobra solo vía webhook)."""
+    settings = await get_app_settings()
+    billing_day = int(settings.get("billingDay", 5) or 5)
+    now = datetime.now(timezone.utc)
+    if not force and now.day != billing_day:
+        return {"skipped": True, "reason": f"hoy no es día {billing_day}"}
+    await _stripe_apply()
+    period = _period_label(now)
+    result = {"period": period, "invoiced": 0, "charged": 0, "skipped": 0, "failed": 0}
+    customers = await db.customers.find().to_list(20000)
+    for cust in customers:
+        fid = cust["fiscalId"]
+        # Stripe ya cobra a los que tienen suscripción de tarjeta activa
+        if (cust.get("recurring") or {}).get("stripeSubscriptionId"):
+            result["skipped"] += 1
+            continue
+        active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
+        if not active_lines:
+            result["skipped"] += 1
+            continue
+        # dedup: ya facturado este periodo (recurrente)
+        exists = await db.invoices.find_one({"fiscalId": fid, "period": period, "kind": "recurring"})
+        if exists:
+            result["skipped"] += 1
+            continue
+        items = [{"description": l.get("productName", "Cuota mensual"),
+                  "detail": f"Cuota mensual · {period}", "quantity": 1,
+                  "amount": round(float(l.get("price") or 0), 2)} for l in active_lines if float(l.get("price") or 0) > 0]
+        if not items:
+            result["skipped"] += 1
+            continue
+        total, subtotal, tax = _invoice_totals(items)
+        consumption = [_line_usage(l) for l in active_lines if l.get("family") == "Mobile"]
+        ba = cust.get("billingAddress", {}) or {}
+        address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+        number = await _next_invoice_number()
+        inv = {
+            "invoiceNumber": number, "fiscalId": fid,
+            "customerName": f"{cust['name']} {cust.get('firstSurname', '')}".strip().upper(),
+            "customerEmail": cust.get("email"), "customerAddress": address,
+            "items": items, "subtotal": subtotal, "tax": tax, "total": total,
+            "status": "pending", "date": now.isoformat(), "period": period,
+            "dueDate": (now + timedelta(days=15)).isoformat(),
+            "paymentMethod": cust.get("paymentMethod", "NO"),
+            "consumption": consumption, "kind": "recurring",
+        }
+        # cobro automático con tarjeta guardada
+        cid, pm = await _get_saved_pm(cust)
+        if cid and pm:
+            try:
+                pi = stripe.PaymentIntent.create(
+                    amount=int(round(total * 100)), currency="eur", customer=cid,
+                    payment_method=pm, off_session=True, confirm=True,
+                    description=f"Cuota mensual {period}",
+                    metadata={"fiscalId": fid, "kind": "recurring", "period": period})
+                if pi.status == "succeeded":
+                    inv["status"] = "paid"
+                    result["charged"] += 1
+            except Exception as e:  # noqa
+                result["failed"] += 1
+                await log_event("billing", "warning", f"Cobro mensual con tarjeta falló · {fid}: {str(e)[:100]}",
+                                {"fiscalId": fid})
+        res = await db.invoices.insert_one(inv)
+        inv["_id"] = res.inserted_id
+        await _email_invoice(inv)
+        result["invoiced"] += 1
+    await log_event("billing", "info",
+                    f"Facturación mensual {period}: {result['invoiced']} facturas · {result['charged']} cobradas · {result['failed']} fallidas")
+    return result
+
+
+async def card_reminder_job():
+    """Reenvía el enlace de tarjeta a clientes que lo recibieron pero aún no la han añadido."""
+    now = datetime.now(timezone.utc)
+    result = {"reminded": 0}
+    pend = await db.customers.find({"cardLink.sentAt": {"$exists": True}}).to_list(20000)
+    for cust in pend:
+        cl = cust.get("cardLink") or {}
+        if _has_card_on_file(cust):
+            continue
+        if cl.get("remindersSent", 0) >= CARD_REMINDER_MAX:
+            continue
+        try:
+            sent = datetime.fromisoformat(cl["sentAt"])
+        except Exception:
+            continue
+        if (now - sent).days < CARD_REMINDER_DAYS:
+            continue
+        origin = os.environ.get("FRONTEND_URL", "") or (os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/"))
+        try:
+            await _send_card_link(cust, origin, send_email=True, is_reminder=True)
+            result["reminded"] += 1
+        except Exception as e:  # noqa
+            logger.warning("card_reminder failed %s: %s", cust.get("fiscalId"), e)
+    if result["reminded"]:
+        await log_event("stripe", "info", f"Recordatorios de tarjeta enviados: {result['reminded']}")
+    return result
+
+
+@api.post("/billing/run-monthly")
+async def run_monthly_billing(request: Request):
+    """Ejecuta manualmente la facturación mensual (para probar sin esperar al día de facturación)."""
+    await require_admin(request)
+    res = await monthly_billing_job(force=True)
+    return {"ok": True, **res}
+
+
+
 @api.post("/billing/run-cycle")
 async def run_billing_cycle(request: Request):
     await require_admin(request)
@@ -3771,6 +3909,8 @@ async def create_invoice(body: InvoiceCreateBody, request: Request):
     if not items:
         raise HTTPException(status_code=400, detail="Añade al menos un concepto")
     total, subtotal, tax = _invoice_totals(items)
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="El total de la factura debe ser mayor que 0 €")
     number = await _next_invoice_number()
     ba = customer.get("billingAddress", {}) or {}
     address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
@@ -3815,6 +3955,8 @@ async def update_invoice(invoice_id: str, body: InvoiceUpdateBody, request: Requ
         if not items:
             raise HTTPException(status_code=400, detail="La factura debe tener al menos un concepto")
         total, subtotal, tax = _invoice_totals(items)
+        if total <= 0:
+            raise HTTPException(status_code=400, detail="El total de la factura debe ser mayor que 0 €")
         updates.update({"items": items, "total": total, "subtotal": subtotal, "tax": tax})
     if body.lineNumbers is not None:
         updates["lineNumbers"] = body.lineNumbers
@@ -3851,6 +3993,28 @@ async def delete_invoice(invoice_id: str, request: Request):
     await db.invoices.delete_one({"_id": inv["_id"]})
     await log_event("billing", "info", f"Factura {inv['invoiceNumber']} eliminada · {inv['fiscalId']}", {"fiscalId": inv["fiscalId"]})
     return {"ok": True, "deleted": inv["invoiceNumber"]}
+
+
+@api.post("/invoices/{invoice_id}/mark-paid")
+async def mark_invoice_paid(invoice_id: str, request: Request):
+    """Marca una factura como pagada manualmente (cobro por otro medio: efectivo, transferencia, etc.)."""
+    from bson import ObjectId
+    user = await require_perm(request, "billing.manage")
+    try:
+        inv = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if inv.get("status") == "paid":
+        return {"ok": True, "alreadyPaid": True}
+    await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+        "status": "paid", "paidManually": True, "paidAt": now_iso(), "paidBy": user.get("email")}})
+    await log_event("billing", "success",
+                    f"Factura {inv['invoiceNumber']} marcada como pagada manualmente · {inv['fiscalId']}",
+                    {"fiscalId": inv["fiscalId"]})
+    inv = await db.invoices.find_one({"_id": inv["_id"]})
+    return clean(inv)
 
 
 
@@ -4655,6 +4819,11 @@ async def startup():
         scheduler.add_job(billing_daily_job, "interval", hours=12, id="billing_daily", replace_existing=True)
         scheduler.add_job(likes_health_job, "interval", minutes=15, id="likes_health", replace_existing=True)
         scheduler.add_job(likes_reconcile_job, "interval", minutes=20, id="likes_reconcile", replace_existing=True)
+        # Facturación mensual automática: se ejecuta cada día a las 06:00 UTC y solo actúa el día de facturación (día 5)
+        from apscheduler.triggers.cron import CronTrigger
+        scheduler.add_job(monthly_billing_job, CronTrigger(hour=6, minute=0), id="monthly_billing", replace_existing=True)
+        # Recordatorio de tarjeta: una vez al día
+        scheduler.add_job(card_reminder_job, CronTrigger(hour=9, minute=0), id="card_reminder", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

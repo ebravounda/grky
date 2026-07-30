@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 13 — Validated 4 new admin features on CustomerDetail: (1) MARCAR COMO PAGADA (POST /api/invoices/{id}/mark-paid) → status paid, paidManually=true, paidBy=admin@goroky.com, paidAt set; idempotent (returns alreadyPaid); edit/delete/mark-paid buttons disappear in UI (verified on GRK-2026-00060). (2) COBRO AUTOMÁTICO / POST /api/billing/run-monthly → returns {ok, period, invoiced, charged, skipped, failed}; idempotent per period (second run invoiced=0, skipped increased); requires admin (401/403 without token). (3) DESCUENTOS: created invoice with items [Cuota 20€, Descuento -5€], total=15.00 € correct in inv-total and persisted; invoice with total<=0 rejected with HTTP 400 'El total de la factura debe ser mayor que 0 €' (backend) and toast in UI. (4) SEND CARD LINK: still returns real Stripe checkout_url (https://checkout.stripe.com/...) AND now persists customer.cardLink.sentAt + lastSessionId (verified via GET /api/customers/R04432057). Backend pytest: 8/8 PASSED. Frontend Playwright full happy-path passed on R04432057.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_new_features.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "monthly_billing_job dedup key is (fiscalId, period, kind='recurring'). Good — but if an admin manually creates an invoice with kind='manual' for the same period, run-monthly will still generate a recurring one on top. Consider adding a UI warning when a manual invoice for the current period already exists.",
+    "monthly_billing_job iterates ALL customers (find().to_list(20000)) and awaits Stripe/email sequentially. On growth this will become slow; consider paginating and using asyncio.gather with a semaphore.",
+    "In monthly_billing_job, when Stripe off-session charge fails (result.failed++), the invoice is still inserted as 'pending' AND emailed. That is the right behaviour but confusing because the same iteration also counts it in 'failed' — 'failed' really means 'auto-charge failed', not 'invoice failed'. Rename to 'chargeFailed' for clarity.",
+    "mark_invoice_paid response uses clean(inv) → good, but the 'alreadyPaid' short-circuit returns only {ok:true, alreadyPaid:true} without the invoice object; UI would need a second GET to refresh. Consider returning the invoice in both branches.",
+    "addDiscount in CustomerDetail.js sets amount to the string \"-\" as placeholder. A <input type=number> will not display \"-\" (browser normalises it), so the field appears empty and the user must retype. Consider setting amount to '' or a numeric -1 default so users see something."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter13_new_features.py",
+    "/app/test_reports/pytest/iter13_results.xml",
+    "/app/test_reports/iteration_13.json"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (working). Test customer used: R04432057 (Gonzalo Soto).",
+  "seed_data_creation": "Created invoice GRK-2026-00060 (15 €, cuota 20 − descuento 5) via UI and marked it as paid (remains in DB as 'paid' artifact — cannot be deleted per business rules). Also invoked POST /api/billing/run-monthly twice: first run produced the periodic invoices for the current period, second run was skipped (idempotent). Send-card-link generated a new Stripe test-mode checkout session for R04432057.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New test file /app/backend/tests/test_iter13_new_features.py covers the 4 iter-13 features. Run with `pytest backend/tests/test_iter13_new_features.py -o addopts=`. R04432057 now has one extra paid invoice (GRK-2026-00060) plus any recurring invoice created by run-monthly for the current period; both are safe to leave. The cardLink.sentAt is now persisted on the customer document (used by the daily card_reminder_job cron — not tested directly). run-monthly is idempotent per period AND per kind='recurring', so re-running it in future test iterations for the same month will report invoiced=0.",
+  "rca of the issue": "N/A — all four new features working as specified."
+}

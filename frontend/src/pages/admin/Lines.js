@@ -20,7 +20,7 @@ export default function Lines() {
   const remove = async (e, l) => {
     e.stopPropagation();
     if (!window.confirm(`¿Eliminar la línea ${l.lineNumber} del CRM? (No afecta a Likes. Si existe en Likes, reaparecerá al reconciliar.)`)) return;
-    try { await api.delete(`/lines/${l.lineNumber}`); toast.success(`Línea ${l.lineNumber} eliminada`); load(); }
+    try { await api.post(`/lines/${encodeURIComponent(l.lineNumber)}/delete`); toast.success(`Línea ${l.lineNumber} eliminada`); load(); }
     catch (err) { toast.error(apiErr(err)); }
   };
 

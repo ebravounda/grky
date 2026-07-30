@@ -64,7 +64,7 @@ export default function Orders() {
 
   const removeOrder = async (o) => {
     if (!window.confirm(`¿Eliminar la orden ${o.contractNumber || o.orderId} del CRM? (No afecta a Likes; sirve para limpiar altas manuales/de prueba.)`)) return;
-    try { await api.delete(`/orders/${o.orderId}`); toast.success("Orden eliminada del CRM"); loadOrders(); }
+    try { await api.post(`/orders/${encodeURIComponent(o.orderId)}/delete`); toast.success("Orden eliminada del CRM"); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
   };
 

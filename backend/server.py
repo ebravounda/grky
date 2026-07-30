@@ -1056,6 +1056,7 @@ async def get_line(lineNumber: str, request: Request):
 
 
 @api.delete("/lines/{lineNumber}")
+@api.post("/lines/{lineNumber}/delete")
 async def delete_line(lineNumber: str, request: Request):
     """Elimina una línea SOLO del CRM (no toca Likes). Útil para limpiar datos manuales/de prueba.
     Nota: si la línea existe en Likes, volverá a aparecer en la próxima reconciliación."""
@@ -1541,6 +1542,7 @@ async def list_orders(request: Request):
 
 
 @api.delete("/orders/{order_id}")
+@api.post("/orders/{order_id}/delete")
 async def delete_order(order_id: str, request: Request):
     """Elimina una orden SOLO del CRM (no toca Likes). Para limpiar altas manuales/de prueba
     que no están en Likes y así no falsear el contador de clientes."""

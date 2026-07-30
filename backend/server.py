@@ -1478,6 +1478,47 @@ def _proration(monthly_price, billing_day=5):
     return prorated, days_left
 
 
+def _prev_month_bounds(now):
+    """Devuelve (primer_dia, ultimo_dia) del MES ANTERIOR a `now` (fechas date)."""
+    first_of_this = now.replace(day=1)
+    last_prev = (first_of_this - timedelta(days=1)).date()
+    first_prev = last_prev.replace(day=1)
+    return first_prev, last_prev
+
+
+def _parse_dt(value):
+    """Parsea una fecha ISO (o devuelve None) de forma tolerante."""
+    if not value:
+        return None
+    try:
+        s = str(value).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return dt.date() if hasattr(dt, "date") else dt
+    except Exception:
+        return None
+
+
+def _arrears_line_amount(price, activation_value, now):
+    """Importe VENCIDO de una línea para el cobro del día de facturación (cobra el mes anterior ya consumido).
+    - Activada antes del mes anterior → cuota completa.
+    - Activada durante el mes anterior → prorrateo desde la activación hasta fin del mes anterior.
+    - Activada después del mes anterior (aún no consumió ese mes) → 0 (no se factura todavía).
+    Devuelve (importe, dias, tipo)."""
+    import calendar
+    price = float(price or 0)
+    p_start, p_end = _prev_month_bounds(now)
+    dim = calendar.monthrange(p_start.year, p_start.month)[1]
+    act = _parse_dt(activation_value)
+    if act is None or act <= p_start:
+        return round(price, 2), dim, "full"
+    if act > p_end:
+        return 0.0, 0, "future"
+    days = (p_end - act).days + 1
+    return round(price * days / dim, 2), days, "prorated"
+
+
+
+
 async def _create_invoice(customer, product, status="pending", first=True):
     number = await _next_invoice_number()
     ba = customer.get("billingAddress", {}) or {}
@@ -1489,16 +1530,11 @@ async def _create_invoice(customer, product, status="pending", first=True):
     now = datetime.now(timezone.utc)
     items = []
     if first:
-        # PRIMERA factura del alta: sin cuota de alta → envío de SIM + parte proporcional hasta el día {billing_day}
-        islands = _is_islands(ba.get("postalCode", ""))
-        shipping = float(settings.get("shippingFeeIslands", 10) if islands else settings.get("shippingFeePeninsula", 8))
-        prorated, days_left = _proration(product["price"], billing_day)
-        if shipping > 0:
-            items.append({"description": "Envío de SIM", "detail": ("Islas" if islands else "Península"),
-                          "quantity": 1, "amount": round(shipping, 2)})
-        items.append({"description": product["productName"],
-                      "detail": f"Parte proporcional ({days_left} días hasta la facturación del día {billing_day})",
-                      "quantity": 1, "amount": prorated})
+        # PRIMERA factura del alta: registro del alta SIN cargos. El envío de SIM física se
+        # cobra al guardar la tarjeta (checkout) y la cuota mensual VENCIDA se cobra el día
+        # {billing_day} desde el job (el 1er cobro prorratea los días ya consumidos).
+        shipping = 0.0
+        prorated, days_left = 0.0, 0
     else:
         # Facturación RECURRENTE (mensual): cuota completa, sin envío ni prorrateo.
         shipping = 0.0
@@ -1524,7 +1560,8 @@ async def _create_invoice(customer, product, status="pending", first=True):
     }
     res = await db.invoices.insert_one(inv)
     inv["_id"] = res.inserted_id
-    await _email_invoice(inv)
+    if total > 0:
+        await _email_invoice(inv)
     return inv
 
 
@@ -2579,8 +2616,12 @@ async def stripe_webhook(request: Request):
     obj, t = event["data"]["object"], event["type"]
     if t == "checkout.session.completed":
         mode = obj.get("mode")
+        meta = obj.get("metadata", {}) or {}
+        purpose = meta.get("purpose")
         if mode == "subscription":
-            await _on_subscription_checkout(obj)
+            await _on_subscription_checkout(obj)  # legacy (suscripciones antiguas)
+        elif mode == "setup" or purpose in ("card_setup", "onboarding", "admin_billing") or meta.get("monthly"):
+            await _on_card_saved(obj)
         else:
             await db.payment_transactions.update_one(
                 {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
@@ -2960,45 +3001,55 @@ def _next_billing_day_ts(billing_day=5):
     return int(nb.timestamp())
 
 
-async def _create_recurring_checkout(customer, product, method, origin_url, meta, anchor_billing_day=False, include_setup_fee=True):
-    """Crea una sesión de Checkout en modo suscripción (card|sepa) con cuota de alta + mensual."""
-    cid = await _ensure_stripe_customer(customer)
+async def _pending_shipping_fee(customer):
+    """8/10 € si el cliente tiene una orden de SIM física con envío aún NO cobrado; 0 en otro caso."""
+    order = await db.orders.find_one({"fiscalId": customer["fiscalId"], "simType": "physical",
+                                      "shippingCharged": {"$ne": True}})
+    if not order:
+        return 0.0
     settings = await get_app_settings()
-    setup_fee = float(settings.get("setupFee") or 0) if include_setup_fee else 0.0
+    ba = customer.get("billingAddress", {}) or {}
+    islands = _is_islands(ba.get("postalCode", ""))
+    return round(float(settings.get("shippingFeeIslands", 10) if islands
+                       else settings.get("shippingFeePeninsula", 8)), 2)
+
+
+async def _create_recurring_checkout(customer, product, method, origin_url, meta, shipping_now=0.0, **_legacy):
+    """Guarda la tarjeta del cliente SIN cobrar la cuota mensual hoy.
+    - Si hay envío de SIM física pendiente (`shipping_now` > 0) → Checkout `mode=payment`
+      que cobra el envío en el momento Y guarda la tarjeta (setup_future_usage=off_session).
+    - eSIM / sin envío → Checkout `mode=setup` (0 € hoy, solo guarda la tarjeta).
+    La cuota mensual se cobra VENCIDA el día de facturación (job `monthly_billing_job`)."""
+    cid = await _ensure_stripe_customer(customer)
+    monthly = round(float(product.get("price") or 0), 2)
+    shipping_now = round(float(shipping_now or 0), 2)
     pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
-    monthly = float(product["price"])
-    line_items = [{
-        "price_data": {"currency": "eur",
-                       "product_data": {"name": f"{product['productName']} (cuota mensual)"},
-                       "unit_amount": int(round(monthly * 100)),
-                       "recurring": {"interval": "month"}},
-        "quantity": 1,
-    }]
-    if setup_fee > 0:
-        line_items.append({
-            "price_data": {"currency": "eur",
-                           "product_data": {"name": "Cuota de alta"},
-                           "unit_amount": int(round(setup_fee * 100))},
-            "quantity": 1,
-        })
-    sub_data = {"metadata": meta}
-    if anchor_billing_day:
-        sub_data["trial_end"] = _next_billing_day_ts(settings.get("billingDay", 5))
-    else:
-        sub_data["trial_period_days"] = 30
-    session = stripe.checkout.Session.create(
-        mode="subscription",
+    meta = {**meta, "monthly": f"{monthly:.2f}",
+            "productName": product.get("productName", "Cuota mensual"),
+            "shippingNow": f"{shipping_now:.2f}", "method": method}
+    common = dict(
         customer=cid,
         payment_method_types=pm_types,
-        line_items=line_items,
-        subscription_data=sub_data,
         success_url=f"{origin_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{origin_url}/payment/cancel",
         metadata=meta,
     )
+    if shipping_now > 0:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price_data": {"currency": "eur",
+                                        "product_data": {"name": "Envío de SIM"},
+                                        "unit_amount": int(round(shipping_now * 100))},
+                         "quantity": 1}],
+            payment_intent_data={"setup_future_usage": "off_session",
+                                 "description": "Envío de SIM", "metadata": meta},
+            **common,
+        )
+    else:
+        session = stripe.checkout.Session.create(mode="setup", **common)
     await db.payment_transactions.insert_one({
         "session_id": session.id, "fiscalId": customer["fiscalId"],
-        "kind": "subscription", "method": method, "amount": setup_fee + monthly,
+        "kind": "card_setup", "method": method, "amount": shipping_now, "monthly": monthly,
         "currency": "eur", "status": "initiated", "payment_status": "pending",
         "meta": meta, "created_at": now_iso(), "updated_at": now_iso()})
     return session
@@ -3015,8 +3066,16 @@ async def public_recurring_checkout(token: str, body: RecurringCheckoutBody):
     product = await _get_tariff(a["productId"])
     meta = {"fiscalId": a["fiscalId"], "applicationToken": token,
             "contractCode": a.get("contractCode", ""), "purpose": "onboarding"}
+    # Envío de SIM física → se cobra en el momento; eSIM/enviar → 0 € hoy
+    shipping_now = 0.0
+    if (a.get("simType") or "esim") == "physical":
+        settings = await get_app_settings()
+        ba = customer.get("billingAddress", {}) or {}
+        islands = _is_islands(ba.get("postalCode", ""))
+        shipping_now = round(float(settings.get("shippingFeeIslands", 10) if islands
+                                   else settings.get("shippingFeePeninsula", 8)), 2)
     session = await _create_recurring_checkout(customer, product, body.method or a.get("paymentMethod", "sepa"),
-                                               body.origin_url, meta)
+                                               body.origin_url, meta, shipping_now=shipping_now)
     return {"checkout_url": session.url, "session_id": session.id}
 
 
@@ -3032,7 +3091,9 @@ async def admin_recurring_checkout(subscriptionId: str, body: RecurringCheckoutB
     prod = sub["products"][0]
     product = {"productName": prod["productName"], "price": prod["price"]}
     meta = {"fiscalId": sub["fiscalId"], "subscriptionId": subscriptionId, "purpose": "admin_billing"}
-    session = await _create_recurring_checkout(customer, product, body.method, body.origin_url, meta)
+    shipping_now = await _pending_shipping_fee(customer)
+    session = await _create_recurring_checkout(customer, product, body.method, body.origin_url, meta,
+                                               shipping_now=shipping_now)
     return {"checkout_url": session.url, "session_id": session.id}
 
 
@@ -3061,7 +3122,8 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
 def _has_card_on_file(customer):
     """True si el cliente ya tiene tarjeta domiciliada (no hace falta recordarle)."""
     rec = customer.get("recurring") or {}
-    return (rec.get("method") == "card" and bool(rec.get("stripeSubscriptionId"))) or customer.get("paymentMethod") == "CARD"
+    return (rec.get("method") == "card" and bool(rec.get("stripeSubscriptionId") or rec.get("savedPm"))) \
+        or customer.get("paymentMethod") == "CARD"
 
 
 async def _resolve_monthly(fiscalId):
@@ -3105,24 +3167,28 @@ async def _send_card_link(customer, origin_url, send_email=True, is_reminder=Fal
     if sub:
         meta["subscriptionId"] = sub["subscriptionId"]
     product = {"productName": prod_name, "price": monthly}
+    shipping_now = await _pending_shipping_fee(customer)
     session = await _create_recurring_checkout(customer, product, "card", origin_url, meta,
-                                               anchor_billing_day=True, include_setup_fee=False)
+                                               shipping_now=shipping_now)
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
     emailed = False
     if send_email and customer.get("email"):
         name = (customer.get("name") or "").title()
         recordatorio = ("<b>Recordatorio:</b> aún no hemos recibido los datos de tu tarjeta.<br><br>" if is_reminder else "")
+        envio_txt = (f"Hoy solo se cobrarán <b>{shipping_now:.2f} €</b> por el envío de tu SIM; "
+                     if shipping_now > 0 else "Hoy <b>no se te cobrará nada</b>; solo guardamos tu tarjeta de forma segura. ")
         html = emailer.base_template(
             "Añade tu tarjeta de pago",
             f"Hola {name},<br><br>{recordatorio}Para activar el pago con tarjeta de tu servicio "
             f"<b>{product['productName']}</b> ({float(product['price']):.2f} €/mes), añade tu tarjeta "
             "de forma segura en el siguiente enlace. El pago se procesa directamente por Stripe; "
             "nosotros no almacenamos los datos de tu tarjeta.<br><br>"
+            f"{envio_txt}<br><br>"
             f'<a href="{session.url}" style="display:inline-block;background:#0033ff;color:#fff;'
             'padding:12px 22px;border-radius:9999px;text-decoration:none;font-weight:600">Añadir mi tarjeta</a>'
-            f"<br><br>El primer cobro se realizará el día <b>{billing_day}</b> del mes y, a partir de ahí, "
-            "cada mes automáticamente. Si tienes cualquier duda, responde a este correo.")
+            f"<br><br>La cuota mensual se cobrará el día <b>{billing_day}</b> de cada mes (el primer cobro será "
+            "la parte proporcional de los días ya disfrutados). Si tienes cualquier duda, responde a este correo.")
         emailed = await _send_mail_safe("email", customer["email"], "Añade tu tarjeta de pago · GoRoky", html)
     # seguimiento para el recordatorio automático
     reminders = (customer.get("cardLink") or {}).get("remindersSent", 0)
@@ -3142,6 +3208,8 @@ async def _get_saved_pm(customer):
     """Devuelve el payment_method de tarjeta guardado del cliente (para cobros off-session)."""
     cid = customer.get("stripeCustomerId")
     rec = customer.get("recurring") or {}
+    if rec.get("savedPm") and cid:
+        return cid, rec["savedPm"]
     if rec.get("stripeSubscriptionId"):
         try:
             ss = stripe.Subscription.retrieve(rec["stripeSubscriptionId"])
@@ -3247,6 +3315,74 @@ async def charge_service(fiscalId: str, body: ServiceChargeBody, request: Reques
             f"<a href='{session.url}' style='background:#0033ff;color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none'>Pagar ahora</a>"))
     return {"status": "pending", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"],
             "checkout_url": session.url}
+
+
+async def _on_card_saved(obj):
+    """Al completar el Checkout de 'guardar tarjeta' (setup o payment con envío):
+    guarda el método de pago para cobros off-session, marca la tarjeta como domiciliada y,
+    si hubo envío de SIM, lo registra como factura pagada. La cuota mensual la cobra el job del día 5."""
+    from bson import ObjectId  # noqa
+    meta = obj.get("metadata", {}) or {}
+    fiscalId = meta.get("fiscalId")
+    method = "sepa" if "sepa_debit" in (obj.get("payment_method_types") or []) else "card"
+    cid = obj.get("customer")
+    pm_id, last4 = None, None
+    try:
+        if obj.get("setup_intent"):
+            si = stripe.SetupIntent.retrieve(obj["setup_intent"])
+            pm_id = si.payment_method
+        elif obj.get("payment_intent"):
+            pi = stripe.PaymentIntent.retrieve(obj["payment_intent"])
+            pm_id = pi.payment_method
+        if pm_id:
+            pm = stripe.PaymentMethod.retrieve(pm_id)
+            if getattr(pm, "card", None):
+                last4 = pm.card.last4
+            elif getattr(pm, "sepa_debit", None):
+                last4 = pm.sepa_debit.last4
+            if cid:  # fijar como método por defecto para cobros off-session
+                stripe.Customer.modify(cid, invoice_settings={"default_payment_method": pm_id})
+    except Exception as e:  # noqa
+        logger.warning("card_saved retrieve failed: %s", e)
+    await db.payment_transactions.update_one(
+        {"session_id": obj["id"]},
+        {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
+    if fiscalId:
+        await db.customers.update_one({"fiscalId": fiscalId}, {"$set": {
+            "paymentMethod": "SEPA CORE" if method == "sepa" else "CARD",
+            "recurring": {"method": method, "last4": last4, "savedPm": pm_id},
+            "cardLink.done": True, "cardLink.doneAt": now_iso()}})
+    # envío de SIM cobrado en el momento → factura de servicio pagada + marcar orden
+    shipping_now = round(float(meta.get("shippingNow") or 0), 2)
+    if shipping_now > 0 and fiscalId:
+        cust = await db.customers.find_one({"fiscalId": fiscalId})
+        if cust:
+            await _create_service_invoice(cust, "Envío de SIM", shipping_now, "paid")
+            await db.orders.update_many(
+                {"fiscalId": fiscalId, "simType": "physical", "shippingCharged": {"$ne": True}},
+                {"$set": {"shippingCharged": True}})
+    token = meta.get("applicationToken")
+    if token:
+        await db.applications.update_one({"token": token}, {"$set": {"paymentStatus": "paid"}})
+    label = "tarjeta" if method == "card" else "domiciliación SEPA"
+    await log_event("stripe", "success",
+                    f"Método de pago guardado ({label}) · {fiscalId}"
+                    + (f" · envío {shipping_now:.2f} € cobrado" if shipping_now > 0 else " · 0 € hoy"),
+                    {"fiscalId": fiscalId})
+    # auto-aprobación (crea la orden real en Likes) si procede
+    settings = await get_app_settings()
+    if settings.get("autoApprove") and token:
+        a = await db.applications.find_one({"token": token})
+        if a and a.get("contractCode"):
+            try:
+                result, order = await _provision_via_likes(a)
+                await db.applications.update_one({"token": token},
+                    {"$set": {"reviewStatus": "APPROVED", "approvedAt": now_iso(),
+                              "autoApproved": True, "likesOrderId": result.get("likesOrderId")}})
+                await log_event("order", "info", f"Solicitud auto-aprobada y creada en Likes · {fiscalId}")
+            except HTTPException as e:
+                await log_event("order", "warning",
+                                f"Auto-aprobación no completada ({fiscalId}): {getattr(e, 'detail', e)}")
 
 
 async def _on_subscription_checkout(obj):
@@ -3575,21 +3711,24 @@ async def billing_daily_job():
 
 
 async def monthly_billing_job(force=False):
-    """Cada día {billingDay}: emite la cuota mensual de cada cliente con líneas activas y,
-    si tiene tarjeta guardada, la cobra automáticamente (off-session). Idempotente por periodo.
-    Los clientes con suscripción de Stripe activa se omiten (Stripe los cobra solo vía webhook)."""
+    """Cada día {billingDay}: emite y cobra la cuota VENCIDA (mes anterior ya consumido) de cada
+    cliente con líneas activas. El PRIMER cobro prorratea los días ya disfrutados desde el alta.
+    Si tiene tarjeta guardada, cobra automáticamente (off-session). Idempotente por mes de cobro.
+    Los clientes con suscripción de Stripe legacy se omiten (Stripe los cobra vía webhook)."""
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
     now = datetime.now(timezone.utc)
     if not force and now.day != billing_day:
         return {"skipped": True, "reason": f"hoy no es día {billing_day}"}
     await _stripe_apply()
-    period = _period_label(now)
-    result = {"period": period, "invoiced": 0, "charged": 0, "skipped": 0, "failed": 0}
+    p_start, p_end = _prev_month_bounds(now)          # mes VENCIDO que se factura
+    billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
+    run_key = now.strftime("%Y-%m")                    # dedup: un cobro por mes natural
+    result = {"period": billed_period, "invoiced": 0, "charged": 0, "skipped": 0, "failed": 0}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
         fid = cust["fiscalId"]
-        # Stripe ya cobra a los que tienen suscripción de tarjeta activa
+        # Stripe ya cobra a los que tienen suscripción de tarjeta activa (legacy)
         if (cust.get("recurring") or {}).get("stripeSubscriptionId"):
             result["skipped"] += 1
             continue
@@ -3597,17 +3736,24 @@ async def monthly_billing_job(force=False):
         if not active_lines:
             result["skipped"] += 1
             continue
-        # dedup: ya facturado este periodo (recurrente)
-        exists = await db.invoices.find_one({"fiscalId": fid, "period": period, "kind": "recurring"})
+        # dedup: ya facturado en esta ejecución mensual
+        exists = await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key})
         if exists:
             result["skipped"] += 1
             continue
         items = []
         for l in active_lines:
             pvp = round(float(await _contract_price(l.get("productId"), l.get("price") or 0)), 2)
-            if pvp > 0:
-                items.append({"description": l.get("productName", "Cuota mensual"),
-                              "detail": f"Cuota mensual · {period}", "quantity": 1, "amount": pvp})
+            if pvp <= 0:
+                continue
+            act = l.get("activationDate") or l.get("created")
+            amount, days, kind = _arrears_line_amount(pvp, act, now)
+            if kind == "future" or amount <= 0:
+                continue  # la línea aún no consumió el mes facturado
+            detail = (f"Cuota mensual · {billed_period}" if kind == "full"
+                      else f"Parte proporcional · {days} días de {billed_period}")
+            items.append({"description": l.get("productName", "Cuota mensual"),
+                          "detail": detail, "quantity": 1, "amount": amount})
         if not items:
             result["skipped"] += 1
             continue
@@ -3621,7 +3767,8 @@ async def monthly_billing_job(force=False):
             "customerName": f"{cust['name']} {cust.get('firstSurname', '')}".strip().upper(),
             "customerEmail": cust.get("email"), "customerAddress": address,
             "items": items, "subtotal": subtotal, "tax": tax, "total": total,
-            "status": "pending", "date": now.isoformat(), "period": period,
+            "status": "pending", "date": now.isoformat(), "period": billed_period,
+            "billingRunKey": run_key,
             "dueDate": (now + timedelta(days=15)).isoformat(),
             "paymentMethod": cust.get("paymentMethod", "NO"),
             "consumption": consumption, "kind": "recurring",
@@ -3633,8 +3780,8 @@ async def monthly_billing_job(force=False):
                 pi = stripe.PaymentIntent.create(
                     amount=int(round(total * 100)), currency="eur", customer=cid,
                     payment_method=pm, off_session=True, confirm=True,
-                    description=f"Cuota mensual {period}",
-                    metadata={"fiscalId": fid, "kind": "recurring", "period": period})
+                    description=f"Cuota mensual {billed_period}",
+                    metadata={"fiscalId": fid, "kind": "recurring", "period": billed_period})
                 if pi.status == "succeeded":
                     inv["status"] = "paid"
                     inv["chargeStatus"] = "paid"
@@ -3657,7 +3804,7 @@ async def monthly_billing_job(force=False):
         await _email_invoice(inv)
         result["invoiced"] += 1
     await log_event("billing", "info",
-                    f"Facturación mensual {period}: {result['invoiced']} facturas · {result['charged']} cobradas · {result['failed']} fallidas")
+                    f"Facturación mensual {billed_period}: {result['invoiced']} facturas · {result['charged']} cobradas · {result['failed']} fallidas")
     return result
 
 

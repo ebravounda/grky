@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 14 — Independent validation of new arrears billing + card-link setup/payment modes. 7/7 pytest tests PASSED against preview backend. (1) Admin login OK (admin@goroky.com). (2) POST /api/customers/12345678A/send-card-link with sendEmail=false, amount=9 and no pending physical order returns real Stripe checkout_url + session_id; retrieving the session with the sk_test confirms mode='setup' and amount_total=None (no charge today). (3) After seeding a temporary order {simType:'physical', shippingCharged:false} on customer 12345678A (CP 28001 → península), send-card-link produces a Stripe session with mode='payment' and amount_total=800 (8€ shipping) — cleanup deletes the seeded order. (4) POST /api/billing/run-monthly with admin auth returns 200 with {ok:true, period:'noviembre 2025', invoiced, charged, skipped, failed}; period matches previous month (arrears). Without token returns 401/403. (5) Prorate math verified end-to-end by seeding a TEST_ARR_* customer with 3 lines (activation before prev month, 2 days before end of prev month, and current month). Job produced ONE invoice with exactly 2 items: 'Cuota mensual · noviembre 2025' at full 9.00 €, and 'Parte proporcional · 2 días de noviembre 2025' at 9 × 2/30 = 0.60 € (exact match). Line activated in current month was skipped (kind=future). All test data cleaned up. (6) POST /api/stripe/webhook with an invalid stripe-signature returns HTTP 400 'Invalid signature' as expected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_arrears_billing.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "monthly_billing_job dedup uses billingRunKey=YYYY-MM (current month). Fine, but if the job is executed manually in the same calendar month AFTER a real day-5 run, the second manual invocation will skip everyone with 'invoiced=0, skipped++'. This is the intended behaviour but reviewers should be aware that force=True does NOT bypass the dedup key.",
+    "_arrears_line_amount uses 'act <= p_start' for the 'full' branch. If a line was activated exactly on the first day of the previous month, it is billed as full month (correct), but any activation strictly before p_start also gets 'full' — a line activated 3 months ago that was only ACTIVE for prev month still gets billed a full cuota, which is expected but there is no upper bound check (e.g., if activationDate is in the future by mistake, kind=future and 0 € — good).",
+    "In _create_recurring_checkout the shipping line uses fixed name 'Envío de SIM' — consider parametrising to reflect '(península)' vs '(islas)' for clarity on the receipt.",
+    "Stripe webhook endpoint is declared as @app.post('/api/stripe/webhook') directly on the FastAPI app (not the api router). This is fine functionally but is inconsistent with the rest of the code that uses the /api-prefixed api router. Not a bug — just a style inconsistency.",
+    "monthly_billing_job iterates ALL customers sequentially (already flagged in iter13). For each with a saved PM it awaits Stripe PI.create synchronously; scaling risk remains."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_arrears_billing.py",
+    "/app/test_reports/pytest/iter14_results.xml",
+    "/app/test_reports/iteration_14.json"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (working). Test customer 12345678A (Juan García) — CP 28001 península.",
+  "seed_data_creation": "During test_send_card_link_payment_mode_physical: created a temporary order {fiscalId:12345678A, simType:'physical', shippingCharged:false, _test_marker:'iter14'} then deleted it in a finally block. During test_arrears_prorate_math_via_job: created a TEST_ARR_<hhmmss> customer with 3 lines and 1 recurring invoice was generated, ALL removed in the finally cleanup. Real Stripe test-mode Checkout Sessions were created for 12345678A (2 sessions: one mode=setup and one mode=payment) — these are ephemeral test-mode objects in Stripe sandbox, no real charges. The run-monthly endpoint may have generated real recurring invoices for other customers whose activationDate falls in November 2025 — this is the intended production behaviour and not test artefacts.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New pytest file /app/backend/tests/test_iter14_arrears_billing.py — run with `pytest backend/tests/test_iter14_arrears_billing.py -o addopts=`. It is self-contained: creates + deletes its own TEST_ARR_* customer and temp physical order. It requires STRIPE_SECRET_KEY in backend/.env (test mode) to introspect the generated sessions. run-monthly is idempotent per calendar month (billingRunKey=YYYY-MM), so re-running in the same month reports invoiced=0. If future iterations want to force a fresh run, delete kind='recurring' invoices for the current billingRunKey first.",
+  "rca of the issue": "N/A — all specified behaviours verified end-to-end."
+}

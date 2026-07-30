@@ -16,12 +16,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt, Star, Eye, EyeOff, Info, RefreshCw, Radio, Phone, Satellite, Package, Boxes } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Signal, Wifi, Tv, TrendingUp, Wallet, Receipt, Star, Eye, EyeOff, Info, RefreshCw, Radio, Phone, Satellite, Package, Boxes, Users, Search, ArrowUpDown, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 const IVA = 1.21;
 const famIcon = { Mobile: Signal, Fiber: Wifi, Fixed: Wifi, Convergent: Package, M2M: Radio, PBX: Phone, TV: Tv, Satellite: Satellite, Energy: Boxes, Device: Radio, International: Signal, Bonos: Boxes, Paquetes: Package };
-const famLabel = { Mobile: "Móvil", Fiber: "Fibra", Fixed: "Fibra", Convergent: "Paquetes", M2M: "M2M", PBX: "PBX / Centralita", TV: "TV", Satellite: "Satélite", Energy: "Energía", Device: "Dispositivos", International: "Internacional", Bonos: "Bonos", Paquetes: "Paquetes" };
+const famLabel = { Mobile: "Móvil", Fiber: "Fibra", Fixed: "Fijo", Convergent: "Paquetes", M2M: "M2M", PBX: "PBX / Centralita", TV: "TV", Satellite: "Satélite", Energy: "Energía", Device: "Dispositivos", International: "Internacional", Bonos: "Bonos", Paquetes: "Paquetes" };
 const FAMILY_ORDER = ["Mobile", "Fiber", "Fixed", "Convergent", "M2M", "PBX", "TV", "Satellite", "Energy", "Device", "International", "Bonos", "Paquetes"];
 const emptyForm = { productId: "", productName: "", family: "Mobile", type: "Main", saleWithIva: "", costBase: "", features: "", active: true, storefront: true };
 const eur = (n) => `${(Number(n) || 0).toFixed(2)} €`;
@@ -45,7 +45,11 @@ export default function Tariffs() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortDir, setSortDir] = useState("asc");
+  const [onlyPublished, setOnlyPublished] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [deduping, setDeduping] = useState(false);
   const [info, setInfo] = useState(null);
 
   const load = () => api.get("/tariffs").then((r) => setTariffs(r.data));
@@ -53,11 +57,20 @@ export default function Tariffs() {
 
   const syncLikes = async () => {
     setSyncing(true);
-    try { const { data } = await api.post("/likes/sync-catalog"); toast.success(`Catálogo sincronizado con Likes · ${data.synced} productos (sin duplicados)`); load(); }
+    try { const { data } = await api.post("/likes/sync-catalog"); toast.success(`Sincronizado · ${data.created} nuevas (ocultas), ${data.updated} actualizadas`); load(); }
     catch (e) { toast.error(apiErr(e)); } finally { setSyncing(false); }
+  };
+  const dedupe = async () => {
+    setDeduping(true);
+    try { const { data } = await api.post("/tariffs/dedupe"); toast.success(data.removed ? `${data.removed} duplicados eliminados` : "No había duplicados"); load(); }
+    catch (e) { toast.error(apiErr(e)); } finally { setDeduping(false); }
   };
   const deleteAll = async () => {
     try { const { data } = await api.delete("/tariffs"); toast.success(`Catálogo eliminado · ${data.deleted} tarifas`); load(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+  const bulkStorefront = async (publish) => {
+    try { const { data } = await api.post("/tariffs/bulk-storefront", { storefront: publish, family: filter }); toast.success(`${data.updated} tarifas ${publish ? "publicadas" : "ocultadas"}`); load(); }
     catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -137,15 +150,21 @@ export default function Tariffs() {
     return acc;
   }, { sale: 0, cost: 0, profit: 0 });
 
-  const visible = filter === "all" ? tariffs : tariffs.filter((t) => t.family === filter);
+  const q = search.trim().toLowerCase();
+  let visible = filter === "all" ? tariffs : tariffs.filter((t) => t.family === filter);
+  if (q) visible = visible.filter((t) => (t.productName || "").toLowerCase().includes(q));
+  if (onlyPublished) visible = visible.filter((t) => t.storefront !== false);
+  const dir = sortDir === "asc" ? 1 : -1;
+  const sortByPrice = (a, b) => ((a.price || 0) - (b.price || 0)) * dir;
   const grouped = FAMILY_ORDER
     .map((fam) => ({
       fam,
-      items: visible.filter((t) => t.family === fam).sort((a, b) => (a.price || 0) - (b.price || 0)),
+      items: visible.filter((t) => t.family === fam).sort(sortByPrice),
     }))
     .filter((g) => g.items.length > 0);
-  const otherItems = visible.filter((t) => !FAMILY_ORDER.includes(t.family));
+  const otherItems = visible.filter((t) => !FAMILY_ORDER.includes(t.family)).sort(sortByPrice);
   if (otherItems.length) grouped.push({ fam: "Other", items: otherItems });
+  const publishedCount = tariffs.filter((t) => t.storefront !== false).length;
 
   const renderCard = (t) => {
     const Icon = famIcon[t.family] || Tag;
@@ -155,6 +174,7 @@ export default function Tariffs() {
         <div className="flex items-center justify-between mb-3">
           <span className="grid place-items-center h-9 w-9 rounded-md bg-primary/10 text-primary"><Icon size={18} /></span>
           <div className="flex items-center gap-2 text-xs">
+            {(t.customerCount ?? 0) > 0 && <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 font-semibold flex items-center gap-1" data-testid={`tariff-customers-${t.productId}`}><Users size={11} /> {t.customerCount}</span>}
             {t.popular && <span className="rounded-full bg-orange-500/15 text-orange-600 px-2 py-0.5 font-semibold flex items-center gap-1"><Star size={11} className="fill-orange-500" /> Popular</span>}
             {t.type === "Optional" && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Bono</span>}
             {t.active === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Inactiva</span>}
@@ -225,6 +245,9 @@ export default function Tariffs() {
           <div className="flex flex-wrap items-center gap-2">
             <Button data-testid="sync-catalog-btn" variant="outline" className="rounded-full gap-2" onClick={syncLikes} disabled={syncing}>
               <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando…" : "Sincronizar Likes"}
+            </Button>
+            <Button data-testid="dedupe-btn" variant="outline" className="rounded-full gap-2" onClick={dedupe} disabled={deduping} title="Eliminar tarifas duplicadas (conserva las editadas/publicadas)">
+              <Copy size={15} /> {deduping ? "Limpiando…" : "Quitar duplicados"}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -331,6 +354,26 @@ export default function Tariffs() {
           <div className="flex items-center gap-2 text-emerald-700 text-sm mb-1"><TrendingUp size={16} /> Tu ganancia mensual</div>
           <p className="font-heading text-2xl font-700 text-emerald-700">{eur(totals.profit)}</p>
         </div>
+      </div>
+
+      {/* Búsqueda, orden y filtro de publicadas */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input data-testid="tariff-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar tarifa por nombre…" className="pl-9 rounded-full" />
+        </div>
+        <button data-testid="tariff-sort" onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          className="rounded-full px-4 py-2 text-sm font-medium border border-border hover:border-primary/40 flex items-center gap-1.5">
+          <ArrowUpDown size={14} /> Precio {sortDir === "asc" ? "menor→mayor" : "mayor→menor"}
+        </button>
+        <button data-testid="filter-published" onClick={() => setOnlyPublished((v) => !v)}
+          className={`rounded-full px-4 py-2 text-sm font-medium border flex items-center gap-1.5 transition-colors ${onlyPublished ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+          <Eye size={14} /> Publicadas ({publishedCount})
+        </button>
+        <button data-testid="hide-all-btn" onClick={() => bulkStorefront(false)} title="Ocultar de la tienda las tarifas mostradas (según el filtro de familia activo)"
+          className="rounded-full px-4 py-2 text-sm font-medium border border-border hover:border-red-400 hover:text-red-500 flex items-center gap-1.5">
+          <EyeOff size={14} /> Ocultar todas
+        </button>
       </div>
 
       {/* Filtro por tipo de servicio */}

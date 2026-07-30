@@ -479,8 +479,83 @@ async def _get_tariff(product_id):
 @api.get("/tariffs")
 async def list_tariffs(request: Request):
     await require_admin(request)
-    items = await db.tariffs.find().sort("family", 1).to_list(500)
-    return [clean(t) for t in items]
+    items = await db.tariffs.find().sort("family", 1).to_list(1000)
+    # Contar clientes (fiscalId distintos) por tarifa a partir de las líneas activas
+    lines = await db.lines.find({}, {"fiscalId": 1, "productId": 1, "productName": 1}).to_list(50000)
+    from collections import defaultdict
+    by_pid, by_name = defaultdict(set), defaultdict(set)
+    for l in lines:
+        fid = l.get("fiscalId")
+        if not fid:
+            continue
+        if l.get("productId"):
+            by_pid[str(l["productId"])].add(fid)
+        if l.get("productName"):
+            by_name[(l["productName"] or "").strip().lower()].add(fid)
+    out = []
+    for t in items:
+        c = set()
+        for key in (t.get("productId"), t.get("likesProductId")):
+            if key and str(key) in by_pid:
+                c |= by_pid[str(key)]
+        nm = (t.get("productName") or "").strip().lower()
+        if nm in by_name:
+            c |= by_name[nm]
+        t["customerCount"] = len(c)
+        out.append(clean(t))
+    return out
+
+
+@api.post("/tariffs/dedupe")
+async def dedupe_tariffs(request: Request):
+    """Elimina tarifas duplicadas por nombre+familia. Prioriza conservar la vinculada a Likes
+    (con likesProductId) y elimina las semillas huérfanas antiguas; entre varias, conserva la
+    publicada/popular/editada."""
+    await require_perm(request, "tariffs.manage")
+    items = await db.tariffs.find().to_list(2000)
+    groups = {}
+    for t in items:
+        key = ((t.get("productName") or "").strip().lower(), t.get("family"))
+        groups.setdefault(key, []).append(t)
+
+    def score(t):
+        s = 0
+        if t.get("likesProductId"):
+            s += 16   # preferir SIEMPRE la vinculada a Likes (la real y sincronizable)
+        if t.get("storefront") is True:
+            s += 8
+        if t.get("popular"):
+            s += 4
+        if (t.get("marketingText") or []):
+            s += 2
+        return s
+
+    removed = 0
+    for key, grp in groups.items():
+        if not key[0] or len(grp) < 2:
+            continue
+        grp.sort(key=lambda t: (score(t), str(t.get("created") or "")), reverse=True)
+        keep = grp[0]
+        for dup in grp[1:]:
+            if dup.get("storefront") is True and keep.get("storefront") is not True:
+                await db.tariffs.update_one({"_id": keep["_id"]}, {"$set": {"storefront": True}})
+            await db.tariffs.delete_one({"_id": dup["_id"]})
+            removed += 1
+    await log_event("tariffs", "success", f"Duplicados eliminados: {removed}")
+    return {"removed": removed}
+
+
+@api.post("/tariffs/bulk-storefront")
+async def bulk_storefront(request: Request):
+    """Publica u oculta en bloque (todas o por familia). Útil para resetear publicaciones."""
+    await require_perm(request, "tariffs.manage")
+    body = await request.json()
+    publish = bool(body.get("storefront"))
+    fam = body.get("family")
+    q = {} if not fam or fam == "all" else {"family": fam}
+    r = await db.tariffs.update_many(q, {"$set": {"storefront": publish}})
+    await log_event("tariffs", "info", f"{'Publicadas' if publish else 'Ocultadas'} {r.modified_count} tarifas{'' if not fam or fam=='all' else ' · '+fam}")
+    return {"updated": r.modified_count}
 
 
 def _features_to_marketing(features):
@@ -1814,28 +1889,36 @@ async def sync_catalog_from_likes(request: Request):
     if not await asyncio.to_thread(likes_client.get_token):
         raise HTTPException(status_code=503, detail="Likes no conectado (IP no autorizada / preview)")
     real = await asyncio.to_thread(likes_client.get_products)
-    n = 0
+    n, created, updated = 0, 0, 0
     for p in real:
         pid = p.get("productId")
         if not pid:
             continue
-        existing = await db.tariffs.find_one({"likesProductId": pid}) or await db.tariffs.find_one({"productId": pid})
+        # Buscar existente por likesProductId, luego por productId, y por último por nombre+familia
+        existing = (await db.tariffs.find_one({"likesProductId": pid})
+                    or await db.tariffs.find_one({"productId": pid})
+                    or await db.tariffs.find_one({"productName": p.get("productName"), "family": p.get("family")}))
         base = {"likesProductId": pid, "productName": p.get("productName"),
                 "family": p.get("family"), "type": p.get("type", "Main"),
-                "marketingText": p.get("marketingText", []), "pvpr": p.get("price"),
-                "imageUrl": p.get("imageUrl")}
+                "pvpr": p.get("price"), "imageUrl": p.get("imageUrl")}
         if existing:
-            # solo actualiza el precio de cesión (coste) y datos de catálogo; conserva tu PVP de venta
+            # Conserva TODO lo editado (nombre, PVP, condiciones, publicación). Solo actualiza el coste
+            # de cesión y el vínculo con Likes. NO tocar marketingText ni storefront ni productName.
             base["costPrice"] = p.get("price") or 0
+            base.pop("productName", None)
             await db.tariffs.update_one({"_id": existing["_id"]}, {"$set": base})
+            updated += 1
         else:
+            # Nueva tarifa: NO se publica automáticamente (el admin decide qué publicar)
             base.update({"productId": pid, "price": round((p.get("price") or 0) * 1.21, 2),
                          "costPrice": p.get("price") or 0, "active": True,
-                         "storefront": True, "popular": False, "created": now_iso()})
+                         "marketingText": p.get("marketingText", []),
+                         "storefront": False, "popular": False, "created": now_iso()})
             await db.tariffs.insert_one(base)
+            created += 1
         n += 1
-    await log_event("likes", "success", f"Catálogo sincronizado desde Likes: {n} productos (precios de cesión actualizados, sin duplicados)")
-    return {"synced": n}
+    await log_event("likes", "success", f"Catálogo sincronizado desde Likes: {created} nuevas (ocultas), {updated} actualizadas (sin tocar tus ediciones)")
+    return {"synced": n, "created": created, "updated": updated}
 
 
 @api.delete("/tariffs")

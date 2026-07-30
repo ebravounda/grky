@@ -344,3 +344,13 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - NUEVO correo CONTRATACIÓN EN CURSO (`_send_contratacion_en_curso`): al crear venta manual (`create_order`, likes_signature=True → "revisa SPAM, la firma la envía Likes") y en alta pública (`create_application`, likes_signature=False → enlace de firma propio). Recalca revisar SPAM/correo no deseado.
 - REFLEJO DEL CONTRATO FIRMADO DE LIKES: `_fetch_likes_signed_contract(order)` descarga el `signedContract`/`contract` desde Likes (get_order_draft→downloadURL→download_document). Endpoint `GET /orders/{id}/signed-contract.pdf`. Frontend: botón "Contrato firmado (Likes)" en Orders para órdenes firmadas (api.openLikesSignedContract). El estado firmado lo detecta la reconciliación (SIGNED_ORDER_STATUSES).
 - Verificado: create_customer 200 + dispara bienvenida; endpoints y sintaxis OK. Emails reales se validan en VPS (Resend rechaza dominios de prueba). Desplegar backend+frontend.
+
+### Iteración 2026-06 (fork) — Sección Tarifas PRO (orden, búsqueda, sin duplicados, contador de clientes)
+- CAUSAS detectadas: sync-catalog creaba nuevas con storefront=True (auto-publicaba TODO) y no dedupe; duplicados = semillas antiguas LK-MOB-* (sin likesProductId, precios viejos) coincidentes por nombre con las reales de Likes (con likesProductId).
+- BACKEND: 
+  - `sync-catalog`: nuevas tarifas ahora `storefront=False` (NO auto-publicar); matching ampliado (likesProductId → productId → nombre+familia) para no duplicar; NUNCA toca productName/marketingText/storefront de existentes (solo costPrice + vínculo).
+  - `GET /tariffs`: añade `customerCount` (fiscalIds distintos en lines por productId/likesProductId/nombre).
+  - `POST /tariffs/dedupe`: elimina duplicados por nombre+familia, conservando la vinculada a Likes/publicada/popular/editada.
+  - `POST /tariffs/bulk-storefront {storefront,family}`: publica/oculta en bloque (reset de publicaciones).
+- FRONTEND (Tariffs.js): búsqueda por nombre, orden por precio asc/desc, filtro "Publicadas (n)", botón "Ocultar todas", "Quitar duplicados", badge contador de clientes por tarjeta, familias Fiber="Fibra"/Fixed="Fijo" diferenciadas.
+- Verificado en preview: /tariffs con customerCount 167→dedupe eliminó 8→159; UI con todos los controles (screenshot). Desplegar backend+frontend. El usuario debe pulsar "Quitar duplicados" y, si quiere, "Ocultar todas" para resetear publicaciones y publicar solo lo que elija.

@@ -1055,6 +1055,21 @@ async def get_line(lineNumber: str, request: Request):
     return clean(line)
 
 
+@api.delete("/lines/{lineNumber}")
+async def delete_line(lineNumber: str, request: Request):
+    """Elimina una línea SOLO del CRM (no toca Likes). Útil para limpiar datos manuales/de prueba.
+    Nota: si la línea existe en Likes, volverá a aparecer en la próxima reconciliación."""
+    await require_perm(request, "lines.manage")
+    line = await db.lines.find_one({"lineNumber": lineNumber})
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    await db.lines.delete_one({"lineNumber": lineNumber})
+    await db.subscriptions.delete_many({"lineNumber": lineNumber})
+    await log_event("lines", "info", f"Línea {lineNumber} eliminada del CRM (limpieza manual)")
+    return {"ok": True, "deleted": lineNumber}
+
+
+
 @api.post("/lines/{lineNumber}/toggle-block")
 async def toggle_block(lineNumber: str, request: Request):
     user = await current_user(request)
@@ -1523,6 +1538,20 @@ async def list_orders(request: Request):
     user = await require_perm(request, "orders.manage")
     orders = await db.orders.find(dict(_scope(user))).sort("created", -1).to_list(500)
     return [clean(o) for o in orders]
+
+
+@api.delete("/orders/{order_id}")
+async def delete_order(order_id: str, request: Request):
+    """Elimina una orden SOLO del CRM (no toca Likes). Para limpiar altas manuales/de prueba
+    que no están en Likes y así no falsear el contador de clientes."""
+    await require_perm(request, "orders.manage")
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    await db.orders.delete_one({"orderId": order_id})
+    await log_event("order", "info", f"Orden {order.get('contractNumber') or order_id} eliminada del CRM (limpieza manual)")
+    return {"ok": True, "deleted": order_id}
+
 
 
 @api.post("/orders")

@@ -354,3 +354,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
   - `POST /tariffs/bulk-storefront {storefront,family}`: publica/oculta en bloque (reset de publicaciones).
 - FRONTEND (Tariffs.js): búsqueda por nombre, orden por precio asc/desc, filtro "Publicadas (n)", botón "Ocultar todas", "Quitar duplicados", badge contador de clientes por tarjeta, familias Fiber="Fibra"/Fixed="Fijo" diferenciadas.
 - Verificado en preview: /tariffs con customerCount 167→dedupe eliminó 8→159; UI con todos los controles (screenshot). Desplegar backend+frontend. El usuario debe pulsar "Quitar duplicados" y, si quiere, "Ocultar todas" para resetear publicaciones y publicar solo lo que elija.
+
+### Iteración 2026-06 (fork) — Eliminar líneas y órdenes manualmente (limpieza de datos)
+- Bug reportado: el resumen de rentabilidad en Tarifas sumaba TODO el catálogo (daba ~20.000€). FIX: totales = precio × customerCount (líneas activas) por tarifa; nota aclaratoria "sobre N líneas activas". (Tariffs.js)
+- NUEVO borrado manual (solo CRM, no toca Likes): `DELETE /lines/{lineNumber}` (borra línea + subscriptions) y `DELETE /orders/{order_id}`. Requieren perms lines.manage / orders.manage. Log de evento. Nota: si existe en Likes, la línea reaparece al reconciliar.
+- Frontend: Lines.js botón papelera por fila (line-delete-{n}) con confirm; Orders.js botón papelera por fila (order-delete-{orderId}) con confirm.
+- Verificado por curl (DELETE línea y orden OK). Desplegar backend+frontend.

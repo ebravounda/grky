@@ -12,7 +12,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ShoppingCart, FileText, Send, FileSignature, PenLine, CheckCircle2, XCircle, KeyRound } from "lucide-react";
+import { ShoppingCart, FileText, Send, FileSignature, PenLine, CheckCircle2, XCircle, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Orders() {
@@ -59,6 +59,12 @@ export default function Orders() {
 
   const approveSignature = async (o) => {
     try { await api.post(`/orders/${o.orderId}/approve-signature`); toast.success("Firma aprobada · sincronizando con Likes"); loadOrders(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const removeOrder = async (o) => {
+    if (!window.confirm(`¿Eliminar la orden ${o.contractNumber || o.orderId} del CRM? (No afecta a Likes; sirve para limpiar altas manuales/de prueba.)`)) return;
+    try { await api.delete(`/orders/${o.orderId}`); toast.success("Orden eliminada del CRM"); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
   };
 
@@ -336,6 +342,10 @@ export default function Orders() {
                         <FileSignature size={13} /> Contrato firmado (Likes)
                       </button>
                     )}
+                    <button data-testid={`order-delete-${o.orderId}`} onClick={() => removeOrder(o)} title="Eliminar orden del CRM"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-red-500 text-xs ml-auto">
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 </td>
               </tr>

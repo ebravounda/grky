@@ -1,19 +1,28 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "@/lib/api";
+import api, { apiErr } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Input } from "@/components/ui/input";
-import { Signal, Wifi, Search, ChevronRight } from "lucide-react";
+import { Signal, Wifi, Search, ChevronRight, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Lines() {
   const [lines, setLines] = useState([]);
   const [q, setQ] = useState("");
   const navigate = useNavigate();
 
-  useEffect(() => { api.get("/lines").then((r) => setLines(r.data)); }, []);
+  const load = () => api.get("/lines").then((r) => setLines(r.data));
+  useEffect(() => { load(); }, []);
   const filtered = lines.filter((l) =>
     !q || l.lineNumber.includes(q) || l.productName.toLowerCase().includes(q.toLowerCase()) || l.fiscalId.toLowerCase().includes(q.toLowerCase())
   );
+
+  const remove = async (e, l) => {
+    e.stopPropagation();
+    if (!window.confirm(`¿Eliminar la línea ${l.lineNumber} del CRM? (No afecta a Likes. Si existe en Likes, reaparecerá al reconciliar.)`)) return;
+    try { await api.delete(`/lines/${l.lineNumber}`); toast.success(`Línea ${l.lineNumber} eliminada`); load(); }
+    catch (err) { toast.error(apiErr(err)); }
+  };
 
   return (
     <div data-testid="lines-page">
@@ -23,7 +32,7 @@ export default function Lines() {
         <Input data-testid="line-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por número, NIF o tarifa…" className="pl-9" />
       </div>
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">
             <tr>
               <th className="px-4 py-3 font-medium">Línea</th>
@@ -44,7 +53,13 @@ export default function Lines() {
                 <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{l.productName}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{l.fiscalId}</td>
                 <td className="px-4 py-3"><StatusPill status={l.status} /></td>
-                <td className="px-4 py-3 text-right"><ChevronRight size={16} className="text-muted-foreground" /></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-3">
+                    <button data-testid={`line-delete-${l.lineNumber}`} onClick={(e) => remove(e, l)} title="Eliminar línea del CRM"
+                      className="text-muted-foreground hover:text-red-500"><Trash2 size={15} /></button>
+                    <ChevronRight size={16} className="text-muted-foreground" />
+                  </div>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">Sin líneas.</td></tr>}

@@ -3321,6 +3321,48 @@ async def billing_subscriptions(request: Request):
     return out
 
 
+@api.get("/billing/payment-status")
+async def billing_payment_status(request: Request):
+    """Semáforo de cobro por cliente: tarjeta activa / SEPA domiciliado / enlace pendiente / sin método."""
+    await require_admin(request)
+    # fiscalIds con facturas pendientes cuyo cobro falló
+    failed = await db.invoices.distinct("fiscalId", {"status": "pending", "chargeStatus": {"$in": ["failed", "gaveup"]}})
+    failed_set = set(failed)
+    # fiscalIds con al menos una línea activa (relevantes para cobro)
+    active_fids = set(await db.lines.distinct("fiscalId", {"status": "ACTIVE"}))
+    customers = await db.customers.find().to_list(20000)
+    out = []
+    for c in customers:
+        rec = c.get("recurring") or {}
+        cl = c.get("cardLink") or {}
+        if _has_card_on_file(c):
+            status, label = "card", "Tarjeta activa"
+        elif c.get("paymentMethod") == "SEPA CORE" or c.get("iban"):
+            status, label = "sepa", "SEPA domiciliado"
+        elif cl.get("sentAt"):
+            status, label = "pending", "Enlace enviado (sin completar)"
+        else:
+            status, label = "none", "Sin método de pago"
+        out.append({
+            "fiscalId": c["fiscalId"],
+            "customerName": f"{c.get('name','')} {c.get('firstSurname','')}".strip(),
+            "email": c.get("email"),
+            "status": status, "label": label,
+            "method": rec.get("method") or (c.get("paymentMethod") if c.get("paymentMethod") not in (None, "NO") else None),
+            "last4": rec.get("last4"),
+            "iban": c.get("iban"),
+            "hasActiveLine": c["fiscalId"] in active_fids,
+            "hasFailed": c["fiscalId"] in failed_set,
+        })
+    order = {"none": 0, "pending": 1, "sepa": 2, "card": 3}
+    out.sort(key=lambda x: (not x["hasFailed"], order.get(x["status"], 9), not x["hasActiveLine"]))
+    counts = {"card": 0, "sepa": 0, "pending": 0, "none": 0}
+    for o in out:
+        counts[o["status"]] += 1
+    return {"customers": out, "counts": counts, "failed": len(failed_set)}
+
+
+
 # ------------------------- SIM shipments -------------------------
 @api.get("/shipments")
 async def list_shipments(request: Request):
@@ -4137,6 +4179,57 @@ async def mark_invoice_paid(invoice_id: str, request: Request):
                     {"fiscalId": inv["fiscalId"]})
     inv = await db.invoices.find_one({"_id": inv["_id"]})
     return clean(inv)
+
+
+@api.post("/invoices/{invoice_id}/charge")
+async def charge_invoice_now(invoice_id: str, request: Request):
+    """Reintenta el cobro de una factura concreta al instante con la tarjeta guardada del cliente."""
+    from bson import ObjectId
+    await require_perm(request, "billing.manage")
+    try:
+        inv = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if inv.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="La factura ya está pagada")
+    customer = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    await _stripe_apply()
+    cid, pm = await _get_saved_pm(customer)
+    if not (cid and pm):
+        raise HTTPException(status_code=400,
+            detail="El cliente no tiene una tarjeta guardada. Envíale el enlace de tarjeta primero.")
+    attempts = int(inv.get("chargeAttempts", 0)) + 1
+    try:
+        pi = stripe.PaymentIntent.create(
+            amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
+            payment_method=pm, off_session=True, confirm=True,
+            description=f"Cobro manual · {inv.get('period', '')} · {inv['invoiceNumber']}",
+            metadata={"fiscalId": inv["fiscalId"], "kind": "manual_charge", "invoiceNumber": inv["invoiceNumber"]})
+        if pi.status == "succeeded":
+            await db.invoices.update_one({"_id": inv["_id"]},
+                {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts}})
+            await log_event("billing", "success",
+                            f"Cobro manual correcto · {inv['invoiceNumber']} · {inv['total']:.2f} € · {inv['fiscalId']}",
+                            {"fiscalId": inv["fiscalId"]})
+            inv = await db.invoices.find_one({"_id": inv["_id"]})
+            return {"ok": True, "status": "paid", "invoice": clean(inv)}
+        raise Exception(f"estado {pi.status}")
+    except stripe.error.CardError as e:  # noqa
+        await db.invoices.update_one({"_id": inv["_id"]},
+            {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
+        raise HTTPException(status_code=402, detail=f"Tarjeta rechazada: {e.user_message or str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa
+        await db.invoices.update_one({"_id": inv["_id"]},
+            {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
+        raise HTTPException(status_code=402, detail=f"No se pudo cobrar: {str(e)[:120]}")
+
+
 
 
 

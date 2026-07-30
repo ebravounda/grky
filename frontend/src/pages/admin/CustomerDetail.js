@@ -58,6 +58,7 @@ export default function CustomerDetail() {
   const [invEditId, setInvEditId] = useState(null);
   const [invForm, setInvForm] = useState({ items: [{ description: "", detail: "", amount: "" }], lineNumbers: [], period: "", sendEmail: true });
   const [savingInv, setSavingInv] = useState(false);
+  const [chargingInv, setChargingInv] = useState(null);
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
@@ -159,6 +160,14 @@ export default function CustomerDetail() {
     if (!window.confirm(`¿Marcar la factura ${inv.invoiceNumber} como pagada? (Cobro recibido por otro medio.)`)) return;
     try { await api.post(`/invoices/${inv.id}/mark-paid`); toast.success("Factura marcada como pagada"); load(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+  const chargeNow = async (inv) => {
+    setChargingInv(inv.id);
+    try {
+      const { data } = await api.post(`/invoices/${inv.id}/charge`);
+      if (data.status === "paid") toast.success(`Factura ${inv.invoiceNumber} cobrada correctamente`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setChargingInv(null); }
   };
   const addDiscount = () => setInvForm((f) => ({ ...f, items: [...f.items, { description: "Descuento", detail: "", amount: "" }] }));
 
@@ -417,6 +426,7 @@ export default function CustomerDetail() {
                       <button data-testid={`inv-resend-${i.invoiceNumber}`} onClick={() => resendInvoice(i)} title="Reenviar por email" className="text-muted-foreground hover:text-primary transition-colors"><Mail size={15} /></button>
                       {i.status !== "paid" && (
                         <>
+                          <button data-testid={`inv-charge-${i.invoiceNumber}`} onClick={() => chargeNow(i)} disabled={chargingInv === i.id} title="Cobrar ahora con la tarjeta guardada" className={`text-muted-foreground hover:text-primary transition-colors ${i.chargeStatus === "failed" || i.chargeStatus === "gaveup" ? "text-destructive" : ""}`}><CreditCard size={15} className={chargingInv === i.id ? "animate-pulse" : ""} /></button>
                           <button data-testid={`inv-markpaid-${i.invoiceNumber}`} onClick={() => markPaid(i)} title="Marcar como pagada" className="text-muted-foreground hover:text-success transition-colors"><CheckCircle2 size={15} /></button>
                           <button data-testid={`inv-edit-${i.invoiceNumber}`} onClick={() => openEditInvoice(i)} title="Editar factura" className="text-muted-foreground hover:text-primary transition-colors"><Pencil size={15} /></button>
                           <button data-testid={`inv-delete-${i.invoiceNumber}`} onClick={() => deleteInvoice(i)} title="Eliminar factura" className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={15} /></button>

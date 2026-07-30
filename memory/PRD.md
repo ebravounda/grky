@@ -422,3 +422,19 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 
 **Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
 
+
+---
+## 2026-07-30 (d) · Semáforo de cobro y "Cobrar ahora"
+
+**Implementado (backend)**:
+- `GET /api/billing/payment-status`: semáforo por cliente. Estados: `card` (tarjeta activa), `sepa` (SEPA/IBAN), `pending` (enlace enviado sin completar), `none` (sin método). Devuelve `{customers[], counts, failed}`; ordena rojo→ámbar→sepa→verde y marca `hasFailed` (facturas pendientes con chargeStatus failed/gaveup).
+- `POST /api/invoices/{id}/charge`: cobra al instante una factura concreta con la tarjeta guardada (off-session). 400 si ya pagada o sin tarjeta; 402 si la tarjeta es rechazada (actualiza chargeStatus/attempts).
+
+**Implementado (frontend)**:
+- `Billing.js` (Cobros): sección "Estado de cobro por cliente" con leyenda de conteos, dot de color por cliente, enlace a la ficha, columna línea activa y botón "Enviar/Reenviar tarjeta".
+- `CustomerDetail.js`: botón "Cobrar ahora" (tarjeta) en facturas pendientes; icono en rojo si el último cobro falló.
+
+**Testing**: self-test — payment-status y charge por curl; semáforo verificado por screenshot (27 clientes, leyenda 0/10/0/17). Nota: hubo un fallo de rules-of-hooks (useState tras return temprano) que se corrigió moviendo el estado al bloque superior.
+
+**Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
+

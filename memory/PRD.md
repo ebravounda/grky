@@ -464,3 +464,21 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Enlace tarjeta**: importe manual opcional (prompt) via SendCardLinkBody.amount/productName.
 - **Fix live**: `_ensure_stripe_customer` verifica/recrea el Customer por modo (test/live); validacion de sk_/pk_ al guardar claves; sync resiliente.
 - Pendiente investigar: orden TV en Likes queda "pendiente de configurar servicios" (activacion lado Likes).
+
+
+
+---
+## 2026-07-30 (h) · Facturación prorrateada VENCIDA + enlace de tarjeta modo "guardar tarjeta" (sin trial)
+- **Problema**: el enlace de tarjeta (Checkout modo suscripción con `trial_end`) mostraba "30 días gratis, luego 9€" y en la fecha ancla cobraba la cuota COMPLETA (nunca prorrateaba). El usuario quería: no cobrar la cuota hoy, guardar la tarjeta, y cobrar el día 5 en modo VENCIDO con prorrateo del primer mes.
+- **Modelo confirmado por el usuario**: (1) Enlace = guardar tarjeta, 0€ de cuota hoy. (2) Cobro el día 5 de cada mes en modo VENCIDO (mes anterior ya consumido). (3) 1er cobro = parte proporcional de los días disfrutados (alta 30 jul → 5 ago cobra 9€×2/31≈0,58€; 5 sep cobra agosto completo 9€). (4) Envío de SIM física (8€ pen / 10€ islas) se cobra AL INSTANTE al guardar la tarjeta; eSIM = 0€ hoy.
+- **Backend (`server.py`)**:
+  - `_create_recurring_checkout` REESCRITO: ya NO crea suscripción ni trial. Si hay envío de SIM física pendiente (`shipping_now`>0) → Checkout `mode=payment` que cobra el envío Y guarda la tarjeta (`payment_intent_data.setup_future_usage=off_session`). eSIM/sin envío → `mode=setup` (0€ hoy, solo guarda tarjeta). Metadata incluye monthly/productName/shippingNow.
+  - Nuevo `_on_card_saved(obj)` (webhook `checkout.session.completed` para modos setup/payment de card-save): recupera el PM del SetupIntent/PaymentIntent, lo fija como `default_payment_method` del Customer, guarda `customer.recurring={method,last4,savedPm}` + `paymentMethod=CARD` + `cardLink.done`, si hubo envío crea factura de servicio "Envío de SIM" pagada y marca `order.shippingCharged=True`, marca solicitud pagada y auto-aprueba (Likes) si procede.
+  - `monthly_billing_job` REESCRITO a modo VENCIDO: factura el MES ANTERIOR. Helper `_arrears_line_amount(price, activation, now)` + `_prev_month_bounds` + `_parse_dt`: activada antes del mes anterior → cuota completa; activada dentro del mes anterior → prorrateo desde activación a fin de mes; activada en el mes actual → 0 (aún no consumió, se omite). Dedup por `billingRunKey`=YYYY-MM. Item con detail "Parte proporcional · N días de {mes}" o "Cuota mensual · {mes}".
+  - `_pending_shipping_fee(customer)`: 8/10€ si hay orden `simType=physical` sin `shippingCharged`; 0 en otro caso. Usado por send-card-link y admin billing-checkout.
+  - `_create_invoice(first=True)` ya NO añade cuota prorrateada ni envío (la 1ª factura del alta es un registro sin cargos; el prorrateo lo hace el job del día 5 y el envío el checkout). No se envía email si total=0.
+  - `_get_saved_pm` y `_has_card_on_file` reconocen `recurring.savedPm` (tarjeta guardada sin suscripción).
+  - `public_recurring_checkout` calcula `shipping_now` desde `application.simType`; `admin_recurring_checkout` y `send_card_link` desde `_pending_shipping_fee`.
+- **Verificado**: iteration_14.json → 100% backend (7/7). send-card-link eSIM → mode=setup amount_total=None; con orden física → mode=payment 8€ + guarda tarjeta; run-monthly VENCIDO con prorrateo exacto (2 días → 0,58/0,60€; línea antigua → cuota completa; línea del mes actual → omitida); webhook con firma inválida → 400.
+- ⚠️ **Migración de clientes legacy**: los clientes que añadieron tarjeta con el flujo ANTIGUO tienen `recurring.stripeSubscriptionId` y Stripe seguirá cobrándoles la cuota completa en la fecha ancla (el job del día 5 los omite). Para pasarlos al nuevo modelo prorrateado hay que cancelar esas suscripciones en Stripe y reenviarles el nuevo enlace de tarjeta.
+- **Pendiente despliegue VPS** (solo backend): Save to Github → git pull → `systemctl restart goroky-api.service`. Configurar en Stripe el webhook `checkout.session.completed` apuntando a `/api/stripe/webhook` (ya existía). Tras desplegar, verificar con una tarjeta de prueba que el enlace guarda la tarjeta sin cobrar cuota.

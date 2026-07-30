@@ -2374,6 +2374,10 @@ async def invoice_pdf(invoice_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
         raise HTTPException(status_code=403, detail="No autorizado")
+    if not inv.get("customerIban"):
+        cust = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
+        if cust and cust.get("iban"):
+            inv["customerIban"] = cust["iban"]
     pdf_bytes = generate_invoice_pdf(inv)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={inv['invoiceNumber']}.pdf"})

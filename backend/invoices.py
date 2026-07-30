@@ -1,245 +1,321 @@
-"""Generación de facturas PDF (formato Goroky) con reportlab."""
+"""Generación de facturas PDF (formato GoRoky) con reportlab / Platypus.
+
+Diseño profesional: cabecera con logo, bloque emisor, FACTURAR A, tabla de
+conceptos, totales, desglose de consumo por línea (con barra de datos) y
+página de aviso legal. Layout basado en flujo (sin solapamientos)."""
 import io
+import os
 from datetime import datetime
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.pdfgen import canvas
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import (
+    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
+    PageBreak, KeepTogether,
+)
+from reportlab.graphics.shapes import Drawing, Rect
 
-# Datos del emisor
+# ------------------------- Datos del emisor -------------------------
 ISSUER_BRAND = "GOROKY"
 ISSUER_LEGAL = "TRAMILEX GLOBAL SERVICE SL"
 ISSUER_CIF = "CIF B21796925"
 ISSUER_ADDR = "Calle cortina del muelle otr 11, 29015 MALAGA (Málaga)"
 
-BLUE = colors.HexColor("#0033ff")
-ORANGE = colors.HexColor("#ff7a00")
+# ------------------------- Paleta -------------------------
+BLUE = colors.HexColor("#0a63ff")
+ORANGE = colors.HexColor("#ff6a00")
 DARK = colors.HexColor("#0b1020")
+INK = colors.HexColor("#1f2430")
 GREY = colors.HexColor("#6b7280")
-LIGHT = colors.HexColor("#f1f3f7")
-LINE = colors.HexColor("#d9dde5")
+SOFT = colors.HexColor("#f4f6fb")
+TRACK = colors.HexColor("#e5e8ef")
+LINE = colors.HexColor("#e2e6ee")
 
 W, H = A4
-LM = 18 * mm  # margen izquierdo
-RM = W - 18 * mm  # margen derecho
+LM = 18 * mm
+RM = 18 * mm
+CONTENT_W = W - LM - RM
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "goroky_logo.png")
 
 
 def _fmt_date(iso):
     if not iso:
         return ""
     try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).strftime("%d/%m/%Y")
     except Exception:
-        return iso[:10]
+        return str(iso)[:10]
 
 
-def _header(c):
-    # Logo textual Goroky (azul + naranja) .com
-    c.setFont("Helvetica-Bold", 22)
-    c.setFillColor(BLUE); c.drawString(LM, H - 20 * mm, "Goro")
-    wgoro = c.stringWidth("Goro", "Helvetica-Bold", 22)
-    c.setFillColor(ORANGE); c.drawString(LM + wgoro, H - 20 * mm, "ky")
-    c.setFont("Helvetica", 7); c.setFillColor(GREY)
-    c.drawString(LM, H - 24 * mm, ".com")
-    # Datos emisor (derecha del logo)
-    x = LM + 42 * mm
-    c.setFillColor(DARK); c.setFont("Helvetica-Bold", 13)
-    c.drawString(x, H - 16 * mm, ISSUER_BRAND)
-    c.setFont("Helvetica", 8); c.setFillColor(GREY)
-    c.drawString(x, H - 20 * mm, ISSUER_LEGAL)
-    c.drawString(x, H - 23.5 * mm, ISSUER_CIF)
-    c.drawString(x, H - 27 * mm, ISSUER_ADDR)
+def _eur(v):
+    try:
+        return f"{float(v or 0):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "0,00 €"
 
 
-def _footer(c, page_note=""):
-    c.setStrokeColor(LINE); c.line(LM, 20 * mm, RM, 20 * mm)
-    c.setFillColor(GREY); c.setFont("Helvetica", 6.5)
-    txt = (f"{ISSUER_LEGAL} · {ISSUER_CIF} · {ISSUER_ADDR}. "
-           "Inscrita en el Registro Mercantil. Documento generado automáticamente.")
-    c.drawString(LM, 16 * mm, txt[:150])
-    if page_note:
-        c.drawRightString(RM, 16 * mm, page_note)
+# ------------------------- Estilos -------------------------
+def _styles():
+    return {
+        "label": ParagraphStyle("label", fontName="Helvetica-Bold", fontSize=8, textColor=BLUE,
+                                 leading=10, spaceAfter=2),
+        "name": ParagraphStyle("name", fontName="Helvetica-Bold", fontSize=12, textColor=DARK, leading=15),
+        "body": ParagraphStyle("body", fontName="Helvetica", fontSize=8.5, textColor=GREY, leading=12),
+        "meta": ParagraphStyle("meta", fontName="Helvetica", fontSize=9, textColor=INK, leading=13,
+                                alignment=TA_RIGHT),
+        "metaBig": ParagraphStyle("metaBig", fontName="Helvetica-Bold", fontSize=14, textColor=DARK,
+                                  leading=17, alignment=TA_RIGHT),
+        "cellH": ParagraphStyle("cellH", fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white,
+                                leading=11),
+        "cell": ParagraphStyle("cell", fontName="Helvetica", fontSize=8.5, textColor=INK, leading=11),
+        "cellB": ParagraphStyle("cellB", fontName="Helvetica-Bold", fontSize=8.5, textColor=INK, leading=11),
+        "cellR": ParagraphStyle("cellR", fontName="Helvetica", fontSize=8.5, textColor=INK, leading=11,
+                                alignment=TA_RIGHT),
+        "muted": ParagraphStyle("muted", fontName="Helvetica", fontSize=8, textColor=GREY, leading=11),
+        "h": ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=11, textColor=DARK, leading=14,
+                            spaceBefore=6, spaceAfter=4),
+        "legalH": ParagraphStyle("legalH", fontName="Helvetica-Bold", fontSize=9.5, textColor=BLUE,
+                                 leading=12, spaceBefore=6, spaceAfter=2),
+        "legal": ParagraphStyle("legal", fontName="Helvetica", fontSize=8, textColor=GREY, leading=11.5,
+                                spaceAfter=2),
+    }
+
+
+# ------------------------- Cabecera / pie (en cada página) -------------------------
+def _draw_header_footer(canvas, doc):
+    canvas.saveState()
+    # Logo (con transparencia)
+    try:
+        img = ImageReader(LOGO_PATH)
+        iw, ih = img.getSize()
+        lw = 42 * mm
+        lh = lw * ih / iw
+        canvas.drawImage(img, LM, H - 12 * mm - lh, width=lw, height=lh,
+                         mask="auto", preserveAspectRatio=True)
+    except Exception:
+        canvas.setFont("Helvetica-Bold", 20)
+        canvas.setFillColor(ORANGE); canvas.drawString(LM, H - 20 * mm, "Go")
+        canvas.setFillColor(BLUE); canvas.drawString(LM + canvas.stringWidth("Go", "Helvetica-Bold", 20), H - 20 * mm, "Roky")
+
+    # Bloque emisor (derecha)
+    x = W - RM
+    canvas.setFillColor(DARK); canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawRightString(x, H - 13 * mm, ISSUER_BRAND)
+    canvas.setFillColor(GREY); canvas.setFont("Helvetica", 7.5)
+    canvas.drawRightString(x, H - 17 * mm, ISSUER_LEGAL)
+    canvas.drawRightString(x, H - 20.2 * mm, ISSUER_CIF)
+    canvas.drawRightString(x, H - 23.4 * mm, ISSUER_ADDR)
+
+    # Línea separadora bajo cabecera
+    canvas.setStrokeColor(LINE); canvas.setLineWidth(0.8)
+    canvas.line(LM, H - 28 * mm, W - RM, H - 28 * mm)
+
+    # Pie
+    canvas.setStrokeColor(LINE); canvas.setLineWidth(0.8)
+    canvas.line(LM, 16 * mm, W - RM, 16 * mm)
+    canvas.setFillColor(GREY); canvas.setFont("Helvetica", 6.5)
+    canvas.drawString(LM, 12.5 * mm,
+                      f"{ISSUER_LEGAL} · {ISSUER_CIF} · {ISSUER_ADDR}")
+    canvas.drawString(LM, 9.8 * mm,
+                      "Documento generado automáticamente. Gracias por confiar en GoRoky.")
+    canvas.setFillColor(GREY); canvas.setFont("Helvetica", 7)
+    canvas.drawRightString(W - RM, 9.8 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
+# ------------------------- Barra de consumo de datos -------------------------
+def _data_bar(used, total, width):
+    d = Drawing(width, 6 * mm)
+    d.add(Rect(0, 0, width, 3 * mm, rx=1.5, ry=1.5, fillColor=TRACK, strokeColor=None))
+    if total and total > 0:
+        pct = max(0.0, min(1.0, used / total))
+        col = ORANGE if pct >= 0.85 else BLUE
+        if pct > 0:
+            d.add(Rect(0, 0, max(3, width * pct), 3 * mm, rx=1.5, ry=1.5, fillColor=col, strokeColor=None))
+    return d
+
+
+# ------------------------- Tabla helper -------------------------
+def _num(v):
+    try:
+        f = float(v)
+        return f"{f:g}"
+    except Exception:
+        return str(v)
 
 
 def generate_invoice_pdf(invoice: dict) -> bytes:
+    st = _styles()
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
+    doc = BaseDocTemplate(
+        buf, pagesize=A4, leftMargin=LM, rightMargin=RM,
+        topMargin=32 * mm, bottomMargin=20 * mm,
+        title=f"Factura {invoice.get('invoiceNumber', '')}", author="GoRoky",
+    )
+    frame = Frame(LM, 20 * mm, CONTENT_W, H - 32 * mm - 20 * mm, id="main",
+                  leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+    doc.addPageTemplates([PageTemplate(id="all", frames=[frame], onPage=_draw_header_footer)])
 
-    _header(c)
+    story = []
 
-    # ---- Bloque Factura (derecha) ----
-    c.setFillColor(DARK); c.setFont("Helvetica-Bold", 15)
-    c.drawRightString(RM, H - 40 * mm, f"Factura {invoice.get('invoiceNumber', '')}")
-    c.setFont("Helvetica", 9); c.setFillColor(GREY)
-    c.drawRightString(RM, H - 45 * mm, f"Emisión: {_fmt_date(invoice.get('date'))}")
-    c.drawRightString(RM, H - 49.5 * mm, f"Venc.: {_fmt_date(invoice.get('dueDate'))}")
-    if invoice.get("period"):
-        c.drawRightString(RM, H - 54 * mm, f"Periodo: {invoice['period']}")
-
-    # ---- FACTURAR A (izquierda) ----
-    y = H - 40 * mm
-    c.setFillColor(BLUE); c.setFont("Helvetica-Bold", 9)
-    c.drawString(LM, y, "FACTURAR A")
-    c.setFillColor(DARK); c.setFont("Helvetica-Bold", 12)
-    c.drawString(LM, y - 6 * mm, invoice.get("customerName", ""))
-    c.setFont("Helvetica", 9); c.setFillColor(GREY)
-    c.drawString(LM, y - 11 * mm, f"CIF/NIF: {invoice.get('fiscalId', '')}")
-    if invoice.get("customerAddress"):
-        c.drawString(LM, y - 15.5 * mm, invoice["customerAddress"][:70])
+    # ---- FACTURAR A (izq) + Nº factura y fechas (der) ----
+    addr = (invoice.get("customerAddress") or "").strip()
+    left = []
+    left.append(Paragraph("FACTURAR A", st["label"]))
+    left.append(Paragraph(invoice.get("customerName", "") or "", st["name"]))
+    left.append(Paragraph(f"NIF/CIF: {invoice.get('fiscalId', '')}", st["body"]))
+    if addr:
+        left.append(Paragraph(addr, st["body"]))
     if invoice.get("customerEmail"):
-        c.drawString(LM, y - 20 * mm, invoice["customerEmail"])
+        left.append(Paragraph(invoice["customerEmail"], st["body"]))
+    left_cell = left
 
-    # ---- PAGO Y TOTALES (caja gris derecha) ----
-    bx, by, bw, bh = RM - 62 * mm, H - 92 * mm, 62 * mm, 30 * mm
-    c.setFillColor(LIGHT); c.roundRect(bx, by, bw, bh, 4, fill=1, stroke=0)
-    c.setFillColor(DARK); c.setFont("Helvetica-Bold", 9)
-    c.drawString(bx + 4 * mm, by + bh - 6 * mm, "PAGO Y TOTALES")
-    pm = invoice.get("paymentMethod", "NO")
-    c.setFont("Helvetica", 8); c.setFillColor(GREY)
-    c.drawString(bx + 4 * mm, by + bh - 10.5 * mm, f"Método de pago: {pm}")
-    rows = [("Base imponible", invoice.get("subtotal", 0)),
-            ("IVA (21%)", invoice.get("tax", 0))]
-    ry = by + bh - 15.5 * mm
-    c.setFont("Helvetica", 9); c.setFillColor(DARK)
-    for label, val in rows:
-        c.drawString(bx + 4 * mm, ry, label)
-        c.drawRightString(bx + bw - 4 * mm, ry, f"{val:.2f} €")
-        ry -= 5 * mm
-    c.setStrokeColor(LINE); c.line(bx + 4 * mm, ry + 1.5 * mm, bx + bw - 4 * mm, ry + 1.5 * mm)
-    c.setFillColor(BLUE); c.setFont("Helvetica-Bold", 11)
-    c.drawString(bx + 4 * mm, ry - 3 * mm, "Total Factura")
-    c.drawRightString(bx + bw - 4 * mm, ry - 3 * mm, f"{invoice.get('total', 0):.2f} €")
+    right = [Paragraph(f"Factura {invoice.get('invoiceNumber', '')}", st["metaBig"])]
+    right.append(Paragraph(f"Emisión: <b>{_fmt_date(invoice.get('date'))}</b>", st["meta"]))
+    right.append(Paragraph(f"Vencimiento: <b>{_fmt_date(invoice.get('dueDate'))}</b>", st["meta"]))
+    if invoice.get("period"):
+        right.append(Paragraph(f"Periodo: <b>{invoice['period']}</b>", st["meta"]))
+    status = (invoice.get("status") or "").lower()
+    if status == "paid":
+        right.append(Paragraph('<font color="#16a34a"><b>PAGADA</b></font>', st["meta"]))
+
+    head = Table([[left_cell, right]], colWidths=[CONTENT_W * 0.56, CONTENT_W * 0.44])
+    head.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(head)
+    story.append(Spacer(1, 10 * mm))
 
     # ---- Tabla de conceptos ----
-    ty = H - 100 * mm
-    c.setFillColor(DARK); c.rect(LM, ty, RM - LM, 8 * mm, fill=1, stroke=0)
-    c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 9)
-    c.drawString(LM + 3 * mm, ty + 2.5 * mm, "Concepto")
-    c.drawString(LM + 80 * mm, ty + 2.5 * mm, "Detalle")
-    c.drawRightString(RM - 3 * mm, ty + 2.5 * mm, "Precio (€)")
-    c.setFillColor(DARK); c.setFont("Helvetica", 9)
-    ry = ty - 7 * mm
+    data = [[Paragraph("Concepto", st["cellH"]), Paragraph("Detalle", st["cellH"]),
+             Paragraph("Precio (€)", ParagraphStyle("h2", parent=st["cellH"], alignment=TA_RIGHT))]]
     for it in invoice.get("items", []):
-        c.drawString(LM + 3 * mm, ry + 1.5 * mm, it.get("description", ""))
-        c.setFillColor(GREY); c.drawString(LM + 80 * mm, ry + 1.5 * mm, it.get("detail", "") or "")
-        c.setFillColor(DARK); c.drawRightString(RM - 3 * mm, ry + 1.5 * mm, f"{it.get('amount', 0):.2f} €")
-        c.setStrokeColor(LINE); c.line(LM, ry, RM, ry)
-        ry -= 7 * mm
+        data.append([
+            Paragraph(it.get("description", "") or "", st["cellB"]),
+            Paragraph(it.get("detail", "") or "", st["cell"]),
+            Paragraph(_eur(it.get("amount", 0)), st["cellR"]),
+        ])
+    items = Table(data, colWidths=[CONTENT_W * 0.36, CONTENT_W * 0.44, CONTENT_W * 0.20])
+    items.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), DARK),
+        ("TOPPADDING", (0, 0), (-1, 0), 5), ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+        ("TOPPADDING", (0, 1), (-1, -1), 6), ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.6, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, SOFT]),
+    ]))
+    story.append(items)
+    story.append(Spacer(1, 6 * mm))
+
+    # ---- Totales (derecha) + método de pago ----
+    tot_rows = [
+        [Paragraph("Base imponible", st["cell"]), Paragraph(_eur(invoice.get("subtotal", 0)), st["cellR"])],
+        [Paragraph("IVA (21%)", st["cell"]), Paragraph(_eur(invoice.get("tax", 0)), st["cellR"])],
+        [Paragraph("<b>TOTAL</b>", ParagraphStyle("tl", parent=st["cellB"], textColor=BLUE, fontSize=10.5)),
+         Paragraph(_eur(invoice.get("total", 0)),
+                   ParagraphStyle("tr", parent=st["cellR"], textColor=BLUE, fontName="Helvetica-Bold", fontSize=10.5))],
+    ]
+    totals = Table(tot_rows, colWidths=[CONTENT_W * 0.24, CONTENT_W * 0.20])
+    totals.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, 1), 0.5, LINE),
+        ("LINEABOVE", (0, 2), (-1, 2), 1.0, BLUE),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    pm = invoice.get("paymentMethod", "NO")
+    iban = invoice.get("customerIban") or invoice.get("iban") or ""
+    pay_lines = [Paragraph("PAGO", st["label"]),
+                 Paragraph(f"Método: <b>{pm}</b>", st["body"])]
+    if iban:
+        pay_lines.append(Paragraph(f"IBAN: <b>{iban}</b>", st["body"]))
+    pay_cell = pay_lines
+
+    wrap = Table([[pay_cell, totals]], colWidths=[CONTENT_W * 0.56, CONTENT_W * 0.44])
+    wrap.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+    ]))
+    story.append(wrap)
 
     # ---- Desglose de consumo por línea ----
-    consumption = [cn for cn in invoice.get("consumption", []) if cn]
-    if consumption:
-        ry -= 6 * mm
-        c.setFillColor(BLUE); c.setFont("Helvetica-Bold", 10)
-        c.drawString(LM, ry, "DETALLE DE CONSUMO POR LÍNEA")
-        ry -= 7 * mm
-        for cn in consumption:
-            if ry < 60 * mm:  # salto de página
-                _footer(c); c.showPage(); _header(c); ry = H - 45 * mm
-            # cabecera de línea
-            c.setFillColor(LIGHT); c.rect(LM, ry - 1 * mm, RM - LM, 7 * mm, fill=1, stroke=0)
-            c.setFillColor(DARK); c.setFont("Helvetica-Bold", 9)
-            c.drawString(LM + 3 * mm, ry + 1 * mm, f"Línea {cn.get('lineNumber', '')}")
-            c.setFont("Helvetica", 8); c.setFillColor(GREY)
-            c.drawRightString(RM - 3 * mm, ry + 1 * mm,
-                              f"Min. nacionales: {cn.get('nationalMinutes', 0)}   ·   SMS: {cn.get('sms', 0)}   ·   Datos: {cn.get('dataGB', 0)} GB")
-            ry -= 8 * mm
-            # ---- Barra de consumo de datos (GB usados / totales) ----
-            total_gb = float(cn.get("totalGB", 0) or 0)
-            used_gb = float(cn.get("usedGB", cn.get("dataGB", 0)) or 0)
-            if total_gb > 0:
-                pct = max(0.0, min(1.0, used_gb / total_gb))
-                bar_w = RM - LM - 6 * mm
-                bx0 = LM + 3 * mm
-                by0 = ry
-                c.setFillColor(GREY); c.setFont("Helvetica", 7.5)
-                c.drawString(bx0, by0 + 1 * mm, f"Datos: {used_gb:g} GB de {total_gb:g} GB ({round(pct * 100)}%)")
-                ry -= 4 * mm
-                # pista de la barra
-                c.setFillColor(colors.HexColor("#e5e8ef")); c.roundRect(bx0, ry, bar_w, 2.6 * mm, 1.3, fill=1, stroke=0)
-                # relleno según consumo (naranja si >85%, azul si no)
-                fill_col = ORANGE if pct >= 0.85 else BLUE
-                if pct > 0:
-                    c.setFillColor(fill_col); c.roundRect(bx0, ry, max(2 * mm, bar_w * pct), 2.6 * mm, 1.3, fill=1, stroke=0)
-                ry -= 6 * mm
-            calls = cn.get("calls", [])
-            if calls:
-                c.setFillColor(GREY); c.setFont("Helvetica-Bold", 7.5)
-                c.drawString(LM + 3 * mm, ry, "Nº LLAMADO")
-                c.drawString(LM + 55 * mm, ry, "FECHA")
-                c.drawRightString(RM - 3 * mm, ry, "DURACIÓN")
-                ry -= 4.5 * mm
-                c.setFont("Helvetica", 8); c.setFillColor(DARK)
-                for call in calls[:20]:
-                    if ry < 40 * mm:
-                        _footer(c); c.showPage(); _header(c); ry = H - 45 * mm
-                        c.setFont("Helvetica", 8); c.setFillColor(DARK)
-                    dur = call.get("duration", 0)
-                    mm_s = f"{dur // 60}m {dur % 60}s"
-                    c.drawString(LM + 3 * mm, ry, str(call.get("number") or "—"))
-                    c.setFillColor(GREY); c.drawString(LM + 55 * mm, ry, _fmt_date(call.get("date")))
-                    c.setFillColor(DARK); c.drawRightString(RM - 3 * mm, ry, mm_s)
-                    ry -= 4.2 * mm
-            else:
-                c.setFillColor(GREY); c.setFont("Helvetica-Oblique", 8)
-                c.drawString(LM + 3 * mm, ry, "Sin llamadas registradas en el periodo.")
-                ry -= 5 * mm
-            ry -= 4 * mm
+    consumption = [cn for cn in (invoice.get("consumption") or []) if cn]
+    for cn in consumption:
+        block = [Spacer(1, 8 * mm)]
+        block.append(Paragraph(f"Detalle de consumo · Línea {cn.get('lineNumber', '')}", st["h"]))
+        summ = (f"Minutos nacionales: <b>{cn.get('nationalMinutes', 0)}</b> &nbsp;·&nbsp; "
+                f"SMS: <b>{cn.get('sms', 0)}</b> &nbsp;·&nbsp; "
+                f"Datos: <b>{_num(cn.get('usedGB', cn.get('dataGB', 0)))} GB</b>")
+        block.append(Paragraph(summ, st["body"]))
 
-    _footer(c, "Página 1")
-    c.showPage()
+        total_gb = float(cn.get("totalGB", 0) or 0)
+        used_gb = float(cn.get("usedGB", cn.get("dataGB", 0)) or 0)
+        if total_gb > 0:
+            pct = round(max(0.0, min(1.0, used_gb / total_gb)) * 100)
+            block.append(Spacer(1, 1.5 * mm))
+            block.append(Paragraph(f"Datos consumidos: {_num(used_gb)} GB de {_num(total_gb)} GB ({pct}%)", st["muted"]))
+            block.append(_data_bar(used_gb, total_gb, CONTENT_W))
+        story.append(KeepTogether(block))
 
-    # ---- Página 2: información legal ----
-    _header(c)
-    ly = H - 42 * mm
-    c.setFillColor(DARK); c.setFont("Helvetica-Bold", 12)
-    c.drawString(LM, ly, "Información legal")
-    ly -= 8 * mm
+        calls = cn.get("calls", []) or []
+        if calls:
+            cdata = [[Paragraph("Fecha", st["cellH"]), Paragraph("Nº destino", st["cellH"]),
+                      Paragraph("Duración", ParagraphStyle("dh", parent=st["cellH"], alignment=TA_RIGHT))]]
+            for call in calls[:60]:
+                dur = int(call.get("duration", 0) or 0)
+                cdata.append([
+                    Paragraph(_fmt_date(call.get("date")), st["cell"]),
+                    Paragraph(str(call.get("number") or "—"), st["cell"]),
+                    Paragraph(f"{dur // 60}m {dur % 60}s", st["cellR"]),
+                ])
+            ctable = Table(cdata, colWidths=[CONTENT_W * 0.30, CONTENT_W * 0.45, CONTENT_W * 0.25], repeatRows=1)
+            ctable.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), INK),
+                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.5, LINE),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, SOFT]),
+            ]))
+            story.append(Spacer(1, 2 * mm))
+            story.append(ctable)
+        else:
+            story.append(Paragraph("Sin llamadas registradas en el periodo.", st["muted"]))
 
+    # ---- Página de aviso legal ----
+    story.append(PageBreak())
+    story.append(Paragraph("Aviso legal e información al usuario", st["h"]))
+    story.append(Spacer(1, 2 * mm))
     sections = [
-        ("Aviso legal",
-         "Los servicios facturados son comercializados por GOROKY (TRAMILEX GLOBAL SERVICE SL) por cuenta de "
-         "los operadores mayoristas correspondientes (Likes Telecom, XFERA MÓVILES S.A.U. y MEDIOS AUDIOVISUALES "
+        ("Comercialización del servicio",
+         "Los servicios facturados son comercializados por GOROKY (TRAMILEX GLOBAL SERVICE SL) por cuenta de los "
+         "operadores mayoristas correspondientes (Likes Telecom, XFERA MÓVILES S.A.U. y MEDIOS AUDIOVISUALES "
          "MASMEDIA SL). El operador de red o prestador del servicio depende del tipo de servicio contratado "
          "(móvil/fibra, TV OTT u otros)."),
         ("Datos de carácter personal",
          "El titular puede ejercer sus derechos de acceso, rectificación, cancelación y oposición sobre sus datos "
          "personales dirigiéndose a GOROKY. La política de privacidad completa está disponible en GOROKY.COM."),
         ("Reclamaciones",
-         "Podrá presentar reclamaciones en el plazo de un mes desde el hecho que las motive, obteniendo un número "
-         "de referencia. En caso de disconformidad podrá acudir a la Secretaría de Estado de Telecomunicaciones o a "
-         "las Juntas Arbitrales de Consumo."),
+         "Podrá presentar reclamaciones en el plazo de un mes desde el hecho que las motive, obteniendo un número de "
+         "referencia. En caso de disconformidad podrá acudir a la Secretaría de Estado de Telecomunicaciones o a las "
+         "Juntas Arbitrales de Consumo."),
         ("Impago",
          "El impago de los servicios podrá conllevar la suspensión temporal, la interrupción definitiva del servicio, "
          "la resolución del contrato y la reclamación de la deuda pendiente conforme a la normativa vigente."),
     ]
     for title, body in sections:
-        c.setFillColor(BLUE); c.setFont("Helvetica-Bold", 9.5)
-        c.drawString(LM, ly, title)
-        ly -= 5 * mm
-        c.setFillColor(GREY); c.setFont("Helvetica", 8.5)
-        ly = _wrap(c, body, LM, ly, RM - LM, 4.5 * mm)
-        ly -= 4 * mm
+        story.append(Paragraph(title, st["legalH"]))
+        story.append(Paragraph(body, st["legal"]))
+        story.append(Spacer(1, 2 * mm))
 
-    _footer(c, "Página 2")
-    c.showPage()
-    c.save()
+    doc.build(story)
     buf.seek(0)
     return buf.read()
-
-
-def _wrap(c, text, x, y, max_w, lh):
-    words = text.split()
-    line = ""
-    for w in words:
-        test = (line + " " + w).strip()
-        if c.stringWidth(test, "Helvetica", 8.5) > max_w:
-            c.drawString(x, y, line)
-            y -= lh
-            line = w
-        else:
-            line = test
-    if line:
-        c.drawString(x, y, line)
-        y -= lh
-    return y

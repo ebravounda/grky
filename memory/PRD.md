@@ -385,3 +385,23 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 
 **Deuda técnica anotada por review** (no bloqueante): modularizar `server.py` (~4850 líneas) en routers; `InvoiceItemBody.quantity` se ignora en los totales (amount = total de línea).
 
+
+---
+## 2026-07-30 (b) · Marcar pagada, facturación mensual auto (día 5), descuentos y recordatorio de tarjeta
+
+**Implementado (backend `server.py`)**:
+- `POST /api/invoices/{id}/mark-paid` → marca factura como pagada manualmente (`paidManually`, `paidAt`, `paidBy`). Idempotente.
+- **Facturación mensual automática**: `monthly_billing_job()` (cron diario 06:00 UTC, actúa solo el día `billingDay`=5). Emite la cuota mensual (kind=`recurring`, dedup por fiscalId+period) de cada cliente con líneas ACTIVE; si tiene tarjeta guardada, cobra off-session (PaymentIntent) y marca pagada. Omite clientes con suscripción Stripe activa (los cobra Stripe vía webhook). Trigger manual: `POST /api/billing/run-monthly`.
+- **Descuentos**: `_invoice_totals` admite importes negativos; guard `total > 0` en crear/editar factura (400 si ≤0).
+- **Recordatorio de tarjeta**: `card_reminder_job()` (cron diario 09:00 UTC). Reenvía el enlace de tarjeta a clientes con `cardLink.sentAt` que aún no la han añadido (`_has_card_on_file`), cada `CARD_REMINDER_DAYS` (3) hasta `CARD_REMINDER_MAX` (3) veces. `send-card-link` refactorizado a helper `_send_card_link` que persiste el seguimiento `cardLink`.
+
+**Implementado (frontend `CustomerDetail.js`)**:
+- Botón "marcar pagada" (check) en facturas pendientes.
+- Botón "Añadir descuento" en el diálogo de factura (importe negativo); validación de total>0 en cliente.
+
+**Testing**: iteration_13.json → 100% backend (pytest 8/8) y 100% frontend. Sin issues.
+
+**Config (env opcional)**: `CARD_REMINDER_INTERVAL_DAYS` (3), `CARD_REMINDER_MAX` (3). Día de facturación = `billingDay` en app_settings (5).
+
+**Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
+

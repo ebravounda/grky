@@ -160,7 +160,7 @@ export default function CustomerDetail() {
     try { await api.post(`/invoices/${inv.id}/mark-paid`); toast.success("Factura marcada como pagada"); load(); }
     catch (e) { toast.error(apiErr(e)); }
   };
-  const addDiscount = () => setInvForm((f) => ({ ...f, items: [...f.items, { description: "Descuento", detail: "", amount: "-" }] }));
+  const addDiscount = () => setInvForm((f) => ({ ...f, items: [...f.items, { description: "Descuento", detail: "", amount: "" }] }));
 
   const syncLikes = async () => {
     setSyncing(true);

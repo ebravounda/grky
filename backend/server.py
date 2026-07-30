@@ -3031,15 +3031,20 @@ def _has_card_on_file(customer):
 
 
 async def _resolve_monthly(fiscalId):
-    """Importe mensual y nombre de tarifa a domiciliar (líneas activas → fallbacks)."""
+    """Importe mensual y nombre de tarifa a domiciliar. Usa SIEMPRE el PVP de venta CON IVA
+    del catálogo (tarifa), no el precio base/cesión guardado en la línea."""
     active_lines = await db.lines.find({"fiscalId": fiscalId, "status": "ACTIVE"}).to_list(100)
-    monthly = round(sum(float(l.get("price") or 0) for l in active_lines), 2)
+    monthly = 0.0
+    for l in active_lines:
+        pvp = await _contract_price(l.get("productId"), l.get("price") or 0)
+        monthly += float(pvp or 0)
+    monthly = round(monthly, 2)
     prod_name = active_lines[0].get("productName") if active_lines else "Cuota mensual"
     sub = await db.subscriptions.find_one({"fiscalId": fiscalId}, sort=[("created", -1)])
     if monthly <= 0:
         any_line = await db.lines.find_one({"fiscalId": fiscalId, "price": {"$gt": 0}}, sort=[("created", -1)])
         if any_line:
-            monthly = round(float(any_line.get("price") or 0), 2)
+            monthly = round(float(await _contract_price(any_line.get("productId"), any_line.get("price") or 0)), 2)
             prod_name = any_line.get("productName") or prod_name
     if monthly <= 0 and sub and sub.get("products"):
         p0 = sub["products"][0]
@@ -3563,9 +3568,12 @@ async def monthly_billing_job(force=False):
         if exists:
             result["skipped"] += 1
             continue
-        items = [{"description": l.get("productName", "Cuota mensual"),
-                  "detail": f"Cuota mensual · {period}", "quantity": 1,
-                  "amount": round(float(l.get("price") or 0), 2)} for l in active_lines if float(l.get("price") or 0) > 0]
+        items = []
+        for l in active_lines:
+            pvp = round(float(await _contract_price(l.get("productId"), l.get("price") or 0)), 2)
+            if pvp > 0:
+                items.append({"description": l.get("productName", "Cuota mensual"),
+                              "detail": f"Cuota mensual · {period}", "quantity": 1, "amount": pvp})
         if not items:
             result["skipped"] += 1
             continue

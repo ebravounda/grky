@@ -405,3 +405,20 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 
 **Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
 
+
+---
+## 2026-07-30 (c) · Barra de consumo en factura, reintento de cobro y sync Stripe
+
+**Implementado (backend)**:
+- **Barra de consumo GB** en `invoices.py`: en "Detalle de consumo por línea" dibuja una barra usados/totales ("22.5 GB de 30 GB · 75%"); azul, naranja si ≥85%. `_line_usage` ahora expone `usedGB` y `totalGB`.
+- **Reintento de cobro**: `monthly_billing_job` marca la factura `chargeStatus="failed"` + `chargeAttempts` + `nextRetryAt` cuando el cobro con tarjeta falla. Nuevo `retry_failed_charges_job()` (cron diario 07:00 UTC) reintenta cada `CHARGE_RETRY_DAYS` (3) hasta `CHARGE_RETRY_MAX` (3); al agotar marca `chargeStatus="gaveup"`. Trigger manual `POST /api/billing/retry-charges`.
+- **Sync Stripe**: `POST /api/billing/sync-stripe-customers` crea/enlaza un `stripe.Customer` por cada cliente del CRM (busca por email para no duplicar, guarda `stripeCustomerId`, actualiza nombre/email si ya existe). Devuelve {total, created, linked, updated, errors}. Validado en preview: 27 clientes → 22 creados, 5 actualizados, 0 errores.
+
+**Implementado (frontend `Billing.js` / página Cobros)**: botones "Sincronizar clientes con Stripe", "Facturación mensual ahora" (POST run-monthly), "Reintentar cobros" (POST retry-charges).
+
+**Config (env opcional)**: `CHARGE_RETRY_INTERVAL_DAYS` (3), `CHARGE_RETRY_MAX` (3).
+
+**Testing**: self-test — sync/retry por curl (Stripe real), barra GB verificada visualmente (PDF renderizado), botones por screenshot. Endpoints anteriores (iteration_13) al 100%.
+
+**Pendiente despliegue VPS** (backend + frontend): Save to Github → git pull → yarn build → copiar build (conservar .htaccess) → restart goroky-api.service.
+

@@ -144,6 +144,24 @@ def generate_invoice_pdf(invoice: dict) -> bytes:
             c.drawRightString(RM - 3 * mm, ry + 1 * mm,
                               f"Min. nacionales: {cn.get('nationalMinutes', 0)}   ·   SMS: {cn.get('sms', 0)}   ·   Datos: {cn.get('dataGB', 0)} GB")
             ry -= 8 * mm
+            # ---- Barra de consumo de datos (GB usados / totales) ----
+            total_gb = float(cn.get("totalGB", 0) or 0)
+            used_gb = float(cn.get("usedGB", cn.get("dataGB", 0)) or 0)
+            if total_gb > 0:
+                pct = max(0.0, min(1.0, used_gb / total_gb))
+                bar_w = RM - LM - 6 * mm
+                bx0 = LM + 3 * mm
+                by0 = ry
+                c.setFillColor(GREY); c.setFont("Helvetica", 7.5)
+                c.drawString(bx0, by0 + 1 * mm, f"Datos: {used_gb:g} GB de {total_gb:g} GB ({round(pct * 100)}%)")
+                ry -= 4 * mm
+                # pista de la barra
+                c.setFillColor(colors.HexColor("#e5e8ef")); c.roundRect(bx0, ry, bar_w, 2.6 * mm, 1.3, fill=1, stroke=0)
+                # relleno según consumo (naranja si >85%, azul si no)
+                fill_col = ORANGE if pct >= 0.85 else BLUE
+                if pct > 0:
+                    c.setFillColor(fill_col); c.roundRect(bx0, ry, max(2 * mm, bar_w * pct), 2.6 * mm, 1.3, fill=1, stroke=0)
+                ry -= 6 * mm
             calls = cn.get("calls", [])
             if calls:
                 c.setFillColor(GREY); c.setFont("Helvetica-Bold", 7.5)

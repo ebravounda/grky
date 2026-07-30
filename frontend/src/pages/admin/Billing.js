@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api, { apiErr } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS = {
@@ -23,6 +23,32 @@ export default function Billing() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  const runMonthly = async () => {
+    setBusy("monthly");
+    try {
+      const { data } = await api.post("/billing/run-monthly");
+      toast.success(`Facturación ${data.period}: ${data.invoiced} facturas · ${data.charged} cobradas · ${data.failed} fallidas`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
+  const retryCharges = async () => {
+    setBusy("retry");
+    try {
+      const { data } = await api.post("/billing/retry-charges");
+      toast.success(`Reintentos: ${data.retried} · ${data.charged} cobrados · ${data.gaveup} agotados`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
+  const syncStripe = async () => {
+    setBusy("sync");
+    try {
+      const { data } = await api.post("/billing/sync-stripe-customers");
+      toast.success(`Stripe: ${data.created} creados · ${data.linked} enlazados · ${data.updated} actualizados${data.errors ? ` · ${data.errors} errores` : ""}`);
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
   const simulate = async (id, outcome) => {
     setBusy(id + outcome);
     try {
@@ -37,7 +63,10 @@ export default function Billing() {
       <PageHeader overline="Finanzas" title="Cobros recurrentes"
         subtitle="Domiciliaciones SEPA y tarjetas con cobro mensual automático (Stripe)."
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button data-testid="sync-stripe-btn" variant="outline" className="rounded-full gap-2" onClick={syncStripe} disabled={busy === "sync"}><Users size={15} className={busy === "sync" ? "animate-pulse" : ""} /> {busy === "sync" ? "Sincronizando…" : "Sincronizar clientes con Stripe"}</Button>
+            <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Facturando…" : "Facturación mensual ahora"}</Button>
+            <Button data-testid="retry-charges-btn" variant="outline" className="rounded-full gap-2" onClick={retryCharges} disabled={busy === "retry"}><RotateCcw size={15} /> {busy === "retry" ? "Reintentando…" : "Reintentar cobros"}</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={load} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualizar</Button>
             <Button data-testid="run-cycle-btn" className="rounded-full gap-2" onClick={runCycle}><PlayCircle size={15} /> Ejecutar ciclo</Button>
           </div>

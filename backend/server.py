@@ -86,6 +86,8 @@ def _line_usage(line: dict) -> dict:
         "nationalMinutes": minutes,
         "sms": len(sms),
         "dataGB": line.get("usedGB", 0),
+        "usedGB": line.get("usedGB", 0),
+        "totalGB": line.get("totalGB", 0),
         "calls": [{"number": c.get("calledNumber"), "date": c.get("date"),
                    "duration": c.get("duration", 0)} for c in voice],
     }
@@ -170,6 +172,8 @@ BILLING_REMINDER_DAYS = [int(x) for x in os.environ.get("BILLING_REMINDER_DAYS",
 BILLING_MAX_FAILED = int(os.environ.get("BILLING_MAX_FAILED_ATTEMPTS", "3"))
 CARD_REMINDER_DAYS = int(os.environ.get("CARD_REMINDER_INTERVAL_DAYS", "3"))
 CARD_REMINDER_MAX = int(os.environ.get("CARD_REMINDER_MAX", "3"))
+CHARGE_RETRY_DAYS = int(os.environ.get("CHARGE_RETRY_INTERVAL_DAYS", "3"))
+CHARGE_RETRY_MAX = int(os.environ.get("CHARGE_RETRY_MAX", "3"))
 
 
 async def log_event(source: str, level: str, message: str, meta: dict = None):
@@ -3503,8 +3507,18 @@ async def monthly_billing_job(force=False):
                     metadata={"fiscalId": fid, "kind": "recurring", "period": period})
                 if pi.status == "succeeded":
                     inv["status"] = "paid"
+                    inv["chargeStatus"] = "paid"
                     result["charged"] += 1
+                else:
+                    inv["chargeStatus"] = "failed"
+                    inv["chargeAttempts"] = 1
+                    inv["nextRetryAt"] = (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()
+                    result["failed"] += 1
             except Exception as e:  # noqa
+                inv["chargeStatus"] = "failed"
+                inv["chargeAttempts"] = 1
+                inv["nextRetryAt"] = (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()
+                inv["chargeError"] = str(e)[:150]
                 result["failed"] += 1
                 await log_event("billing", "warning", f"Cobro mensual con tarjeta falló · {fid}: {str(e)[:100]}",
                                 {"fiscalId": fid})
@@ -3551,6 +3565,114 @@ async def run_monthly_billing(request: Request):
     await require_admin(request)
     res = await monthly_billing_job(force=True)
     return {"ok": True, **res}
+
+
+async def retry_failed_charges_job():
+    """Reintenta el cobro con tarjeta de las facturas recurrentes cuyo cobro del día 5 falló."""
+    now = datetime.now(timezone.utc)
+    await _stripe_apply()
+    result = {"retried": 0, "charged": 0, "gaveup": 0}
+    q = {"status": "pending", "kind": "recurring", "chargeStatus": "failed",
+         "chargeAttempts": {"$lt": CHARGE_RETRY_MAX}}
+    invs = await db.invoices.find(q).to_list(20000)
+    for inv in invs:
+        try:
+            nra = datetime.fromisoformat(inv["nextRetryAt"]) if inv.get("nextRetryAt") else now
+        except Exception:
+            nra = now
+        if nra > now:
+            continue
+        cust = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
+        if not cust:
+            continue
+        cid, pm = await _get_saved_pm(cust)
+        attempts = int(inv.get("chargeAttempts", 1)) + 1
+        result["retried"] += 1
+        if not (cid and pm):
+            await db.invoices.update_one({"_id": inv["_id"]},
+                {"$set": {"chargeAttempts": attempts,
+                          "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
+            continue
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
+                payment_method=pm, off_session=True, confirm=True,
+                description=f"Reintento cuota {inv.get('period','')}",
+                metadata={"fiscalId": inv["fiscalId"], "kind": "recurring_retry"})
+            if pi.status == "succeeded":
+                await db.invoices.update_one({"_id": inv["_id"]},
+                    {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts}})
+                result["charged"] += 1
+                await log_event("billing", "success",
+                                f"Reintento de cobro correcto · {inv['invoiceNumber']} · {inv['fiscalId']}",
+                                {"fiscalId": inv["fiscalId"]})
+                continue
+            raise Exception(f"estado {pi.status}")
+        except Exception as e:  # noqa
+            gave = attempts >= CHARGE_RETRY_MAX
+            upd = {"chargeAttempts": attempts, "chargeError": str(e)[:150]}
+            if gave:
+                upd["chargeStatus"] = "gaveup"
+                result["gaveup"] += 1
+                await log_event("billing", "error",
+                                f"Cobro definitivamente fallido tras {attempts} intentos · {inv['invoiceNumber']} · {inv['fiscalId']}",
+                                {"fiscalId": inv["fiscalId"]})
+            else:
+                upd["nextRetryAt"] = (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": upd})
+    if result["retried"]:
+        await log_event("billing", "info",
+                        f"Reintentos de cobro: {result['retried']} · {result['charged']} cobrados · {result['gaveup']} agotados")
+    return result
+
+
+@api.post("/billing/retry-charges")
+async def run_retry_charges(request: Request):
+    """Reintenta manualmente los cobros con tarjeta fallidos."""
+    await require_admin(request)
+    res = await retry_failed_charges_job()
+    return {"ok": True, **res}
+
+
+@api.post("/billing/sync-stripe-customers")
+async def sync_stripe_customers(request: Request):
+    """Crea/enlaza en Stripe un Customer por cada cliente del CRM (sincroniza la cartera con Stripe)."""
+    await require_admin(request)
+    await _stripe_apply()
+    result = {"total": 0, "created": 0, "linked": 0, "updated": 0, "skipped": 0, "errors": 0}
+    customers = await db.customers.find().to_list(20000)
+    for cust in customers:
+        result["total"] += 1
+        fid = cust["fiscalId"]
+        name = f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip()
+        email = cust.get("email")
+        try:
+            existing_id = cust.get("stripeCustomerId")
+            if existing_id:
+                # actualizar datos básicos en Stripe
+                stripe.Customer.modify(existing_id, name=name, email=email,
+                                       metadata={"fiscalId": fid})
+                result["updated"] += 1
+                continue
+            # buscar por email para no duplicar
+            found = None
+            if email:
+                res = stripe.Customer.list(email=email, limit=1)
+                found = res.data[0] if res and res.data else None
+            if found:
+                stripe.Customer.modify(found.id, name=name, metadata={"fiscalId": fid})
+                await db.customers.update_one({"fiscalId": fid}, {"$set": {"stripeCustomerId": found.id}})
+                result["linked"] += 1
+            else:
+                sc = stripe.Customer.create(name=name, email=email, metadata={"fiscalId": fid})
+                await db.customers.update_one({"fiscalId": fid}, {"$set": {"stripeCustomerId": sc.id}})
+                result["created"] += 1
+        except Exception as e:  # noqa
+            result["errors"] += 1
+            await log_event("stripe", "warning", f"Sync Stripe cliente {fid} falló: {str(e)[:100]}", {"fiscalId": fid})
+    await log_event("stripe", "success",
+                    f"Sincronización con Stripe: {result['created']} creados · {result['linked']} enlazados · {result['updated']} actualizados · {result['errors']} errores")
+    return {"ok": True, **result}
 
 
 
@@ -4824,6 +4946,8 @@ async def startup():
         scheduler.add_job(monthly_billing_job, CronTrigger(hour=6, minute=0), id="monthly_billing", replace_existing=True)
         # Recordatorio de tarjeta: una vez al día
         scheduler.add_job(card_reminder_job, CronTrigger(hour=9, minute=0), id="card_reminder", replace_existing=True)
+        # Reintento de cobros fallidos: una vez al día
+        scheduler.add_job(retry_failed_charges_job, CronTrigger(hour=7, minute=0), id="retry_charges", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

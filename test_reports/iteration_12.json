@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 12 — Verified new CustomerDetail CRM flows: (a) POST /api/customers/{fid}/billing saves IBAN + paymentMethod persistently; (b) invoice CRUD POST /api/invoices, /update, /delete with correct totals (total con IVA = suma amounts, subtotal = total/1.21); (c) editing/deleting a PAID invoice returns 400 and UI hides edit/delete icons; (d) POST /api/customers/{fid}/send-card-link returns a real Stripe checkout URL (https://checkout.stripe.com/...) and emails the client. Backend pytest: 9 passed / 1 skipped (env helper). Frontend Playwright: full happy-path validated end-to-end on R04432057 (Gonzalo Soto) — IBAN ES9121000418450200051332 visible after reload, invoice GRK-2026-00046 created with 18.15 €, edited to 31.05 €, deleted successfully; paid invoice GRK-2026-00045 shows no edit/delete; 'Enlace de tarjeta enviado a gonzalosotocerda@gmail.com' toast confirmed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter12_billing_invoices.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~4850 lines. Invoice/billing/customer routes should be extracted to /app/backend/routers/ modules to reduce merge conflicts and improve testability.",
+    "delete_invoice registers BOTH DELETE /api/invoices/{id} and POST /api/invoices/{id}/delete on the same function with two @api decorators — works but is unusual; consider using two thin wrappers calling a shared helper for clarity, and add a comment explaining VPS blocks DELETE.",
+    "_invoice_totals treats the sum of item.amount as the IVA-inclusive total. If an admin enters an item with amount<0 (discount), _invoice_totals still divides by 1.21 which is fine, but there is no validation that final total > 0 — a factura with total ≤ 0 will still be created and emailed.",
+    "InvoiceItemBody.quantity is accepted but never used in totals (amount is treated as the line total already). Either enforce amount = unitPrice * quantity server-side, or hide quantity from the UI to avoid admin confusion.",
+    "update_invoice allows moving status pending→paid via API, but the UI 'Editar factura' dialog does not expose that — OK if intentional, but consider gating status changes to a dedicated endpoint (e.g. /invoices/{id}/mark-paid) to keep audit logs clearer.",
+    "send_card_link falls back to any_line.price > 0 or subscription.products[0].price if no ACTIVE lines are priced — this could send a Stripe link for a service the client is not currently paying (e.g. cancelled line). Consider requiring at least one ACTIVE line to avoid billing surprises.",
+    "_create_recurring_checkout always adds a 'Cuota de alta' line item if setupFee>0, even from send-card-link (where the customer already onboarded). Should probably suppress setup fee when purpose='card_setup'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter12_billing_invoices.py",
+    "/app/test_reports/pytest/iter12_results.xml",
+    "/app/test_reports/iteration_12.json"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (working). Test customer used: R04432057 (Gonzalo Soto).",
+  "seed_data_creation": "Created & deleted 2 pending invoices via API tests plus 1 pending invoice (GRK-2026-00046) via UI, then deleted. Marked one temp invoice as 'paid' to verify 400 guard — this remains in DB as an artifact. Also updated R04432057 IBAN/paymentMethod to ES9121000418450200051332 / SEPA CORE.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests file /app/backend/tests/test_iter12_billing_invoices.py runs against public URL and requires admin@goroky.com to have billing.manage perm. The 'no-tariff' test creates a synthetic customer with fiscalId TESTX99999999Z (safe to delete). Send-card-link endpoint DOES issue a real Stripe test-mode session — inspect payment_transactions collection to clean up if needed. Invoice item quantity field is currently ignored by totals.",
+  "rca of the issue": "N/A — all tested flows passed."
+}

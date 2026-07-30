@@ -408,6 +408,41 @@ class ServiceChargeBody(BaseModel):
     origin_url: Optional[str] = None    # necesario para link de pago (SEPA / sin tarjeta guardada)
 
 
+class CustomerBillingBody(BaseModel):
+    iban: Optional[str] = None
+    paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
+
+
+class InvoiceItemBody(BaseModel):
+    description: str
+    detail: Optional[str] = ""
+    quantity: int = 1
+    amount: float                        # importe total (CON IVA) de la línea
+
+
+class InvoiceCreateBody(BaseModel):
+    fiscalId: str
+    items: List[InvoiceItemBody]
+    lineNumbers: Optional[List[str]] = None   # incluir consumo (llamadas/GB) de estas líneas
+    period: Optional[str] = None
+    status: str = "pending"                   # "pending" | "paid"
+    sendEmail: bool = True
+
+
+class InvoiceUpdateBody(BaseModel):
+    items: Optional[List[InvoiceItemBody]] = None
+    lineNumbers: Optional[List[str]] = None
+    period: Optional[str] = None
+    paymentMethod: Optional[str] = None
+    status: Optional[str] = None
+    sendEmail: bool = False
+
+
+class SendCardLinkBody(BaseModel):
+    origin_url: str
+    sendEmail: bool = True
+
+
 class AppSettingsBody(BaseModel):
     autoApprove: Optional[bool] = None
     setupFee: Optional[float] = None
@@ -1016,6 +1051,26 @@ async def get_customer(fiscalId: str, request: Request):
     invs = await db.invoices.find({"fiscalId": fiscalId}).sort("date", -1).to_list(200)
     return {"customer": clean(cust), "lines": [clean(_enrich_line(l)) for l in lines],
             "subscriptions": [clean(s) for s in subs], "invoices": [clean(i) for i in invs]}
+
+
+@api.post("/customers/{fiscalId}/billing")
+async def update_customer_billing(fiscalId: str, body: CustomerBillingBody, request: Request):
+    """Actualiza los datos de cobro del cliente (IBAN, método de pago) desde el perfil del CRM."""
+    await require_perm(request, "billing.manage")
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    updates = {}
+    if body.iban is not None:
+        updates["iban"] = body.iban.replace(" ", "").upper().strip()
+    if body.paymentMethod is not None:
+        updates["paymentMethod"] = body.paymentMethod
+    if updates:
+        await db.customers.update_one({"fiscalId": fiscalId}, {"$set": updates})
+        await log_event("billing", "info", f"Datos de cobro actualizados · {fiscalId}", {"fiscalId": fiscalId})
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    return clean(cust)
+
 
 
 # ------------------------- lines -------------------------
@@ -2819,7 +2874,23 @@ async def _ensure_stripe_customer(customer):
     return sc.id
 
 
-async def _create_recurring_checkout(customer, product, method, origin_url, meta):
+def _next_billing_day_ts(billing_day=5):
+    """Epoch del próximo día {billing_day} del mes (para anclar el primer cobro de Stripe)."""
+    today = datetime.now(timezone.utc)
+    billing_day = max(1, min(28, int(billing_day or 5)))
+    if today.day < billing_day:
+        nb = today.replace(day=billing_day, hour=6, minute=0, second=0, microsecond=0)
+    else:
+        y = today.year + (1 if today.month == 12 else 0)
+        m = 1 if today.month == 12 else today.month + 1
+        nb = today.replace(year=y, month=m, day=billing_day, hour=6, minute=0, second=0, microsecond=0)
+    # Stripe exige que el trial_end esté al menos ~48h en el futuro
+    if (nb - today).total_seconds() < 60 * 60 * 49:
+        nb = nb + timedelta(days=30)
+    return int(nb.timestamp())
+
+
+async def _create_recurring_checkout(customer, product, method, origin_url, meta, anchor_billing_day=False):
     """Crea una sesión de Checkout en modo suscripción (card|sepa) con cuota de alta + mensual."""
     cid = await _ensure_stripe_customer(customer)
     settings = await get_app_settings()
@@ -2840,7 +2911,11 @@ async def _create_recurring_checkout(customer, product, method, origin_url, meta
                            "unit_amount": int(round(setup_fee * 100))},
             "quantity": 1,
         })
-    sub_data = {"metadata": meta, "trial_period_days": 30}
+    sub_data = {"metadata": meta}
+    if anchor_billing_day:
+        sub_data["trial_end"] = _next_billing_day_ts(settings.get("billingDay", 5))
+    else:
+        sub_data["trial_period_days"] = 30
     session = stripe.checkout.Session.create(
         mode="subscription",
         customer=cid,
@@ -2889,6 +2964,62 @@ async def admin_recurring_checkout(subscriptionId: str, body: RecurringCheckoutB
     meta = {"fiscalId": sub["fiscalId"], "subscriptionId": subscriptionId, "purpose": "admin_billing"}
     session = await _create_recurring_checkout(customer, product, body.method, body.origin_url, meta)
     return {"checkout_url": session.url, "session_id": session.id}
+
+
+@api.post("/customers/{fiscalId}/send-card-link")
+async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request):
+    """Genera un enlace seguro de Stripe para que el CLIENTE introduzca su tarjeta.
+    La tarjeta queda anclada a una suscripción mensual (cobro el día de facturación configurado)."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    await _stripe_apply()
+    # Localizar la tarifa/importe mensual a cobrar (total de líneas activas del cliente)
+    active_lines = await db.lines.find({"fiscalId": fiscalId, "status": "ACTIVE"}).to_list(100)
+    monthly = round(sum(float(l.get("price") or 0) for l in active_lines), 2)
+    prod_name = active_lines[0].get("productName") if active_lines else "Cuota mensual"
+    meta = {"fiscalId": fiscalId, "purpose": "card_setup"}
+    sub = await db.subscriptions.find_one({"fiscalId": fiscalId}, sort=[("created", -1)])
+    if sub:
+        meta["subscriptionId"] = sub["subscriptionId"]
+    # Fallbacks si no hay líneas activas con precio
+    if monthly <= 0:
+        any_line = await db.lines.find_one({"fiscalId": fiscalId, "price": {"$gt": 0}}, sort=[("created", -1)])
+        if any_line:
+            monthly = round(float(any_line.get("price") or 0), 2)
+            prod_name = any_line.get("productName") or prod_name
+    if monthly <= 0 and sub and sub.get("products"):
+        p0 = sub["products"][0]
+        monthly = round(float(p0.get("price") or p0.get("finalBrandPrice") or p0.get("finalPrice")
+                              or p0.get("productBrandPrice") or 0), 2)
+        prod_name = p0.get("productName") or prod_name
+    if monthly <= 0:
+        raise HTTPException(status_code=400,
+            detail="El cliente no tiene una tarifa con importe para domiciliar. Asigna una línea/suscripción primero.")
+    product = {"productName": prod_name, "price": monthly}
+    session = await _create_recurring_checkout(customer, product, "card", body.origin_url, meta,
+                                               anchor_billing_day=True)
+    settings = await get_app_settings()
+    billing_day = int(settings.get("billingDay", 5) or 5)
+    emailed = False
+    if body.sendEmail and customer.get("email"):
+        name = (customer.get("name") or "").title()
+        html = emailer.base_template(
+            "Añade tu tarjeta de pago",
+            f"Hola {name},<br><br>Para activar el pago con tarjeta de tu servicio "
+            f"<b>{product['productName']}</b> ({float(product['price']):.2f} €/mes), añade tu tarjeta "
+            "de forma segura en el siguiente enlace. El pago se procesa directamente por Stripe; "
+            "nosotros no almacenamos los datos de tu tarjeta.<br><br>"
+            f'<a href="{session.url}" style="display:inline-block;background:#0033ff;color:#fff;'
+            'padding:12px 22px;border-radius:9999px;text-decoration:none;font-weight:600">Añadir mi tarjeta</a>'
+            f"<br><br>El primer cobro se realizará el día <b>{billing_day}</b> del mes y, a partir de ahí, "
+            "cada mes automáticamente. Si tienes cualquier duda, responde a este correo.")
+        emailed = await _send_mail_safe("email", customer["email"], "Añade tu tarjeta de pago · GoRoky", html)
+    await log_event("stripe", "info", f"Enlace de tarjeta generado · {fiscalId}", {"fiscalId": fiscalId})
+    return {"checkout_url": session.url, "session_id": session.id, "emailed": emailed,
+            "email": customer.get("email")}
+
 
 
 async def _get_saved_pm(customer):
@@ -3611,6 +3742,116 @@ async def email_invoice(invoice_id: str, request: Request):
         return {"ok": True, "to": to}
     except Exception as e:  # noqa
         raise HTTPException(status_code=500, detail=f"Error al enviar: {e}")
+
+
+# ------------------------- invoices CRUD (crear / editar / eliminar) -------------------------
+def _invoice_totals(items):
+    total = round(sum(float(i.get("amount", 0) or 0) for i in items), 2)
+    subtotal = round(total / 1.21, 2)
+    tax = round(total - subtotal, 2)
+    return total, subtotal, tax
+
+
+async def _consumption_for(fiscalId, line_numbers):
+    """Consumo (llamadas/SMS/GB) de las líneas indicadas del cliente para adjuntarlo a la factura."""
+    if not line_numbers:
+        return []
+    lines = await db.lines.find({"fiscalId": fiscalId, "lineNumber": {"$in": line_numbers}}).to_list(50)
+    return [_line_usage(l) for l in lines]
+
+
+@api.post("/invoices")
+async def create_invoice(body: InvoiceCreateBody, request: Request):
+    """Crea una factura manual con conceptos libres (llamadas, costes extra, cuota…) y consumo por línea."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": body.fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    items = [i.model_dump() for i in body.items]
+    if not items:
+        raise HTTPException(status_code=400, detail="Añade al menos un concepto")
+    total, subtotal, tax = _invoice_totals(items)
+    number = await _next_invoice_number()
+    ba = customer.get("billingAddress", {}) or {}
+    address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    now = datetime.now(timezone.utc)
+    consumption = await _consumption_for(body.fiscalId, body.lineNumbers or [])
+    inv = {
+        "invoiceNumber": number, "fiscalId": body.fiscalId,
+        "customerName": f"{customer['name']} {customer.get('firstSurname', '')}".strip().upper(),
+        "customerEmail": customer.get("email"), "customerAddress": address,
+        "items": items, "subtotal": subtotal, "tax": tax, "total": total,
+        "status": body.status, "date": now.isoformat(),
+        "period": body.period or _period_label(now),
+        "dueDate": (now + timedelta(days=30)).isoformat(),
+        "paymentMethod": customer.get("paymentMethod", "NO"),
+        "consumption": consumption, "lineNumbers": body.lineNumbers or [],
+        "kind": "manual", "createdManually": True,
+    }
+    res = await db.invoices.insert_one(inv)
+    inv["_id"] = res.inserted_id
+    if body.sendEmail:
+        await _email_invoice(inv)
+    await log_event("billing", "info", f"Factura manual {number} creada · {body.fiscalId}", {"fiscalId": body.fiscalId})
+    return clean(inv)
+
+
+@api.post("/invoices/{invoice_id}/update")
+async def update_invoice(invoice_id: str, body: InvoiceUpdateBody, request: Request):
+    """Edita una factura NO pagada: conceptos, periodo, consumo, método de pago."""
+    from bson import ObjectId
+    await require_perm(request, "billing.manage")
+    try:
+        inv = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if inv.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="No se puede editar una factura ya pagada")
+    updates = {}
+    if body.items is not None:
+        items = [i.model_dump() for i in body.items]
+        if not items:
+            raise HTTPException(status_code=400, detail="La factura debe tener al menos un concepto")
+        total, subtotal, tax = _invoice_totals(items)
+        updates.update({"items": items, "total": total, "subtotal": subtotal, "tax": tax})
+    if body.lineNumbers is not None:
+        updates["lineNumbers"] = body.lineNumbers
+        updates["consumption"] = await _consumption_for(inv["fiscalId"], body.lineNumbers)
+    if body.period is not None:
+        updates["period"] = body.period
+    if body.paymentMethod is not None:
+        updates["paymentMethod"] = body.paymentMethod
+    if body.status is not None and body.status in ("pending", "paid"):
+        updates["status"] = body.status
+    if updates:
+        await db.invoices.update_one({"_id": inv["_id"]}, {"$set": updates})
+    inv = await db.invoices.find_one({"_id": inv["_id"]})
+    if body.sendEmail:
+        await _email_invoice(inv)
+    await log_event("billing", "info", f"Factura {inv['invoiceNumber']} editada · {inv['fiscalId']}", {"fiscalId": inv["fiscalId"]})
+    return clean(inv)
+
+
+@api.delete("/invoices/{invoice_id}")
+@api.post("/invoices/{invoice_id}/delete")
+async def delete_invoice(invoice_id: str, request: Request):
+    """Elimina una factura NO pagada. (Las pagadas no se pueden borrar por trazabilidad contable.)"""
+    from bson import ObjectId
+    await require_perm(request, "billing.manage")
+    try:
+        inv = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if inv.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="No se puede eliminar una factura ya pagada")
+    await db.invoices.delete_one({"_id": inv["_id"]})
+    await log_event("billing", "info", f"Factura {inv['invoiceNumber']} eliminada · {inv['fiscalId']}", {"fiscalId": inv["fiscalId"]})
+    return {"ok": True, "deleted": inv["invoiceNumber"]}
+
 
 
 

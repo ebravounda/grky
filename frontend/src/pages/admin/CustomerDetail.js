@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download,
+  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download, Pencil, Trash2, Mail, Send, Landmark,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,6 +48,16 @@ export default function CustomerDetail() {
   const [charging, setCharging] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingCust, setSyncingCust] = useState(false);
+  // cobro (IBAN / tarjeta)
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingForm, setBillingForm] = useState({ iban: "", paymentMethod: "NO" });
+  const [savingBilling, setSavingBilling] = useState(false);
+  const [cardSending, setCardSending] = useState(false);
+  // facturas (crear / editar)
+  const [invOpen, setInvOpen] = useState(false);
+  const [invEditId, setInvEditId] = useState(null);
+  const [invForm, setInvForm] = useState({ items: [{ description: "", detail: "", amount: "" }], lineNumbers: [], period: "", sendEmail: true });
+  const [savingInv, setSavingInv] = useState(false);
 
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
@@ -73,6 +83,76 @@ export default function CustomerDetail() {
       setChargeOpen(false); setCharge({ concept: "", amount: "", method: "card" });
       load();
     } catch (e) { toast.error(apiErr(e)); } finally { setCharging(false); }
+  };
+
+  const openBilling = () => {
+    setBillingForm({ iban: customer.iban || "", paymentMethod: customer.paymentMethod || "NO" });
+    setBillingOpen(true);
+  };
+  const saveBilling = async () => {
+    setSavingBilling(true);
+    try {
+      await api.post(`/customers/${fiscalId}/billing`, billingForm);
+      toast.success("Datos de cobro guardados");
+      setBillingOpen(false); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setSavingBilling(false); }
+  };
+
+  const sendCardLink = async () => {
+    setCardSending(true);
+    try {
+      const { data: res } = await api.post(`/customers/${fiscalId}/send-card-link`, { origin_url: window.location.origin, sendEmail: true });
+      if (res.emailed) toast.success(`Enlace de tarjeta enviado a ${res.email}`);
+      else toast.success("Enlace de tarjeta generado (abriendo en nueva pestaña)");
+      if (res.checkout_url) window.open(res.checkout_url, "_blank");
+    } catch (e) { toast.error(apiErr(e)); } finally { setCardSending(false); }
+  };
+
+  const invTotal = invForm.items.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
+  const openNewInvoice = () => {
+    setInvEditId(null);
+    setInvForm({ items: [{ description: "", detail: "", amount: "" }], lineNumbers: [], period: "", sendEmail: true });
+    setInvOpen(true);
+  };
+  const openEditInvoice = (inv) => {
+    setInvEditId(inv.id);
+    setInvForm({
+      items: (inv.items || []).map((it) => ({ description: it.description || "", detail: it.detail || "", amount: String(it.amount ?? "") })),
+      lineNumbers: inv.lineNumbers || [], period: inv.period || "", sendEmail: false,
+    });
+    setInvOpen(true);
+  };
+  const setItem = (idx, key, val) => setInvForm((f) => ({ ...f, items: f.items.map((it, i) => i === idx ? { ...it, [key]: val } : it) }));
+  const addItem = () => setInvForm((f) => ({ ...f, items: [...f.items, { description: "", detail: "", amount: "" }] }));
+  const removeItem = (idx) => setInvForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  const toggleInvLine = (ln) => setInvForm((f) => ({ ...f, lineNumbers: f.lineNumbers.includes(ln) ? f.lineNumbers.filter((x) => x !== ln) : [...f.lineNumbers, ln] }));
+
+  const saveInvoice = async () => {
+    const items = invForm.items
+      .filter((it) => it.description && parseFloat(it.amount) > 0)
+      .map((it) => ({ description: it.description, detail: it.detail || "", quantity: 1, amount: parseFloat(it.amount) }));
+    if (items.length === 0) return toast.error("Añade al menos un concepto con importe");
+    setSavingInv(true);
+    try {
+      const payload = { items, lineNumbers: invForm.lineNumbers, period: invForm.period || undefined, sendEmail: invForm.sendEmail };
+      if (invEditId) {
+        await api.post(`/invoices/${invEditId}/update`, payload);
+        toast.success("Factura actualizada");
+      } else {
+        await api.post(`/invoices`, { fiscalId, ...payload });
+        toast.success("Factura creada" + (invForm.sendEmail ? " y enviada por email" : ""));
+      }
+      setInvOpen(false); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setSavingInv(false); }
+  };
+  const deleteInvoice = async (inv) => {
+    if (!window.confirm(`¿Eliminar la factura ${inv.invoiceNumber}? (Solo facturas no pagadas.)`)) return;
+    try { await api.post(`/invoices/${inv.id}/delete`); toast.success("Factura eliminada"); load(); }
+    catch (e) { toast.error(apiErr(e)); }
+  };
+  const resendInvoice = async (inv) => {
+    try { await api.post(`/invoices/${inv.id}/email`); toast.success("Factura reenviada por email"); }
+    catch (e) { toast.error(apiErr(e)); }
   };
 
   const syncLikes = async () => {
@@ -166,17 +246,28 @@ export default function CustomerDetail() {
             <Button data-testid="open-charge-btn" className="rounded-full gap-2" onClick={() => setChargeOpen(true)}>
               <CreditCard size={16} /> Cobrar servicio
             </Button>
+            <Button data-testid="send-card-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendCardLink} disabled={cardSending}>
+              <Send size={16} className={cardSending ? "animate-pulse" : ""} /> {cardSending ? "Generando…" : "Enviar enlace tarjeta"}
+            </Button>
           </div>
         )}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">
-          <div className="flex items-center gap-2 text-primary"><User size={18} /><h3 className="font-heading font-600 text-foreground">Datos de contacto</h3></div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-primary"><User size={18} /><h3 className="font-heading font-600 text-foreground">Datos de contacto</h3></div>
+            {hasPerm("billing.manage") && (
+              <Button data-testid="edit-billing-btn" variant="ghost" size="sm" className="rounded-full gap-1.5 h-8 text-xs" onClick={openBilling}>
+                <Landmark size={14} /> Editar cobro
+              </Button>
+            )}
+          </div>
           <Row l="Email" v={customer.email} />
           <Row l="Teléfono" v={customer.contactPhone} />
           <Row l="IBAN" v={customer.iban} />
           <Row l="Método de pago" v={customer.paymentMethod} />
+          {customer.recurring?.last4 && <Row l="Tarjeta" v={`•••• ${customer.recurring.last4} (${customer.recurring.method === "sepa" ? "SEPA" : "tarjeta"})`} />}
           <Row l="Dirección" v={`${customer.billingAddress?.street || ""} ${customer.billingAddress?.streetNumber || ""}`} />
           <Row l="Ciudad" v={`${customer.billingAddress?.postalCode || ""} ${customer.billingAddress?.cityName || ""}`} />
         </div>
@@ -295,18 +386,36 @@ export default function CustomerDetail() {
 
         {/* Facturas */}
         <div className="rounded-lg border border-border bg-card p-6 lg:col-span-3">
-          <h3 className="font-heading font-600 mb-4">Facturas ({invoices.length})</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-heading font-600">Facturas ({invoices.length})</h3>
+            {hasPerm("billing.manage") && (
+              <Button data-testid="new-invoice-btn" size="sm" className="rounded-full gap-1.5" onClick={openNewInvoice}>
+                <Plus size={14} /> Nueva factura
+              </Button>
+            )}
+          </div>
           <div className="divide-y divide-border">
             {invoices.map((i) => (
-              <div key={i.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <FileText size={18} className="text-muted-foreground" />
-                  <div><p className="text-sm font-medium">{i.invoiceNumber}</p><p className="text-xs text-muted-foreground">{i.date?.slice(0, 10)}</p></div>
+              <div key={i.id} data-testid={`invoice-row-${i.invoiceNumber}`} className="flex items-center justify-between py-3 gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText size={18} className="text-muted-foreground shrink-0" />
+                  <div className="min-w-0"><p className="text-sm font-medium truncate">{i.invoiceNumber}</p><p className="text-xs text-muted-foreground">{i.date?.slice(0, 10)} · {i.period || ""}</p></div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 shrink-0">
                   <span className="font-semibold text-sm">{i.total.toFixed(2)} €</span>
                   <StatusPill status={i.status} />
                   <button data-testid={`inv-pdf-${i.invoiceNumber}`} onClick={() => openInvoicePdf(i.id)} className="text-sm text-primary hover:underline">PDF</button>
+                  {hasPerm("billing.manage") && (
+                    <>
+                      <button data-testid={`inv-resend-${i.invoiceNumber}`} onClick={() => resendInvoice(i)} title="Reenviar por email" className="text-muted-foreground hover:text-primary transition-colors"><Mail size={15} /></button>
+                      {i.status !== "paid" && (
+                        <>
+                          <button data-testid={`inv-edit-${i.invoiceNumber}`} onClick={() => openEditInvoice(i)} title="Editar factura" className="text-muted-foreground hover:text-primary transition-colors"><Pencil size={15} /></button>
+                          <button data-testid={`inv-delete-${i.invoiceNumber}`} onClick={() => deleteInvoice(i)} title="Eliminar factura" className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={15} /></button>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -377,6 +486,93 @@ export default function CustomerDetail() {
           </div>
           <DialogFooter>
             <Button data-testid="confirm-charge-btn" onClick={doCharge} disabled={charging} className="rounded-full">{charging ? "Procesando…" : "Cobrar y facturar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar datos de cobro (IBAN / método) */}
+      <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
+        <DialogContent data-testid="billing-dialog">
+          <DialogHeader>
+            <DialogTitle>Datos de cobro</DialogTitle>
+            <DialogDescription>Guarda el IBAN y el método de pago del cliente. El IBAN se usa para la domiciliación SEPA.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>IBAN</Label>
+              <Input data-testid="billing-iban" value={billingForm.iban} onChange={(e) => setBillingForm((f) => ({ ...f, iban: e.target.value }))} placeholder="ES00 0000 0000 0000 0000 0000" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Método de pago</Label>
+              <Select value={billingForm.paymentMethod} onValueChange={(v) => setBillingForm((f) => ({ ...f, paymentMethod: v }))}>
+                <SelectTrigger data-testid="billing-method"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">Sin definir</SelectItem>
+                  <SelectItem value="SEPA CORE">Domiciliación SEPA (IBAN)</SelectItem>
+                  <SelectItem value="CARD">Tarjeta</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button data-testid="save-billing-btn" onClick={saveBilling} disabled={savingBilling} className="rounded-full">{savingBilling ? "Guardando…" : "Guardar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Crear / editar factura */}
+      <Dialog open={invOpen} onOpenChange={setInvOpen}>
+        <DialogContent data-testid="invoice-dialog" className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{invEditId ? "Editar factura" : "Nueva factura"}</DialogTitle>
+            <DialogDescription>Añade conceptos (cuota, llamadas, costes extra…). Los importes incluyen IVA (21%). Puedes adjuntar el consumo de las líneas.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Conceptos</Label>
+              {invForm.items.map((it, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-start" data-testid={`inv-item-${idx}`}>
+                  <Input className="col-span-5" data-testid={`inv-item-desc-${idx}`} value={it.description} onChange={(e) => setItem(idx, "description", e.target.value)} placeholder="Concepto (ej. Cuota mensual)" />
+                  <Input className="col-span-4" data-testid={`inv-item-detail-${idx}`} value={it.detail} onChange={(e) => setItem(idx, "detail", e.target.value)} placeholder="Detalle" />
+                  <Input className="col-span-2" data-testid={`inv-item-amount-${idx}`} type="number" step="0.01" min="0" value={it.amount} onChange={(e) => setItem(idx, "amount", e.target.value)} placeholder="€" />
+                  <button type="button" data-testid={`inv-item-remove-${idx}`} onClick={() => removeItem(idx)} className="col-span-1 h-9 grid place-items-center text-muted-foreground hover:text-destructive" disabled={invForm.items.length === 1}><Trash2 size={15} /></button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" data-testid="inv-add-item-btn" onClick={addItem} className="rounded-full gap-1.5"><Plus size={13} /> Añadir concepto</Button>
+            </div>
+
+            {lines.length > 0 && (
+              <div className="space-y-2">
+                <Label>Adjuntar consumo de líneas (llamadas, SMS, GB)</Label>
+                <div className="flex flex-wrap gap-2">
+                  {lines.map((l) => (
+                    <button key={l.lineNumber} type="button" data-testid={`inv-line-${l.lineNumber}`} onClick={() => toggleInvLine(l.lineNumber)}
+                      className={`rounded-full px-3 py-1 text-xs border transition-colors ${invForm.lineNumbers.includes(l.lineNumber) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary"}`}>
+                      {l.lineNumber}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Periodo (opcional)</Label>
+                <Input data-testid="inv-period" value={invForm.period} onChange={(e) => setInvForm((f) => ({ ...f, period: e.target.value }))} placeholder="Junio 2026" />
+              </div>
+              <label className="flex items-center gap-2 text-sm mt-6 cursor-pointer">
+                <input type="checkbox" data-testid="inv-send-email" checked={invForm.sendEmail} onChange={(e) => setInvForm((f) => ({ ...f, sendEmail: e.target.checked }))} />
+                Enviar por email al cliente
+              </label>
+            </div>
+
+            <div className="rounded-lg bg-muted p-3 text-sm flex items-center justify-between">
+              <span className="text-muted-foreground">Total (IVA incl.)</span>
+              <span className="font-heading font-semibold" data-testid="inv-total">{invTotal.toFixed(2)} €</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button data-testid="save-invoice-btn" onClick={saveInvoice} disabled={savingInv} className="rounded-full">{savingInv ? "Guardando…" : invEditId ? "Guardar cambios" : "Crear factura"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

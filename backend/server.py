@@ -6,6 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 import os
 import io
+import re
 import asyncio
 import logging
 import uuid
@@ -44,6 +45,12 @@ api = APIRouter(prefix="/api")
 # ------------------------- helpers -------------------------
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _norm_fiscal(v):
+    """Normaliza NIF/NIE/CIF: mayúsculas y sin espacios, para evitar clientes duplicados."""
+    return (v or "").strip().upper().replace(" ", "").replace("-", "")
+
 
 
 async def current_user(request: Request) -> dict:
@@ -1019,7 +1026,8 @@ async def list_customers(request: Request, q: Optional[str] = None):
 @api.post("/customers")
 async def create_customer(body: CustomerCreate, request: Request):
     user = await require_perm(request, "customers.edit")
-    if await db.customers.find_one({"fiscalId": body.fiscalId}):
+    body.fiscalId = _norm_fiscal(body.fiscalId)
+    if await db.customers.find_one({"fiscalId": {"$regex": f"^{re.escape(body.fiscalId)}$", "$options": "i"}}):
         raise HTTPException(status_code=400, detail="Ya existe un cliente con ese NIF/NIE")
     doc = {
         "fiscalId": body.fiscalId, "customerType": body.customerType, "fiscalIdType": body.fiscalIdType, "name": body.name,
@@ -1078,6 +1086,31 @@ async def update_customer_billing(fiscalId: str, body: CustomerBillingBody, requ
         await log_event("billing", "info", f"Datos de cobro actualizados · {fiscalId}", {"fiscalId": fiscalId})
     cust = await db.customers.find_one({"fiscalId": fiscalId})
     return clean(cust)
+
+
+@api.delete("/customers/{fiscalId}")
+@api.post("/customers/{fiscalId}/delete")
+async def delete_customer(fiscalId: str, request: Request):
+    """Elimina un cliente del CRM (p.ej. un duplicado). Bloqueado si tiene líneas activas,
+    para no borrar por error el cliente real. Usa coincidencia EXACTA del NIF/NIE."""
+    await require_perm(request, "customers.edit")
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    active = await db.lines.count_documents({"fiscalId": fiscalId, "status": "ACTIVE"})
+    if active > 0:
+        raise HTTPException(status_code=400,
+            detail=f"El cliente tiene {active} línea(s) activa(s). No se puede eliminar (parece el cliente real, no el duplicado).")
+    await db.customers.delete_one({"fiscalId": fiscalId})
+    # limpiar registros locales asociados a ese NIF exacto
+    await db.lines.delete_many({"fiscalId": fiscalId})
+    await db.applications.delete_many({"fiscalId": fiscalId})
+    await db.invoices.delete_many({"fiscalId": fiscalId, "status": {"$ne": "paid"}})
+    await db.users.delete_many({"fiscalId": fiscalId, "role": "client"})
+    await log_event("customers", "info", f"Cliente eliminado del CRM · {fiscalId}", {"fiscalId": fiscalId})
+    return {"ok": True, "deleted": fiscalId}
+
+
 
 
 
@@ -1623,6 +1656,7 @@ async def delete_order(order_id: str, request: Request):
 async def create_order(body: OrderCreate, request: Request):
     user = await require_perm(request, "orders.manage")
     is_reseller = user.get("role") == "reseller"
+    body.fiscalId = _norm_fiscal(body.fiscalId)
     customer = await db.customers.find_one({"fiscalId": body.fiscalId})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -4804,6 +4838,9 @@ async def public_product(product_id: str):
 
 @api.post("/public/applications")
 async def create_application(body: ApplicationCreate):
+    body.fiscalId = _norm_fiscal(body.fiscalId)
+    if getattr(body, "currentHolderFiscalId", None):
+        body.currentHolderFiscalId = _norm_fiscal(body.currentHolderFiscalId)
     if not body.acceptedTerms:
         raise HTTPException(status_code=400, detail="Debes aceptar los términos y condiciones")
     product = await _get_tariff(body.productId)

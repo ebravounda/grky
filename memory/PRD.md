@@ -455,3 +455,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Verificado: PDF válido HTTP 200, render revisado (2 páginas, sin solapamientos).
 - Despliegue: solo backend → Save to Github + `git pull` + `systemctl restart goroky-api.service`.
 
+
+---
+## 2026-07-30 (g) · Fix duplicado de cliente por NIE + PVP con IVA en cobros
+- **Causa duplicado**: el fiscalId se guardaba sin normalizar; un NIE con distinta caja/espacios (ej. x1234567l vs X1234567L) no coincidia y creaba un cliente nuevo. Fix: helper `_norm_fiscal` (mayus, sin espacios/guiones) aplicado en create_application, create_customer (lookup case-insensitive) y create_order. `import re` anadido.
+- **Eliminar duplicado**: nuevo `DELETE /customers/{fiscalId}` + `POST /customers/{fiscalId}/delete` (bloquea si tiene lineas ACTIVE). Boton "Eliminar cliente" en CustomerDetail header.
+- **PVP con IVA**: `_resolve_monthly` y `monthly_billing_job` ahora usan el PVP de la tarifa (con IVA, = catalogo publico) via `_contract_price(productId, fallback)`, no el precio base de la linea. Verificado en Stripe.
+- **Enlace tarjeta**: importe manual opcional (prompt) via SendCardLinkBody.amount/productName.
+- **Fix live**: `_ensure_stripe_customer` verifica/recrea el Customer por modo (test/live); validacion de sk_/pk_ al guardar claves; sync resiliente.
+- Pendiente investigar: orden TV en Likes queda "pendiente de configurar servicios" (activacion lado Likes).

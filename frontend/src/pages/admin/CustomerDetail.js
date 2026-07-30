@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import api, { apiErr, openInvoicePdf, openContractPdf, openCustomerDoc } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, StatusPill } from "@/components/shared";
@@ -29,6 +29,7 @@ const DOC_TYPES = [
 
 export default function CustomerDetail() {
   const { fiscalId } = useParams();
+  const navigate = useNavigate();
   const { hasPerm } = useAuth();
   const [data, setData] = useState(null);
   const [docs, setDocs] = useState([]);
@@ -111,6 +112,15 @@ export default function CustomerDetail() {
       else toast.success("Enlace de tarjeta generado (abriendo en nueva pestaña)");
       if (res.checkout_url) window.open(res.checkout_url, "_blank");
     } catch (e) { toast.error(apiErr(e)); } finally { setCardSending(false); }
+  };
+
+  const deleteCustomer = async () => {
+    if (!window.confirm(`¿Eliminar este cliente (${fiscalId}) del CRM? Úsalo solo para duplicados. Se bloqueará si tiene líneas activas.`)) return;
+    try {
+      await api.post(`/customers/${encodeURIComponent(fiscalId)}/delete`);
+      toast.success("Cliente eliminado del CRM");
+      navigate("/app/customers");
+    } catch (e) { toast.error(apiErr(e)); }
   };
 
   const invTotal = invForm.items.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
@@ -268,6 +278,9 @@ export default function CustomerDetail() {
             </Button>
             <Button data-testid="send-card-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendCardLink} disabled={cardSending}>
               <Send size={16} className={cardSending ? "animate-pulse" : ""} /> {cardSending ? "Generando…" : "Enviar enlace tarjeta"}
+            </Button>
+            <Button data-testid="delete-customer-btn" variant="outline" className="rounded-full gap-2 text-destructive hover:text-destructive border-destructive/30" onClick={deleteCustomer}>
+              <Trash2 size={16} /> Eliminar cliente
             </Button>
           </div>
         )}

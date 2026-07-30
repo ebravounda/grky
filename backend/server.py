@@ -2872,15 +2872,30 @@ async def reject_application(token: str, body: RejectBody, request: Request):
 
 # ------------------------- recurring billing (card / SEPA) -------------------------
 async def _ensure_stripe_customer(customer):
+    """Devuelve el Customer de Stripe para el cliente EN EL MODO ACTUAL (test/live).
+    Si el ID guardado no existe en el modo actual (p.ej. se creó en test y ahora estamos
+    en live), crea uno nuevo. Guarda el ID por modo para no mezclar test y live."""
     await _stripe_apply()
-    if customer.get("stripeCustomerId"):
-        return customer["stripeCustomerId"]
+    key = stripe.api_key or ""
+    mode = "live" if key.startswith("sk_live") else "test"
+    field = f"stripeCustomerId_{mode}"
+    # ID candidato: el del modo actual, o el legacy (que históricamente fue test)
+    cid = customer.get(field) or (customer.get("stripeCustomerId") if mode == "test" else None)
+    if cid:
+        try:
+            c = stripe.Customer.retrieve(cid)
+            if not getattr(c, "deleted", False):
+                return cid
+        except Exception:
+            pass  # no existe en este modo → se recrea abajo
     sc = stripe.Customer.create(
         name=f"{customer.get('name','')} {customer.get('firstSurname','')}".strip(),
         email=customer.get("email"),
         metadata={"fiscalId": customer["fiscalId"]})
     await db.customers.update_one({"fiscalId": customer["fiscalId"]},
-                                 {"$set": {"stripeCustomerId": sc.id}})
+                                 {"$set": {field: sc.id, "stripeCustomerId": sc.id}})
+    customer[field] = sc.id
+    customer["stripeCustomerId"] = sc.id
     return sc.id
 
 
@@ -2984,7 +2999,17 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
     customer = await db.customers.find_one({"fiscalId": fiscalId})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    return await _send_card_link(customer, body.origin_url, send_email=body.sendEmail)
+    try:
+        return await _send_card_link(customer, body.origin_url, send_email=body.sendEmail)
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        await log_event("stripe", "error", f"send-card-link Stripe error · {fiscalId}: {msg[:150]}", {"fiscalId": fiscalId})
+        raise HTTPException(status_code=400, detail=f"Stripe: {msg}")
+    except Exception as e:  # noqa
+        await log_event("stripe", "error", f"send-card-link error · {fiscalId}: {str(e)[:150]}", {"fiscalId": fiscalId})
+        raise HTTPException(status_code=400, detail=f"No se pudo generar el enlace: {str(e)[:150]}")
 
 
 def _has_card_on_file(customer):
@@ -3726,8 +3751,10 @@ async def charge_all_pending(request: Request):
 async def sync_stripe_customers(request: Request):
     """Crea/enlaza en Stripe un Customer por cada cliente del CRM (sincroniza la cartera con Stripe)."""
     await require_admin(request)
-    await _stripe_apply()
-    result = {"total": 0, "created": 0, "linked": 0, "updated": 0, "skipped": 0, "errors": 0}
+    key = (await _stripe_apply()).get("stripeSecretKey") or os.environ.get("STRIPE_SECRET_KEY") or ""
+    mode = "live" if (stripe.api_key or "").startswith("sk_live") else "test"
+    field = f"stripeCustomerId_{mode}"
+    result = {"total": 0, "created": 0, "linked": 0, "updated": 0, "skipped": 0, "errors": 0, "mode": mode}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
         result["total"] += 1
@@ -3735,13 +3762,18 @@ async def sync_stripe_customers(request: Request):
         name = f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip()
         email = cust.get("email")
         try:
-            existing_id = cust.get("stripeCustomerId")
+            existing_id = cust.get(field) or (cust.get("stripeCustomerId") if mode == "test" else None)
             if existing_id:
-                # actualizar datos básicos en Stripe
-                stripe.Customer.modify(existing_id, name=name, email=email,
-                                       metadata={"fiscalId": fid})
-                result["updated"] += 1
-                continue
+                # verificar que exista en este modo; si no, se recrea/enlaza abajo
+                try:
+                    c = stripe.Customer.retrieve(existing_id)
+                    if not getattr(c, "deleted", False):
+                        stripe.Customer.modify(existing_id, name=name, email=email, metadata={"fiscalId": fid})
+                        await db.customers.update_one({"fiscalId": fid}, {"$set": {field: existing_id, "stripeCustomerId": existing_id}})
+                        result["updated"] += 1
+                        continue
+                except Exception:
+                    pass  # no existe en este modo → enlazar por email o crear
             # buscar por email para no duplicar
             found = None
             if email:
@@ -3749,17 +3781,17 @@ async def sync_stripe_customers(request: Request):
                 found = res.data[0] if res and res.data else None
             if found:
                 stripe.Customer.modify(found.id, name=name, metadata={"fiscalId": fid})
-                await db.customers.update_one({"fiscalId": fid}, {"$set": {"stripeCustomerId": found.id}})
+                await db.customers.update_one({"fiscalId": fid}, {"$set": {field: found.id, "stripeCustomerId": found.id}})
                 result["linked"] += 1
             else:
                 sc = stripe.Customer.create(name=name, email=email, metadata={"fiscalId": fid})
-                await db.customers.update_one({"fiscalId": fid}, {"$set": {"stripeCustomerId": sc.id}})
+                await db.customers.update_one({"fiscalId": fid}, {"$set": {field: sc.id, "stripeCustomerId": sc.id}})
                 result["created"] += 1
         except Exception as e:  # noqa
             result["errors"] += 1
             await log_event("stripe", "warning", f"Sync Stripe cliente {fid} falló: {str(e)[:100]}", {"fiscalId": fid})
     await log_event("stripe", "success",
-                    f"Sincronización con Stripe: {result['created']} creados · {result['linked']} enlazados · {result['updated']} actualizados · {result['errors']} errores")
+                    f"Sincronización con Stripe ({mode}): {result['created']} creados · {result['linked']} enlazados · {result['updated']} actualizados · {result['errors']} errores")
     return {"ok": True, **result}
 
 

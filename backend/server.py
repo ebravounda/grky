@@ -2620,6 +2620,15 @@ async def admin_settings_put(body: AppSettingsBody, request: Request):
     for k in ("stripeSecretKey", "stripeWebhookSecret"):
         if k in updates and (not str(updates[k]).strip() or str(updates[k]).startswith("••••")):
             updates.pop(k)
+    # Validar que las claves van en su campo correcto
+    sk = str(updates.get("stripeSecretKey", "")).strip()
+    if sk and not (sk.startswith("sk_") or sk.startswith("rk_")):
+        raise HTTPException(status_code=400,
+            detail="La clave secreta debe empezar por 'sk_live_' o 'sk_test_'. Parece que has pegado la clave PUBLICABLE (pk_...) en el campo de clave secreta.")
+    pk = str(updates.get("stripePublishableKey", "")).strip()
+    if pk and not pk.startswith("pk_"):
+        raise HTTPException(status_code=400,
+            detail="La clave publicable debe empezar por 'pk_'. Parece que has pegado la clave SECRETA (sk_...) en el campo de clave publicable.")
     if updates:
         await db.app_settings.update_one({"_id": "config"}, {"$set": updates}, upsert=True)
     if "stripeSecretKey" in updates:

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api, { apiErr, openInvoicePdf, openContractPdf } from "@/lib/api";
+import api, { apiErr, openInvoicePdf, openContractPdf, openLikesSignedContract } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -50,6 +50,11 @@ export default function Orders() {
   const sendSignEmail = async (o) => {
     try { const { data } = await api.post(`/orders/${o.orderId}/send-signature-email`); toast.success(`Correo de firma enviado a ${data.to}`); loadOrders(); }
     catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const openLikesContract = async (o) => {
+    try { await openLikesSignedContract(o.orderId); }
+    catch (e) { toast.error(apiErr(e) || "Aún no hay contrato firmado en Likes"); }
   };
 
   const approveSignature = async (o) => {
@@ -324,6 +329,13 @@ export default function Orders() {
                     )}
                     {/* Firma aprobada y sincronizada */}
                     {o.signed && o.signApproved && <span className="text-xs text-success font-medium" data-testid={`order-approved-${o.orderId}`}>✓ Firmado y aprobado</span>}
+                    {/* Contrato realmente firmado en Likes (firma digital) */}
+                    {o.signed && (
+                      <button data-testid={`order-likes-contract-${o.orderId}`} onClick={() => openLikesContract(o)} title="Ver el contrato firmado en Likes"
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary text-xs">
+                        <FileSignature size={13} /> Contrato firmado (Likes)
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

@@ -337,3 +337,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Decisión del usuario: usar firma digital NATIVA de Likes SIN KYC (gratis, kyc:false). `create_order` ahora envía `{digitalSignature: True, kyc: False,...}`.
 - PENDIENTE VERIFICAR EN VPS: (1) si Likes envía el enlace de firma automáticamente al email del cliente al crear la orden, o si requiere disparar un endpoint interno "Enviar firma digital" (capturar del panel si hace falta). (2) que el cambio de titular (PUT /draft-order-v2/lines) se aplique en este modo.
 - El API público NO expone endpoint de envío de firma; si no es automático, habrá que capturar el interno del panel.
+
+### Iteración 2026-06 (fork) — Correos profesionales + reflejo del contrato firmado de Likes
+- Opción A confirmada funcionando (firma digital Likes sin KYC; el correo de firma de Likes llega a SPAM del cliente).
+- NUEVO correo BIENVENIDA (`_send_welcome_roky`): al crear cliente en el CRM (`POST /customers`) se envía "Bienvenido a Roky Móvil" profesional con CTA al área de cliente.
+- NUEVO correo CONTRATACIÓN EN CURSO (`_send_contratacion_en_curso`): al crear venta manual (`create_order`, likes_signature=True → "revisa SPAM, la firma la envía Likes") y en alta pública (`create_application`, likes_signature=False → enlace de firma propio). Recalca revisar SPAM/correo no deseado.
+- REFLEJO DEL CONTRATO FIRMADO DE LIKES: `_fetch_likes_signed_contract(order)` descarga el `signedContract`/`contract` desde Likes (get_order_draft→downloadURL→download_document). Endpoint `GET /orders/{id}/signed-contract.pdf`. Frontend: botón "Contrato firmado (Likes)" en Orders para órdenes firmadas (api.openLikesSignedContract). El estado firmado lo detecta la reconciliación (SIGNED_ORDER_STATUSES).
+- Verificado: create_customer 200 + dispara bienvenida; endpoints y sintaxis OK. Emails reales se validan en VPS (Resend rechaza dominios de prueba). Desplegar backend+frontend.

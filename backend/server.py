@@ -668,6 +668,69 @@ def _gen_password(n: int = 10):
     return "".join(_s.choice(alphabet) for _ in range(n))
 
 
+async def _send_welcome_roky(email, name, login_url=None):
+    """Correo profesional de bienvenida al crear el cliente en el CRM."""
+    if not email:
+        return
+    app_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    login_url = login_url or (f"{app_url}/login" if app_url else "")
+    cta = (f"<a href='{login_url}' style='background:#0033ff;color:#fff;padding:11px 20px;border-radius:24px;"
+           f"text-decoration:none;display:inline-block;font-weight:600'>Acceder a mi área de cliente</a>"
+           if login_url else "")
+    body = (
+        f"Hola {name or ''},<br><br>"
+        "¡Te damos la bienvenida a <b>Roky Móvil</b>! Gracias por confiar en nosotros.<br><br>"
+        "Desde tu <b>Área de Cliente</b> podrás gestionar todo tu servicio de forma cómoda y segura:<br>"
+        "• Consultar tu consumo de datos, llamadas y SMS.<br>"
+        "• Ver y descargar tus facturas.<br>"
+        "• Revisar el estado de tus líneas y contratos.<br>"
+        "• Gestionar tus datos y solicitudes.<br><br>"
+        f"{cta}<br><br>"
+        "Si tienes cualquier duda, nuestro equipo está encantado de ayudarte.<br><br>"
+        "Un saludo,<br><b>El equipo de Roky Móvil</b>")
+    await _send_mail_safe("email", email, "Bienvenido a Roky Móvil", emailer.base_template("Bienvenido a Roky Móvil", body))
+
+
+async def _send_contratacion_en_curso(email, name, product_name, likes_signature=True):
+    """Correo 'contratación en curso' al crear la venta (manual en CRM o sitio público)."""
+    if not email:
+        return
+    firma_txt = (
+        "Te hemos enviado a este mismo correo la <b>solicitud de firma de tu contrato</b>. "
+        "<b>Muy importante:</b> revisa también tu carpeta de <b>SPAM o Correo no deseado</b>, "
+        "ya que el correo de firma puede llegar allí. Ábrelo y firma tu contrato para completar el alta."
+        if likes_signature else
+        "Te hemos enviado a este mismo correo el <b>enlace para firmar tu contrato</b>. "
+        "Revisa también tu carpeta de <b>SPAM o Correo no deseado</b> por si acaso.")
+    body = (
+        f"Hola {name or ''},<br><br>"
+        f"Tu contratación de <b>{product_name or 'tu servicio'}</b> está <b>en curso</b>. "
+        "Estamos procesando tu alta.<br><br>"
+        f"{firma_txt}<br><br>"
+        "En cuanto tu contrato esté firmado, activaremos tu línea y te avisaremos por correo.<br><br>"
+        "Gracias por elegir Roky Móvil.<br><br>"
+        "Un saludo,<br><b>El equipo de Roky Móvil</b>")
+    await _send_mail_safe("email", email, "Tu contratación está en curso · Roky Móvil",
+                          emailer.base_template("Contratación en curso", body))
+
+
+async def _fetch_likes_signed_contract(order):
+    """Descarga el contrato firmado (o generado) desde Likes. Devuelve (bytes, filename) o (None, None)."""
+    oid = order.get("likesOrderId") or order.get("orderId")
+    if not oid:
+        return None, None
+    draft = await asyncio.to_thread(likes_client.get_order_draft, oid)
+    docs = (draft or {}).get("documentation", []) or []
+    for wanted in ("signedContract", "contract"):
+        for d in docs:
+            if d.get("type") == wanted and d.get("downloadURL"):
+                data = await asyncio.to_thread(likes_client.download_document, d["downloadURL"])
+                if data:
+                    return data, f"{order.get('contractNumber', 'contrato')}-{wanted}.pdf"
+    return None, None
+
+
+
 async def _send_app_credentials(email, name, password, reset=False):
     if not email:
         return
@@ -859,6 +922,8 @@ async def create_customer(body: CustomerCreate, request: Request):
                 "email": body.email.lower(), "password_hash": hash_password(body.portalPassword),
                 "name": f"{body.name} {body.firstSurname}".strip(), "role": "client",
                 "fiscalId": body.fiscalId, "created_at": now_iso()})
+    # Correo de bienvenida profesional al área de cliente
+    _spawn_bg(_send_welcome_roky(body.email.lower(), f"{body.name} {body.firstSurname}".strip()))
     return clean(doc)
 
 
@@ -1521,6 +1586,9 @@ async def create_order(body: OrderCreate, request: Request):
                     f"Alta creada en Likes · {order['customerName']} · {product['productName']} · Likes {likes_order_id} · reconciliando datos…",
                     {"orderId": order_id, "channel": "WD"})
     _spawn_bg(_post_create_order_bg(body.fiscalId, order_id))
+    # Correo "contratación en curso" (Likes envía la firma digital al email del cliente → revisar SPAM)
+    _spawn_bg(_send_contratacion_en_curso(customer.get("email"), order["customerName"],
+                                          product["productName"], likes_signature=True))
 
     return {"order": clean(order), "invoiceId": str(invoice["_id"]),
             "invoiceNumber": invoice["invoiceNumber"], "contractNumber": contract_number,
@@ -1833,6 +1901,23 @@ async def order_contract_pdf(order_id: str, request: Request):
     pdf_bytes = generate_contract_pdf(ct, tpl)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"inline; filename={ct['contractNumber']}.pdf"})
+
+
+@api.get("/orders/{order_id}/signed-contract.pdf")
+async def order_signed_contract_likes(order_id: str, request: Request):
+    """Obtiene el contrato REALMENTE firmado en Likes (firma digital) y lo refleja en Roky."""
+    user = await current_user(request)
+    order = await db.orders.find_one({"orderId": order_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if user.get("role") == "client" and order["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    data, fname = await _fetch_likes_signed_contract(order)
+    if not data:
+        raise HTTPException(status_code=404, detail="Aún no hay contrato firmado disponible en Likes para esta orden")
+    return StreamingResponse(io.BytesIO(data), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={fname}"})
+
 
 
 @api.post("/orders/{order_id}/contract/sign")
@@ -3930,6 +4015,8 @@ async def create_application(body: ApplicationCreate):
             await emailer.send_email(body.email, "Firma tu contrato - Goroky Telecom", html)
         except Exception:
             pass
+    # Correo "contratación en curso" (recuérdale revisar SPAM para el enlace de firma)
+    _spawn_bg(_send_contratacion_en_curso(body.email.lower(), body.name, product["productName"], likes_signature=False))
     return {"token": token, "contractCode": contract_code, "signUrl": f"/firmar/{token}"}
 
 

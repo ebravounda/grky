@@ -100,9 +100,13 @@ export default function CustomerDetail() {
   };
 
   const sendCardLink = async () => {
+    const val = window.prompt("Importe mensual a cobrar por tarjeta (€).\nDéjalo vacío para usar el importe de sus líneas activas:", "");
+    if (val === null) return; // cancelado
+    const amount = val.trim() === "" ? undefined : parseFloat(val.replace(",", "."));
+    if (val.trim() !== "" && (!amount || amount <= 0)) return toast.error("Importe no válido");
     setCardSending(true);
     try {
-      const { data: res } = await api.post(`/customers/${fiscalId}/send-card-link`, { origin_url: window.location.origin, sendEmail: true });
+      const { data: res } = await api.post(`/customers/${fiscalId}/send-card-link`, { origin_url: window.location.origin, sendEmail: true, amount });
       if (res.emailed) toast.success(`Enlace de tarjeta enviado a ${res.email}`);
       else toast.success("Enlace de tarjeta generado (abriendo en nueva pestaña)");
       if (res.checkout_url) window.open(res.checkout_url, "_blank");

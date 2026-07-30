@@ -447,6 +447,8 @@ class InvoiceUpdateBody(BaseModel):
 class SendCardLinkBody(BaseModel):
     origin_url: str
     sendEmail: bool = True
+    amount: Optional[float] = None       # importe mensual a cobrar (si se omite, se calcula de las líneas)
+    productName: Optional[str] = None    # nombre del concepto a mostrar en Stripe
 
 
 class AppSettingsBody(BaseModel):
@@ -3009,7 +3011,8 @@ async def send_card_link(fiscalId: str, body: SendCardLinkBody, request: Request
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     try:
-        return await _send_card_link(customer, body.origin_url, send_email=body.sendEmail)
+        return await _send_card_link(customer, body.origin_url, send_email=body.sendEmail,
+                                     amount=body.amount, product_name=body.productName)
     except HTTPException:
         raise
     except stripe.error.StripeError as e:  # noqa
@@ -3046,14 +3049,19 @@ async def _resolve_monthly(fiscalId):
     return monthly, prod_name, sub
 
 
-async def _send_card_link(customer, origin_url, send_email=True, is_reminder=False):
+async def _send_card_link(customer, origin_url, send_email=True, is_reminder=False, amount=None, product_name=None):
     """Crea el enlace de tarjeta, lo envía por email y registra el seguimiento (para recordatorios)."""
     fiscalId = customer["fiscalId"]
     await _stripe_apply()
     monthly, prod_name, sub = await _resolve_monthly(fiscalId)
+    # Overrides manuales del admin (importe / nombre a cobrar)
+    if amount is not None and float(amount) > 0:
+        monthly = round(float(amount), 2)
+    if product_name:
+        prod_name = product_name
     if monthly <= 0:
         raise HTTPException(status_code=400,
-            detail="El cliente no tiene una tarifa con importe para domiciliar. Asigna una línea/suscripción primero.")
+            detail="El cliente no tiene una tarifa con importe para domiciliar. Indica el importe o asigna una línea/suscripción primero.")
     meta = {"fiscalId": fiscalId, "purpose": "card_setup"}
     if sub:
         meta["subscriptionId"] = sub["subscriptionId"]

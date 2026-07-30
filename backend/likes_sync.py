@@ -110,15 +110,18 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
         result["reason"] = "not_connected"
         return result
 
-    # 1) Crear cliente en Likes
+    # 1) Crear cliente en Likes (IDEMPOTENTE: si ya existe, Likes devuelve error y continuamos
+    #    igual — /signupv2 solo necesita que el fiscalId exista, y ya existe).
     cust_payload = _customer_payload(customer, app_doc)
     data, err = await asyncio.to_thread(likes_client.create_customer, cust_payload)
     if err:
-        log.append(f"POST /customer ERROR: {err}")
-        result["reason"] = "customer_failed"
-        return result
-    log.append(f"Cliente creado en Likes: {cust_payload['fiscalId']}")
-    result["customerSynced"] = True
+        log.append(f"POST /customer aviso: {err} (se continúa; probablemente el cliente ya existe)")
+        result["customerError"] = err
+        result["customerExists"] = "EXIST" in (err or "").upper()
+        data = None  # sin uploadURLs de documentación en este caso
+    else:
+        log.append(f"Cliente creado en Likes: {cust_payload['fiscalId']}")
+        result["customerSynced"] = True
 
     # 2) Subir DNI/NIE (anverso/reverso) a las uploadURLs devueltas
     documentation = (data or {}).get("documentation", [])

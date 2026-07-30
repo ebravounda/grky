@@ -1933,8 +1933,13 @@ async def _trigger_likes_sync(contract_code):
     if result.get("likesOrderId"):
         await db.customers.update_one({"fiscalId": customer["fiscalId"]},
                                       {"$set": {"likesOrderId": result["likesOrderId"], "likesSynced": True}})
-    await log_event("likes", "success" if result.get("synced") else "warning",
-                    f"Sync Likes alta {contract_code}: {'OK' if result.get('synced') else result.get('reason')}",
+    if result.get("synced"):
+        msg = f"Sync Likes alta {contract_code}: OK"
+    else:
+        # Mostrar el detalle real de Likes (última línea del log suele traer el error de la API)
+        detail = (result.get("log") or [""])[-1] if result.get("log") else ""
+        msg = f"Sync Likes alta {contract_code}: {result.get('reason')}" + (f" · {detail}" if detail else "")
+    await log_event("likes", "success" if result.get("synced") else "warning", msg,
                     {"fiscalId": order["fiscalId"]})
     return result
 

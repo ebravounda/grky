@@ -292,28 +292,58 @@ def generate_invoice_pdf(invoice: dict) -> bytes:
 
     # ---- Página de aviso legal ----
     story.append(PageBreak())
-    story.append(Paragraph("Aviso legal e información al usuario", st["h"]))
+    story.append(Paragraph("Aviso Legal", st["h"]))
     story.append(Spacer(1, 2 * mm))
     sections = [
-        ("Comercialización del servicio",
-         "Los servicios facturados son comercializados por GOROKY (TRAMILEX GLOBAL SERVICE SL) por cuenta de los "
-         "operadores mayoristas correspondientes (Likes Telecom, XFERA MÓVILES S.A.U. y MEDIOS AUDIOVISUALES "
-         "MASMEDIA SL). El operador de red o prestador del servicio depende del tipo de servicio contratado "
-         "(móvil/fibra, TV OTT u otros)."),
-        ("Datos de carácter personal",
-         "El titular puede ejercer sus derechos de acceso, rectificación, cancelación y oposición sobre sus datos "
-         "personales dirigiéndose a GOROKY. La política de privacidad completa está disponible en GOROKY.COM."),
-        ("Reclamaciones",
-         "Podrá presentar reclamaciones en el plazo de un mes desde el hecho que las motive, obteniendo un número de "
-         "referencia. En caso de disconformidad podrá acudir a la Secretaría de Estado de Telecomunicaciones o a las "
-         "Juntas Arbitrales de Consumo."),
-        ("Impago",
-         "El impago de los servicios podrá conllevar la suspensión temporal, la interrupción definitiva del servicio, "
-         "la resolución del contrato y la reclamación de la deuda pendiente conforme a la normativa vigente."),
+        ("Aviso Legal", [
+            "Los Servicios de telecomunicaciones son facturados y comercializados por GOROKY (TRAMILEX GLOBAL "
+            "SERVICE SL con CIF B21796925) en nombre y por cuenta de Likes Telecom (EZ EASY TELECOM SL con CIF "
+            "B09883612) quien a su vez realiza la gestión de la facturación y cobro en nombre y por cuenta del "
+            "operador de red que presta cada servicio según se indica a continuación:",
+            "•&nbsp; <b>Servicios de móvil y fibra:</b> El operador de red móvil es XFERA MÓVILES, S.A.U. con CIF "
+            "A82528548 y domicilio social Parque Empresarial 'La Finca', Paseo del Club Deportivo, 1, Edif. 8, "
+            "28223 - Pozuelo de Alarcón, (Madrid - España).",
+            "•&nbsp; <b>Servicio de TV OTT:</b> MEDIOS AUDIOVISUALES MASMEDIA SL con CIF B88644828 como prestatario "
+            "del servicio de TV OTT.",
+            "•&nbsp; <b>Resto de servicios</b> que no son de telecomunicaciones son comercializados por GOROKY "
+            "(TRAMILEX GLOBAL SERVICE SL con CIF B21796925).",
+        ]),
+        ("Datos de carácter personal", [
+            "En cualquier momento puedes ejercitar tus derechos de acceso, rectificación, cancelación y oposición, "
+            "mediante petición escrita junto con una fotocopia de tu DNI dirigida a privacy@goroky.com, dirección "
+            "Calle Segovia 22, Bajo 4, Madrid, Att. EDUARDO BRAVO. Nuestra política de protección de tus datos se "
+            "encuentra recogida en las condiciones generales de contratación y legales de las tarifas, que puedes "
+            "consultar en GOROKY.COM.",
+        ]),
+        ("Reclamaciones", [
+            "El abonado deberá dirigirse al departamento o servicio especializado de atención al cliente en el plazo "
+            "de un mes desde que se tenga conocimiento del hecho que motive su reclamación. Cuando el abonado presente "
+            "la reclamación, el operador está obligado a facilitarle el número de referencia dado a la reclamación del "
+            "usuario. Si en el plazo de un mes el usuario no hubiera recibido respuesta satisfactoria del operador, "
+            "podrá dirigir su reclamación a las siguientes vías, siguiendo la normativa propia a cada organismo:",
+            "•&nbsp; <b>Secretaría de Estado de Telecomunicaciones e Infraestructuras Digitales</b> - Teléfono de "
+            "consulta: 901 33 66 99; Página web: http://www.usuariosteleco.es",
+            "•&nbsp; <b>Juntas Arbitrales de Consumo</b>, directamente o a través de una Asociación de Consumidores.",
+        ]),
+        ("Impago", [
+            "El presente aviso legal sirve como comunicación fehaciente al abonado en caso de impago de la presente "
+            "factura, que conllevará las siguientes actuaciones:",
+            "•&nbsp; <b>Impago del Servicio de Telefonía Fija:</b> Transcurrido 1 mes desde el impago se notificará al "
+            "abonado por SMS o email la suspensión temporal del servicio si tras el plazo de 48 horas desde el aviso "
+            "persiste el impago, cortándose todas las llamadas excepto las dirigidas a servicios de emergencia y "
+            "entrantes no facturables. Transcurridos tres meses desde la recepción de la factura y el abonado no "
+            "hubiese pagado todavía, se podrá interrumpir definitivamente el servicio, dando de baja la línea y el "
+            "contrato aplicando las penalizaciones que correspondan y ejercitará sus derechos para hacer efectivo el "
+            "cobro. Antes de la interrupción definitiva, se realizará previo aviso con 48 horas de antelación al "
+            "abonado por SMS o email.",
+            "•&nbsp; <b>Impago del Resto de Servicios:</b> Se suspenderá temporalmente el servicio una vez esta factura "
+            "resulte impagada previa notificación con 48 horas de antelación.",
+        ]),
     ]
-    for title, body in sections:
+    for title, paras in sections:
         story.append(Paragraph(title, st["legalH"]))
-        story.append(Paragraph(body, st["legal"]))
+        for p in paras:
+            story.append(Paragraph(p, st["legal"]))
         story.append(Spacer(1, 2 * mm))
 
     doc.build(story)

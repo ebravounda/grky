@@ -79,7 +79,8 @@ export default function PublicCatalog() {
   const TABS = Object.keys(catalog).filter((k) => (catalog[k] || []).length)
     .map((k) => ({ key: k, label: (TAB_META[k] || {}).label || k, icon: (TAB_META[k] || {}).icon || Signal }));
 
-  const { hero, plans, coverage, trust, cities, footer } = content;
+  const { hero, plans, coverage, trust, cities, footer, partners } = content;
+  const partnerLogos = (partners || []).filter((p) => p && p.logo && p.active !== false);
   const banners = (content.heroBanners || []).filter((b) => b && b.url && b.active !== false);
   const openBanner = (link) => {
     if (!link) return;
@@ -403,6 +404,23 @@ export default function PublicCatalog() {
           ))}
         </motion.div>
       </section>
+
+      {/* Red y partners */}
+      {partnerLogos.length > 0 && (
+        <section className="bg-white border-t border-slate-100 py-14" aria-label="Nuestra red y partners" data-testid="partners-section">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400 mb-8">Navegamos con la mejor red</p>
+            <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
+              {partnerLogos.map((p, i) => (
+                <div key={i} data-testid={`partner-logo-${i}`} title={p.name || ""}
+                  className="h-20 w-40 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm grid place-items-center p-4 overflow-hidden transition-transform duration-300 hover:-translate-y-1 hover:shadow-md">
+                  <img src={imgSrc(p.logo)} alt={p.name || "Partner"} className="max-h-full max-w-full object-contain" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Footer SEO */}
       <footer className="bg-[#0A0A0A] text-slate-300">

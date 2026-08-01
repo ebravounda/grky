@@ -4870,6 +4870,7 @@ async def _save_file(kind, data_url, owner):
 DEFAULT_SITE_CONTENT = {
     "brandName": "GoRoky",
     "heroBanners": [],   # [{url, link, active}] carrusel de banners del inicio
+    "partners": [],      # [{name, logo, active}] logos de red/partners (footer)
     "hero": {
         "badge": "Promo portabilidad",
         "title": "Móvil y fibra que se adaptan",

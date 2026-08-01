@@ -44,6 +44,23 @@ export default function SiteContent() {
     } catch (err) { toast.error(apiErr(err)); } finally { setUploading(false); e.target.value = ""; }
   };
 
+  const setPartner = (i, key, value) =>
+    setC((s) => ({ ...s, partners: (s.partners || []).map((p, j) => (j === i ? { ...p, [key]: value } : p)) }));
+  const addPartner = (logo = "") => setC((s) => ({ ...s, partners: [...(s.partners || []), { name: "", logo, active: true }] }));
+  const removePartner = (i) => setC((s) => ({ ...s, partners: (s.partners || []).filter((_, j) => j !== i) }));
+  const [uploadingP, setUploadingP] = useState(false);
+  const onUploadPartner = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingP(true);
+    try {
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+      const { data } = await api.post("/admin/site-content/upload-banner", { imageData: dataUrl });
+      addPartner(data.url);
+      toast.success("Logo subido. Pulsa «Guardar cambios» para publicarlo.");
+    } catch (err) { toast.error(apiErr(err)); } finally { setUploadingP(false); e.target.value = ""; }
+  };
+
   const setTrust = (i, key, value) =>
     setC((s) => ({ ...s, trust: s.trust.map((t, j) => (j === i ? { ...t, [key]: value } : t)) }));
   const addTrust = () => setC((s) => ({ ...s, trust: [...(s.trust || []), { icon: "Sparkles", title: "", desc: "" }] }));
@@ -118,6 +135,41 @@ export default function SiteContent() {
                 <button onClick={() => moveBanner(i, 1)} className="h-6 w-7 grid place-items-center rounded hover:bg-muted disabled:opacity-30" disabled={i === (c.heroBanners || []).length - 1} data-testid={`banner-down-${i}`}><ChevronDown size={14} /></button>
               </div>
               <button onClick={() => removeBanner(i)} className="h-10 w-10 grid place-items-center rounded-md text-destructive hover:bg-destructive/10 shrink-0" data-testid={`remove-banner-${i}`}><Trash2 size={16} /></button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Red y partners (logos) */}
+      <Card className="p-6 space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-heading font-bold">Red y partners (logos)</h2>
+            <p className="text-xs text-muted-foreground mt-1">Logos que aparecen al final de la web (ej. Orange, Yoigo). Sube el logo, preferiblemente PNG con fondo transparente.</p>
+          </div>
+          <label className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full border border-input px-4 py-2 cursor-pointer hover:bg-muted transition-colors" data-testid="upload-partner-btn">
+            <ImagePlus size={15} /> {uploadingP ? "Subiendo…" : "Subir logo"}
+            <input type="file" accept="image/*" className="hidden" onChange={onUploadPartner} disabled={uploadingP} />
+          </label>
+        </div>
+        {(c.partners || []).length === 0 && (
+          <p className="text-sm text-muted-foreground">Aún no hay logos. Sube los de tus operadores/partners.</p>
+        )}
+        <div className="grid sm:grid-cols-2 gap-3">
+          {(c.partners || []).map((p, i) => (
+            <div key={i} className="flex gap-3 items-center border rounded-xl p-3" data-testid={`partner-row-${i}`}>
+              <div className="h-14 w-20 shrink-0 rounded-lg overflow-hidden bg-muted ring-1 ring-border grid place-items-center">
+                {p.logo ? <img src={imgSrc(p.logo)} alt="" className="h-full w-full object-contain p-1" /> : <ImagePlus size={18} className="text-muted-foreground" />}
+              </div>
+              <div className="flex-1 space-y-2 min-w-0">
+                <Input placeholder="Nombre (ej. Yoigo)" data-testid={`partner-name-${i}`} value={p.name || ""} onChange={(e) => setPartner(i, "name", e.target.value)} />
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input type="checkbox" checked={p.active !== false} onChange={(e) => setPartner(i, "active", e.target.checked)} data-testid={`partner-active-${i}`} /> Activo
+                  </label>
+                </div>
+              </div>
+              <button onClick={() => removePartner(i)} className="h-10 w-10 grid place-items-center rounded-md text-destructive hover:bg-destructive/10 shrink-0" data-testid={`remove-partner-${i}`}><Trash2 size={16} /></button>
             </div>
           ))}
         </div>

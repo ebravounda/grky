@@ -492,3 +492,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
   - Frontend admin (`SiteContent.js` → "Contenido web"): tarjeta "Banners del inicio (carrusel)" con **Subir imagen** (file→dataURL→upload-banner) o **Por URL**, vista previa, campo enlace opcional, checkbox Activo, reordenar (▲▼) y eliminar. Se guarda con "Guardar cambios".
   - Verificado: carrusel público por screenshot (banner GoRoky a pantalla completa, moderno); upload-banner por curl (devuelve URL, imagen servida 200); site-content público devuelve heroBanners. Se sembraron los 4 banners de GoRoky del usuario como punto de partida (los gestiona desde el panel).
 - **Despliegue VPS** (backend + FRONTEND): Save to Github → git pull → `cd frontend && yarn build` → copiar build (conservar .htaccess) → `systemctl restart goroky-api.service`.
+
+---
+## 2026-07-30 (j) · Franja "Red y partners" (logos) gestionable desde el panel
+- Backend: `DEFAULT_SITE_CONTENT["partners"] = []` ([{name, logo, active}]). Reutiliza el endpoint `POST /api/admin/site-content/upload-banner` para subir logos (devuelve URL servida).
+- Frontend público (`PublicCatalog.js`): nueva sección `partners-section` justo antes del footer — franja de logos centrada, grayscale + opacity que pasan a color en hover, `object-contain`, título "Navegamos con la mejor red". Solo se muestra si hay partners activos.
+- Frontend admin (`SiteContent.js` → "Contenido web"): tarjeta "Red y partners (logos)" con Subir logo / nombre / activo / eliminar. Se guarda con "Guardar cambios".
+- Sembrado el logo de Yoigo del usuario. Verificado: sección en DOM, partners en /api/public/site-content, logo sirve 200. Requiere rebuild de frontend al desplegar en VPS.

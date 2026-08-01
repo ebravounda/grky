@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
+const APP_MOCKUP = "https://static.prod-images.emergentagent.com/jobs/8c47229e-970c-4034-957a-3142574f48e1/images/d5c3d9386572085ed8d98bc1ef8dc1650530dd1ea2b52cc8e65f8ee43b6165d4.jpeg";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const imgSrc = (u) => (u && u.startsWith("/") ? `${BACKEND}${u}` : u);
@@ -389,6 +390,51 @@ export default function PublicCatalog() {
               </motion.div>
             );
           })}
+        </div>
+      </section>
+
+      {/* App móvil — sección moderna */}
+      <section className="relative overflow-hidden bg-[#05070D] text-white py-24 lg:py-32" data-testid="app-section" id="app">
+        <div className="pointer-events-none absolute -top-32 -left-32 h-[520px] w-[520px] rounded-full bg-[#015EEF]/30 blur-[120px]" />
+        <div className="pointer-events-none absolute -bottom-40 -right-24 h-[480px] w-[480px] rounded-full bg-[#FF7A00]/20 blur-[120px]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)", backgroundSize: "32px 32px" }} />
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-14 items-center">
+          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.6 }}>
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 ring-1 ring-white/15 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-[#7FB0FF] backdrop-blur">
+              <Smartphone size={14} /> App GoRoky
+            </span>
+            <h2 className="mt-6 font-heading text-4xl sm:text-5xl lg:text-6xl font-black leading-[1.05] tracking-tight">
+              Controla toda tu línea desde tu propia <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4D93FF] to-[#FF7A00]">aplicación</span>
+            </h2>
+            <p className="mt-6 text-lg text-slate-300 max-w-md leading-relaxed">
+              Consulta tus gigas en tiempo real, revisa tus facturas y gestiona todas tus líneas desde el móvil. Tu operador, en tu bolsillo.
+            </p>
+            <ul className="mt-8 space-y-3">
+              {["Consumo de datos en tiempo real", "Tus facturas siempre a mano", "Gestiona y activa tus líneas"].map((f) => (
+                <li key={f} className="flex items-center gap-3 text-slate-200">
+                  <span className="grid place-items-center h-6 w-6 rounded-full bg-[#015EEF]/30 ring-1 ring-[#4D93FF]/40"><CheckCircle2 size={15} className="text-[#7FB0FF]" /></span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-10 flex flex-col sm:flex-row gap-4">
+              <button onClick={() => navigate("/login")} data-testid="app-cta-cuenta"
+                className="rounded-full bg-white text-[#05070D] font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow] hover:-translate-y-1 shadow-[0_10px_40px_rgba(255,255,255,0.15)]">
+                Acceder a Mi cuenta <ArrowRight size={18} />
+              </button>
+              <div className="flex items-center gap-2 text-sm text-slate-400 justify-center sm:justify-start">
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#FF7A00] animate-pulse" /> App para iOS y Android próximamente
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div className="relative flex justify-center lg:justify-end"
+            initial={{ opacity: 0, scale: 0.9, y: 40 }} whileInView={{ opacity: 1, scale: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7, ease: "easeOut" }}>
+            <div className="absolute inset-0 -z-0 blur-3xl bg-gradient-to-tr from-[#015EEF]/40 to-[#FF7A00]/30 rounded-full scale-90" />
+            <motion.img src={APP_MOCKUP} alt="App GoRoky en un smartphone" data-testid="app-mockup-img"
+              animate={{ y: [0, -14, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+              className="relative z-10 w-[280px] sm:w-[340px] lg:w-[400px] h-auto drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]" />
+          </motion.div>
         </div>
       </section>
 

@@ -499,3 +499,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Frontend público (`PublicCatalog.js`): nueva sección `partners-section` justo antes del footer — franja de logos centrada, grayscale + opacity que pasan a color en hover, `object-contain`, título "Navegamos con la mejor red". Solo se muestra si hay partners activos.
 - Frontend admin (`SiteContent.js` → "Contenido web"): tarjeta "Red y partners (logos)" con Subir logo / nombre / activo / eliminar. Se guarda con "Guardar cambios".
 - Sembrado el logo de Yoigo del usuario. Verificado: sección en DOM, partners en /api/public/site-content, logo sirve 200. Requiere rebuild de frontend al desplegar en VPS.
+
+---
+## 2026-07-30 (k) · Partners +Media/Orange + sección "App móvil" con mockup
+- Partners: añadidos Orange y +Media junto a Yoigo. Como son JPEG con fondo de color, la franja se cambió a "chips" (tarjetas blancas redondeadas, en color, hover lift) en lugar de grayscale, para que se vean limpios. Gestionable desde admin → Contenido web → Red y partners.
+- NUEVA sección "App móvil" en el home (`PublicCatalog.js`, id="app", data-testid="app-section"): fondo oscuro #05070D con luces azul/naranja (blur), patrón de puntos sutil, glass badge, titular "Controla toda tu línea desde tu propia aplicación" (palabra "aplicación" con gradiente azul→naranja), lista de features con checks, CTA "Acceder a Mi cuenta" (→ /login) + aviso "App iOS/Android próximamente", y mockup de móvil FLOTANTE (animación y-loop framer-motion) con glow. Insertada antes del marquee de ciudades.
+- Mockup generado con IA (Gemini nano banana): smartphone mostrando la app self-care de telecom (anillo 45GB, factura 9€, líneas) con el LOGO real de GoRoky en la cabecera. URL estática hardcodeada en `APP_MOCKUP`.
+- Verificado: compila OK, sección+mockup en DOM, imagen carga HTTP 200. (El screenshot tool resetea scroll y no permite capturar la sección; validación por DOM/curl.) Requiere rebuild de frontend al desplegar.

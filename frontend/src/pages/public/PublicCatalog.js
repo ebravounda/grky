@@ -16,7 +16,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
-const APP_MOCKUP = "https://static.prod-images.emergentagent.com/jobs/8c47229e-970c-4034-957a-3142574f48e1/images/d5c3d9386572085ed8d98bc1ef8dc1650530dd1ea2b52cc8e65f8ee43b6165d4.jpeg";
+const APP_MOCKUP = "https://static.prod-images.emergentagent.com/jobs/8c47229e-970c-4034-957a-3142574f48e1/images/d9a60518184f6cf887fa916269edbc7b3c2e5b2e7ff680c7b4d73f914366d7a5.jpeg";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const imgSrc = (u) => (u && u.startsWith("/") ? `${BACKEND}${u}` : u);
@@ -430,10 +430,9 @@ export default function PublicCatalog() {
 
           <motion.div className="relative flex justify-center lg:justify-end"
             initial={{ opacity: 0, scale: 0.9, y: 40 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.7, ease: "easeOut" }}>
-            <div className="absolute inset-0 -z-0 blur-3xl bg-gradient-to-tr from-[#015EEF]/40 to-[#FF7A00]/30 rounded-full scale-90" />
             <motion.img src={APP_MOCKUP} alt="App GoRoky en un smartphone" data-testid="app-mockup-img"
               animate={{ y: [0, -14, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              className="relative z-10 w-[280px] sm:w-[340px] lg:w-[400px] h-auto drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]" />
+              className="relative z-10 w-[300px] sm:w-[360px] lg:w-[430px] h-auto rounded-3xl" />
           </motion.div>
         </div>
       </section>
@@ -456,12 +455,11 @@ export default function PublicCatalog() {
         <section className="bg-white border-t border-slate-100 py-14" aria-label="Nuestra red y partners" data-testid="partners-section">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400 mb-8">Navegamos con la mejor red</p>
-            <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
+            <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-8">
               {partnerLogos.map((p, i) => (
-                <div key={i} data-testid={`partner-logo-${i}`} title={p.name || ""}
-                  className="h-20 w-40 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm grid place-items-center p-4 overflow-hidden transition-transform duration-300 hover:-translate-y-1 hover:shadow-md">
-                  <img src={imgSrc(p.logo)} alt={p.name || "Partner"} className="max-h-full max-w-full object-contain" />
-                </div>
+                <img key={i} src={imgSrc(p.logo)} alt={p.name || "Partner"} title={p.name || ""}
+                  data-testid={`partner-logo-${i}`}
+                  className="h-12 sm:h-14 w-auto object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 focus:grayscale-0 focus:opacity-100 active:grayscale-0 active:opacity-100 transition-[filter,opacity] duration-300" />
               ))}
             </div>
           </div>

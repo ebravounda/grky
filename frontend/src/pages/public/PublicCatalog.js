@@ -399,7 +399,7 @@ export default function PublicCatalog() {
         <div className="pointer-events-none absolute -bottom-40 -right-24 h-[480px] w-[480px] rounded-full bg-[#FF7A00]/20 blur-[120px]" />
         <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)", backgroundSize: "32px 32px" }} />
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-14 items-center">
-          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.6 }}>
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 ring-1 ring-white/15 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-[#7FB0FF] backdrop-blur">
               <Smartphone size={14} /> App GoRoky
             </span>
@@ -429,7 +429,7 @@ export default function PublicCatalog() {
           </motion.div>
 
           <motion.div className="relative flex justify-center lg:justify-end"
-            initial={{ opacity: 0, scale: 0.9, y: 40 }} whileInView={{ opacity: 1, scale: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7, ease: "easeOut" }}>
+            initial={{ opacity: 0, scale: 0.9, y: 40 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.7, ease: "easeOut" }}>
             <div className="absolute inset-0 -z-0 blur-3xl bg-gradient-to-tr from-[#015EEF]/40 to-[#FF7A00]/30 rounded-full scale-90" />
             <motion.img src={APP_MOCKUP} alt="App GoRoky en un smartphone" data-testid="app-mockup-img"
               animate={{ y: [0, -14, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}

@@ -364,10 +364,10 @@ export default function PublicCatalog() {
                         Contratar <ArrowRight size={16} />
                       </button>
                       <button
-                        className="mt-2.5 w-full rounded-full py-3 font-semibold inline-flex items-center justify-center gap-2 border-2 border-slate-200 text-slate-700 hover:border-[#015EEF] hover:text-[#015EEF] transition-colors"
+                        className="mt-2 w-full rounded-full py-2 text-sm font-semibold inline-flex items-center justify-center gap-2 border border-slate-200 text-slate-600 hover:border-[#015EEF] hover:text-[#015EEF] transition-colors"
                         data-testid={`callback-${p.productId}`}
                         onClick={() => { setCbForm({ name: "", surname: "", phone: "" }); setCbProduct(p); }}>
-                        <PhoneCall size={15} /> Te llamamos
+                        <PhoneCall size={14} /> Te llamamos
                       </button>
                     </motion.div>
                   );

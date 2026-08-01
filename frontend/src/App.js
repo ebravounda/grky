@@ -16,6 +16,7 @@ import SiteContent from "@/pages/admin/SiteContent";
 import Orders from "@/pages/admin/Orders";
 import Alerts from "@/pages/admin/Alerts";
 import Solicitudes from "@/pages/admin/Solicitudes";
+import Callbacks from "@/pages/admin/Callbacks";
 import Billing from "@/pages/admin/Billing";
 import Shipments from "@/pages/admin/Shipments";
 import Promociones from "@/pages/admin/Promociones";
@@ -97,6 +98,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="alerts" element={<PermGuard perm="alerts.view"><Alerts /></PermGuard>} />
             <Route path="solicitudes" element={<PermGuard perm="solicitudes.manage"><Solicitudes /></PermGuard>} />
+            <Route path="callbacks" element={<PermGuard perm="solicitudes.manage"><Callbacks /></PermGuard>} />
             <Route path="customers" element={<PermGuard perm="customers.view"><Customers /></PermGuard>} />
             <Route path="customers/:fiscalId" element={<PermGuard perm="customers.view"><CustomerDetail /></PermGuard>} />
             <Route path="lines" element={<PermGuard perm="lines.view"><Lines /></PermGuard>} />

@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "@/lib/api";
+import api, { apiErr } from "@/lib/api";
+import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Sheet, SheetContent, SheetTrigger,
 } from "@/components/ui/sheet";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
 import CoverageChecker from "@/components/CoverageChecker";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
-  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info,
+  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info, PhoneCall,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -58,6 +59,23 @@ export default function PublicCatalog() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [slide, setSlide] = useState(0);
   const navigate = useNavigate();
+
+  const [cbProduct, setCbProduct] = useState(null);
+  const [cbForm, setCbForm] = useState({ name: "", surname: "", phone: "" });
+  const [cbBusy, setCbBusy] = useState(false);
+  const submitCallback = async (e) => {
+    e.preventDefault();
+    if (!cbForm.name.trim() || !cbForm.phone.trim()) { toast.error("Indica al menos tu nombre y teléfono"); return; }
+    setCbBusy(true);
+    try {
+      await api.post("/public/callback", {
+        productId: cbProduct?.productId, productName: cbProduct?.productName,
+        name: cbForm.name.trim(), surname: cbForm.surname.trim(), phone: cbForm.phone.trim(),
+      });
+      toast.success("¡Solicitud enviada! Te llamaremos lo antes posible.");
+      setCbProduct(null); setCbForm({ name: "", surname: "", phone: "" });
+    } catch (err) { toast.error(apiErr(err)); } finally { setCbBusy(false); }
+  };
 
   useEffect(() => {
     const id = setInterval(() => setSlide((s) => s + 1), 4500);
@@ -345,6 +363,12 @@ export default function PublicCatalog() {
                         data-testid={`contract-${p.productId}`} onClick={() => navigate(`/contratar/${p.productId}`)}>
                         Contratar <ArrowRight size={16} />
                       </button>
+                      <button
+                        className="mt-2.5 w-full rounded-full py-3 font-semibold inline-flex items-center justify-center gap-2 border-2 border-slate-200 text-slate-700 hover:border-[#015EEF] hover:text-[#015EEF] transition-colors"
+                        data-testid={`callback-${p.productId}`}
+                        onClick={() => { setCbForm({ name: "", surname: "", phone: "" }); setCbProduct(p); }}>
+                        <PhoneCall size={15} /> Te llamamos
+                      </button>
                     </motion.div>
                   );
                 })}
@@ -494,6 +518,41 @@ export default function PublicCatalog() {
           </div>
         </div>
       </footer>
+
+      {/* Formulario "Te llamamos" */}
+      <Dialog open={!!cbProduct} onOpenChange={(o) => { if (!o) setCbProduct(null); }}>
+        <DialogContent className="sm:max-w-md" data-testid="callback-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><PhoneCall size={18} className="text-[#015EEF]" /> Te llamamos</DialogTitle>
+            <DialogDescription>
+              Déjanos tus datos y te llamamos para informarte sobre <b>{cbProduct?.productName}</b>.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitCallback} className="space-y-3 pt-1">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600">Nombre</label>
+                <input data-testid="callback-name" value={cbForm.name} onChange={(e) => setCbForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#015EEF]/40 focus:border-[#015EEF]" placeholder="Tu nombre" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Apellido</label>
+                <input data-testid="callback-surname" value={cbForm.surname} onChange={(e) => setCbForm((f) => ({ ...f, surname: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#015EEF]/40 focus:border-[#015EEF]" placeholder="Tu apellido" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Teléfono</label>
+              <input data-testid="callback-phone" type="tel" value={cbForm.phone} onChange={(e) => setCbForm((f) => ({ ...f, phone: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#015EEF]/40 focus:border-[#015EEF]" placeholder="Ej. 600 123 456" />
+            </div>
+            <button type="submit" disabled={cbBusy} data-testid="callback-submit"
+              className="w-full rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold py-3 inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-60">
+              {cbBusy ? "Enviando…" : "Solicitar llamada"}
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

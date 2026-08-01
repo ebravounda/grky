@@ -700,6 +700,60 @@ async def public_donor_operators():
     return await asyncio.to_thread(likes_client.get_donor_operators)
 
 
+class CallbackBody(BaseModel):
+    productId: Optional[str] = None
+    productName: Optional[str] = None
+    name: str
+    surname: Optional[str] = ""
+    phone: str
+
+
+@api.post("/public/callback")
+async def public_callback(body: CallbackBody):
+    """Solicitud pública de «Te llamamos» desde el catálogo."""
+    if not body.name.strip() or not body.phone.strip():
+        raise HTTPException(status_code=400, detail="Nombre y teléfono son obligatorios")
+    doc = {
+        "productId": body.productId, "productName": (body.productName or "—"),
+        "name": body.name.strip(), "surname": (body.surname or "").strip(),
+        "phone": body.phone.strip(), "status": "pending", "createdAt": now_iso(),
+    }
+    res = await db.callback_requests.insert_one(doc)
+    await log_event("callback", "info",
+                    f"Solicitud de llamada · {doc['name']} {doc['surname']} · {doc['productName']} · {doc['phone']}")
+    return {"ok": True, "id": str(res.inserted_id)}
+
+
+@api.get("/admin/callbacks")
+async def admin_callbacks(request: Request):
+    await require_admin(request)
+    docs = await db.callback_requests.find().sort("createdAt", -1).to_list(2000)
+    return [{"id": str(d["_id"]), "productId": d.get("productId"), "productName": d.get("productName"),
+             "name": d.get("name"), "surname": d.get("surname"), "phone": d.get("phone"),
+             "status": d.get("status", "pending"), "createdAt": d.get("createdAt")} for d in docs]
+
+
+@api.post("/admin/callbacks/{cid}/status")
+async def admin_callback_status(cid: str, request: Request):
+    from bson import ObjectId
+    await require_admin(request)
+    d = await db.callback_requests.find_one({"_id": ObjectId(cid)})
+    if not d:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    new_status = "pending" if d.get("status") == "done" else "done"
+    await db.callback_requests.update_one({"_id": ObjectId(cid)}, {"$set": {"status": new_status}})
+    return {"ok": True, "status": new_status}
+
+
+@api.post("/admin/callbacks/{cid}/delete")
+async def admin_callback_delete(cid: str, request: Request):
+    from bson import ObjectId
+    await require_admin(request)
+    await db.callback_requests.delete_one({"_id": ObjectId(cid)})
+    return {"ok": True}
+
+
+
 @api.get("/ticket-typologies")
 async def ticket_typologies(request: Request):
     await current_user(request)

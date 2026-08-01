@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
-  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe,
+  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe, PhoneCall,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ const nav = [
   { to: "/app", label: "Panel", icon: LayoutDashboard, end: true, id: "panel", perm: "dashboard.view" },
   { to: "/app/alerts", label: "Alertas", icon: Bell, id: "alertas", badge: true, perm: "alerts.view" },
   { to: "/app/solicitudes", label: "Solicitudes", icon: ClipboardCheck, id: "solicitudes", perm: "solicitudes.manage" },
+  { to: "/app/callbacks", label: "Llamadas", icon: PhoneCall, id: "callbacks", perm: "solicitudes.manage" },
   { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes", perm: "customers.view" },
   { to: "/app/app-users", label: "Usuarios de la app", icon: Smartphone, id: "app-users", perm: "customers.view" },
   { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas", perm: "lines.view" },

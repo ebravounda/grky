@@ -4869,6 +4869,7 @@ async def _save_file(kind, data_url, owner):
 
 DEFAULT_SITE_CONTENT = {
     "brandName": "GoRoky",
+    "heroBanners": [],   # [{url, link, active}] carrusel de banners del inicio
     "hero": {
         "badge": "Promo portabilidad",
         "title": "Móvil y fibra que se adaptan",
@@ -4969,6 +4970,20 @@ async def admin_site_content_put(body: SiteContentBody, request: Request):
     await db.site_content.update_one({"_id": "home"}, {"$set": body.content}, upsert=True)
     await log_event("system", "info", "Contenido de la web pública actualizado")
     return await get_site_content()
+
+
+class BannerUploadBody(BaseModel):
+    imageData: str   # data URL (base64)
+
+
+@api.post("/admin/site-content/upload-banner")
+async def admin_site_content_upload_banner(body: BannerUploadBody, request: Request):
+    """Sube una imagen de banner del inicio y devuelve su URL pública (se sirve vía promo-image)."""
+    await require_admin(request)
+    if not body.imageData or not body.imageData.startswith("data:"):
+        raise HTTPException(status_code=400, detail="Imagen no válida")
+    fid = await _save_file("promo", body.imageData, "site")
+    return {"url": f"/api/public/promo-image/{fid}"}
 
 
 @api.get("/public/catalog")

@@ -5,19 +5,44 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Plus, Trash2, Save, Globe, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Save, Globe, ExternalLink, ImagePlus, ChevronUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 const ICON_OPTIONS = ["Repeat", "Zap", "Smartphone", "Headphones", "ShieldCheck", "Sparkles", "Wifi", "Signal"];
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+const imgSrc = (u) => (u && u.startsWith("/") ? `${BACKEND}${u}` : u);
 
 export default function SiteContent() {
   const [c, setC] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => { api.get("/admin/site-content").then((r) => setC(r.data)).catch((e) => toast.error(apiErr(e))); }, []);
 
   const setSection = (section, key, value) =>
     setC((s) => ({ ...s, [section]: { ...s[section], [key]: value } }));
+
+  const setBanner = (i, key, value) =>
+    setC((s) => ({ ...s, heroBanners: (s.heroBanners || []).map((b, j) => (j === i ? { ...b, [key]: value } : b)) }));
+  const addBanner = (url = "") => setC((s) => ({ ...s, heroBanners: [...(s.heroBanners || []), { url, link: "", active: true }] }));
+  const removeBanner = (i) => setC((s) => ({ ...s, heroBanners: (s.heroBanners || []).filter((_, j) => j !== i) }));
+  const moveBanner = (i, dir) => setC((s) => {
+    const a = [...(s.heroBanners || [])]; const j = i + dir;
+    if (j < 0 || j >= a.length) return s;
+    [a[i], a[j]] = [a[j], a[i]];
+    return { ...s, heroBanners: a };
+  });
+  const onUploadBanner = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+      const { data } = await api.post("/admin/site-content/upload-banner", { imageData: dataUrl });
+      addBanner(data.url);
+      toast.success("Banner subido. Pulsa «Guardar cambios» para publicarlo.");
+    } catch (err) { toast.error(apiErr(err)); } finally { setUploading(false); e.target.value = ""; }
+  };
 
   const setTrust = (i, key, value) =>
     setC((s) => ({ ...s, trust: s.trust.map((t, j) => (j === i ? { ...t, [key]: value } : t)) }));
@@ -56,6 +81,47 @@ export default function SiteContent() {
           </Button>
         </div>
       </div>
+
+      {/* Banners del inicio */}
+      <Card className="p-6 space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-heading font-bold">Banners del inicio (carrusel)</h2>
+            <p className="text-xs text-muted-foreground mt-1">Sube tus imágenes (recomendado cuadradas 1:1). Rotan solas en el inicio. Si no hay ninguno activo, se muestra el diseño por defecto.</p>
+          </div>
+          <div className="flex gap-2">
+            <label className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full border border-input px-4 py-2 cursor-pointer hover:bg-muted transition-colors" data-testid="upload-banner-btn">
+              <ImagePlus size={15} /> {uploading ? "Subiendo…" : "Subir imagen"}
+              <input type="file" accept="image/*" className="hidden" onChange={onUploadBanner} disabled={uploading} />
+            </label>
+            <Button variant="outline" size="sm" onClick={() => addBanner("")} className="rounded-full gap-1.5" data-testid="add-banner-url-btn"><Plus size={14} /> Por URL</Button>
+          </div>
+        </div>
+        {(c.heroBanners || []).length === 0 && (
+          <p className="text-sm text-muted-foreground">Aún no hay banners. Sube tus imágenes de GoRoky para mostrarlas en el inicio.</p>
+        )}
+        <div className="space-y-3">
+          {(c.heroBanners || []).map((b, i) => (
+            <div key={i} className="flex gap-3 items-center border-b border-border/60 pb-3" data-testid={`banner-row-${i}`}>
+              <div className="h-16 w-16 shrink-0 rounded-lg overflow-hidden bg-muted ring-1 ring-border">
+                {b.url ? <img src={imgSrc(b.url)} alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full grid place-items-center text-muted-foreground"><ImagePlus size={18} /></div>}
+              </div>
+              <div className="flex-1 grid sm:grid-cols-2 gap-2 min-w-0">
+                <Input placeholder="URL de la imagen" data-testid={`banner-url-${i}`} value={b.url || ""} onChange={(e) => setBanner(i, "url", e.target.value)} />
+                <Input placeholder="Enlace al pulsar (opcional, ej. /contratar)" data-testid={`banner-link-${i}`} value={b.link || ""} onChange={(e) => setBanner(i, "link", e.target.value)} />
+              </div>
+              <label className="flex items-center gap-1.5 text-xs shrink-0 cursor-pointer">
+                <input type="checkbox" checked={b.active !== false} onChange={(e) => setBanner(i, "active", e.target.checked)} data-testid={`banner-active-${i}`} /> Activo
+              </label>
+              <div className="flex flex-col shrink-0">
+                <button onClick={() => moveBanner(i, -1)} className="h-6 w-7 grid place-items-center rounded hover:bg-muted disabled:opacity-30" disabled={i === 0} data-testid={`banner-up-${i}`}><ChevronUp size={14} /></button>
+                <button onClick={() => moveBanner(i, 1)} className="h-6 w-7 grid place-items-center rounded hover:bg-muted disabled:opacity-30" disabled={i === (c.heroBanners || []).length - 1} data-testid={`banner-down-${i}`}><ChevronDown size={14} /></button>
+              </div>
+              <button onClick={() => removeBanner(i)} className="h-10 w-10 grid place-items-center rounded-md text-destructive hover:bg-destructive/10 shrink-0" data-testid={`remove-banner-${i}`}><Trash2 size={16} /></button>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {/* Hero */}
       <Card className="p-6 space-y-4">

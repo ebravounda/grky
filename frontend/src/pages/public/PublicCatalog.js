@@ -17,6 +17,9 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+const imgSrc = (u) => (u && u.startsWith("/") ? `${BACKEND}${u}` : u);
+
 const HERO_SLIDES = [
   { url: "https://images.unsplash.com/photo-1758272420990-30a0735e68a1?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Chica feliz con su móvil" },
   { url: "https://images.unsplash.com/photo-1758525226705-3061215c7445?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Amigas viendo el móvil juntas" },
@@ -56,7 +59,7 @@ export default function PublicCatalog() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const id = setInterval(() => setSlide((s) => (s + 1) % HERO_SLIDES.length), 4000);
+    const id = setInterval(() => setSlide((s) => s + 1), 4500);
     return () => clearInterval(id);
   }, []);
 
@@ -77,6 +80,12 @@ export default function PublicCatalog() {
     .map((k) => ({ key: k, label: (TAB_META[k] || {}).label || k, icon: (TAB_META[k] || {}).icon || Signal }));
 
   const { hero, plans, coverage, trust, cities, footer } = content;
+  const banners = (content.heroBanners || []).filter((b) => b && b.url && b.active !== false);
+  const openBanner = (link) => {
+    if (!link) return;
+    if (link.startsWith("http")) window.open(link, "_blank");
+    else navigate(link);
+  };
 
   return (
     <div className="min-h-screen bg-white text-[#0A0A0A] font-body selection:bg-[#FF7A00] selection:text-white" data-testid="public-catalog">
@@ -108,7 +117,49 @@ export default function PublicCatalog() {
         </div>
       </header>
 
-      {/* Hero — light, con carrusel dinámico de imágenes */}
+      {/* Carrusel de banners del inicio (gestionable desde admin → Contenido web) */}
+      {banners.length > 0 && (
+        <section id="top" className="relative bg-white pt-24 lg:pt-28 pb-10" data-testid="hero-banner-carousel">
+          <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
+          <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
+            <div className="relative rounded-[2rem] overflow-hidden shadow-2xl aspect-square bg-slate-100 ring-1 ring-black/5">
+              <AnimatePresence mode="wait">
+                <motion.img
+                  key={slide % banners.length}
+                  src={imgSrc(banners[slide % banners.length].url)}
+                  alt="GoRoky"
+                  onClick={() => openBanner(banners[slide % banners.length].link)}
+                  initial={{ opacity: 0, scale: 1.04 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                  transition={{ duration: 0.8, ease: "easeInOut" }}
+                  className={`absolute inset-0 w-full h-full object-cover ${banners[slide % banners.length].link ? "cursor-pointer" : ""}`}
+                  data-testid="hero-banner-img" />
+              </AnimatePresence>
+              {banners.length > 1 && (
+                <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-1.5">
+                  {banners.map((_, i) => (
+                    <button key={i} aria-label={`Banner ${i + 1}`} onClick={() => setSlide(i)} data-testid={`banner-dot-${i}`}
+                      className={`h-2 rounded-full transition-all ${i === slide % banners.length ? "w-6 bg-white" : "w-2 bg-white/60 hover:bg-white/90"}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-4 mt-8 justify-center">
+              <a href="#planes" data-testid="banner-cta-planes"
+                className="rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(1,94,239,0.3)]">
+                Ver tarifas <ArrowRight size={18} />
+              </a>
+              <a href="#cobertura" data-testid="banner-cta-cobertura"
+                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(255,122,0,0.3)]">
+                Comprobar fibra
+              </a>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Hero — light, con carrusel dinámico de imágenes (se muestra si no hay banners) */}
+      {banners.length === 0 && (
       <section id="top" className="relative overflow-hidden bg-white">
         <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
         <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
@@ -148,7 +199,7 @@ export default function PublicCatalog() {
             {/* Carrusel de imágenes */}
             <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5] bg-slate-100">
               <AnimatePresence>
-                <motion.img key={slide} src={HERO_SLIDES[slide].url} alt={HERO_SLIDES[slide].alt}
+                <motion.img key={slide % HERO_SLIDES.length} src={HERO_SLIDES[slide % HERO_SLIDES.length].url} alt={HERO_SLIDES[slide % HERO_SLIDES.length].alt}
                   initial={{ opacity: 0, scale: 1.06 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                   transition={{ duration: 0.9, ease: "easeInOut" }}
                   className="absolute inset-0 w-full h-full object-cover" data-testid="hero-carousel-img" />
@@ -158,7 +209,7 @@ export default function PublicCatalog() {
               <div className="absolute bottom-5 right-5 flex gap-1.5">
                 {HERO_SLIDES.map((_, i) => (
                   <button key={i} aria-label={`Imagen ${i + 1}`} onClick={() => setSlide(i)} data-testid={`hero-dot-${i}`}
-                    className={`h-2 rounded-full transition-all ${i === slide ? "w-6 bg-white" : "w-2 bg-white/50 hover:bg-white/80"}`} />
+                    className={`h-2 rounded-full transition-all ${i === slide % HERO_SLIDES.length ? "w-6 bg-white" : "w-2 bg-white/50 hover:bg-white/80"}`} />
                 ))}
               </div>
             </div>
@@ -170,6 +221,7 @@ export default function PublicCatalog() {
           </motion.div>
         </div>
       </section>
+      )}
 
       {/* Planes */}
       <section id="planes" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">

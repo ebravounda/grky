@@ -506,3 +506,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - NUEVA sección "App móvil" en el home (`PublicCatalog.js`, id="app", data-testid="app-section"): fondo oscuro #05070D con luces azul/naranja (blur), patrón de puntos sutil, glass badge, titular "Controla toda tu línea desde tu propia aplicación" (palabra "aplicación" con gradiente azul→naranja), lista de features con checks, CTA "Acceder a Mi cuenta" (→ /login) + aviso "App iOS/Android próximamente", y mockup de móvil FLOTANTE (animación y-loop framer-motion) con glow. Insertada antes del marquee de ciudades.
 - Mockup generado con IA (Gemini nano banana): smartphone mostrando la app self-care de telecom (anillo 45GB, factura 9€, líneas) con el LOGO real de GoRoky en la cabecera. URL estática hardcodeada en `APP_MOCKUP`.
 - Verificado: compila OK, sección+mockup en DOM, imagen carga HTTP 200. (El screenshot tool resetea scroll y no permite capturar la sección; validación por DOM/curl.) Requiere rebuild de frontend al desplegar.
+
+---
+## 2026-08-01 · "Te llamamos" (callback) + menú Llamadas + fixes web
+- Mockup app: regenerado con FONDO OSCURO (sin cuadritos de transparencia JPEG) + logo GoRoky. Sección "App móvil" arreglada: era un bug de `whileInView` (opacity 0) que la ocultaba → cambiado a `animate` en montaje. APP_MOCKUP = imagen d9a6...jpeg.
+- Partners: revertido al estilo grayscale→color en hover/focus/active (el usuario lo prefería así). Orange, Yoigo, +Media.
+- NUEVO "Te llamamos": botón bajo cada "Contratar" (`callback-<productId>`) → diálogo (nombre, apellido, teléfono) → POST /api/public/callback (colección callback_requests). Backend: public_callback, admin_callbacks (GET), admin_callback_status/delete (POST). Panel admin: nuevo menú "Llamadas" (/app/callbacks, perm solicitudes.manage) con tabla producto/nombre/apellido/teléfono, marcar Atendida/Reabrir y eliminar. Página /app/frontend/src/pages/admin/Callbacks.js.
+- Verificado: backend por curl (crear/listar/toggle/delete) + testing_agent frontend E2E 100% (iteration_15.json): 26 botones, diálogo, envío con toast, solicitud visible en panel con producto, toggle y delete OK.
+- Requiere rebuild de frontend + deploy backend en VPS.

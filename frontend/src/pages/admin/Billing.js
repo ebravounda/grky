@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api, { apiErr } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users, Send } from "lucide-react";
+import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users, Send, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 const DOT = {
@@ -51,8 +51,27 @@ export default function Billing() {
     setBusy("monthly");
     try {
       const { data } = await api.post("/billing/run-monthly");
-      toast.success(`Facturación ${data.period}: ${data.invoiced} facturas · ${data.charged} cobradas · ${data.failed} fallidas`);
+      toast.success(`Cobro ${data.period}: ${data.charged} cobradas · ${data.failed} fallidas`);
       load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
+  const generateInvoices = async () => {
+    if (!window.confirm("¿Generar las facturas del mes anterior de TODOS los clientes (estilo Likes) y enviarlas por email?")) return;
+    setBusy("gen");
+    try {
+      const { data } = await api.post("/billing/generate-invoices", { sendEmail: true });
+      toast.success(`Facturación ${data.period}: ${data.invoiced} facturas generadas · ${data.emailed} enviadas por email`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
+  const sendInvoices = async () => {
+    if (!window.confirm("¿Reenviar por email TODAS las facturas del mes en curso a los clientes?")) return;
+    setBusy("send");
+    try {
+      const { data } = await api.post("/billing/send-invoices", {});
+      toast.success(`Envío masivo: ${data.sent} de ${data.total} facturas enviadas`);
     } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
   };
 
@@ -100,7 +119,9 @@ export default function Billing() {
         action={
           <div className="flex flex-wrap gap-2">
             <Button data-testid="sync-stripe-btn" variant="outline" className="rounded-full gap-2" onClick={syncStripe} disabled={busy === "sync"}><Users size={15} className={busy === "sync" ? "animate-pulse" : ""} /> {busy === "sync" ? "Sincronizando…" : "Sincronizar clientes con Stripe"}</Button>
-            <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Facturando…" : "Facturación mensual ahora"}</Button>
+            <Button data-testid="generate-invoices-btn" className="rounded-full gap-2 bg-[#015EEF] hover:bg-[#004cc7]" onClick={generateInvoices} disabled={busy === "gen"}><FileText size={15} className={busy === "gen" ? "animate-pulse" : ""} /> {busy === "gen" ? "Generando…" : "Generar facturas del mes"}</Button>
+            <Button data-testid="send-invoices-btn" variant="outline" className="rounded-full gap-2" onClick={sendInvoices} disabled={busy === "send"}><Send size={15} className={busy === "send" ? "animate-pulse" : ""} /> {busy === "send" ? "Enviando…" : "Enviar facturas por email"}</Button>
+            <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Cobrando…" : "Cobrar mes (día 5)"}</Button>
             <Button data-testid="charge-all-btn" variant="outline" className="rounded-full gap-2" onClick={chargeAll} disabled={busy === "chargeall"}><CreditCard size={15} className={busy === "chargeall" ? "animate-pulse" : ""} /> {busy === "chargeall" ? "Cobrando…" : "Cobrar pendientes"}</Button>
             <Button data-testid="retry-charges-btn" variant="outline" className="rounded-full gap-2" onClick={retryCharges} disabled={busy === "retry"}><RotateCcw size={15} /> {busy === "retry" ? "Reintentando…" : "Reintentar cobros"}</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={() => { load(); loadStatus(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualizar</Button>

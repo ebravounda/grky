@@ -58,6 +58,45 @@ def _eur(v):
         return "0,00 €"
 
 
+def _split_dt(iso):
+    """ISO → (dd/mm/aaaa, HH:MM:SS)."""
+    if not iso:
+        return "-", "-"
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M:%S")
+    except Exception:
+        return str(iso)[:10], ""
+
+
+def _cdr_type(t):
+    return {"VOICE": "Llamadas", "DATA": "Datos", "SMS": "SMS"}.get((t or "").upper(), t or "-")
+
+
+def _fmt_bytes(b):
+    """bytes → MB o GB (decimal, como facturación telecom)."""
+    b = float(b or 0)
+    if b <= 0:
+        return "0 MB"
+    gb = b / 1_000_000_000
+    if gb >= 1:
+        return f"{gb:.2f} GB".replace(".", ",")
+    return f"{b / 1_000_000:.2f} MB".replace(".", ",")
+
+
+def _fmt_traffic(c):
+    """TRÁFICO de un CDR: duración para voz, tamaño para datos, '1 SMS' para SMS."""
+    t = (c.get("type") or "").upper()
+    if t == "DATA":
+        return _fmt_bytes(c.get("bytes", 0))
+    if t == "SMS":
+        return "1 SMS"
+    s = int(c.get("duration", 0) or 0)
+    if s >= 60:
+        return f"{s // 60}m {s % 60}s"
+    return f"{s}s"
+
+
 # ------------------------- Estilos -------------------------
 def _styles():
     return {
@@ -75,6 +114,9 @@ def _styles():
         "cellB": ParagraphStyle("cellB", fontName="Helvetica-Bold", fontSize=8.5, textColor=INK, leading=11),
         "cellR": ParagraphStyle("cellR", fontName="Helvetica", fontSize=8.5, textColor=INK, leading=11,
                                 alignment=TA_RIGHT),
+        "cellS": ParagraphStyle("cellS", fontName="Helvetica", fontSize=7.2, textColor=INK, leading=9.5),
+        "cellRS": ParagraphStyle("cellRS", fontName="Helvetica", fontSize=7.2, textColor=INK, leading=9.5,
+                                 alignment=TA_RIGHT),
         "muted": ParagraphStyle("muted", fontName="Helvetica", fontSize=8, textColor=GREY, leading=11),
         "h": ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=11, textColor=DARK, leading=14,
                             spaceBefore=6, spaceAfter=4),
@@ -247,48 +289,49 @@ def generate_invoice_pdf(invoice: dict) -> bytes:
     ]))
     story.append(wrap)
 
-    # ---- Desglose de consumo por línea ----
+    # ---- Detalle de consumo por línea (formato idéntico a Likes) ----
     consumption = [cn for cn in (invoice.get("consumption") or []) if cn]
     for cn in consumption:
-        block = [Spacer(1, 8 * mm)]
-        block.append(Paragraph(f"Detalle de consumo · Línea {cn.get('lineNumber', '')}", st["h"]))
-        summ = (f"Minutos nacionales: <b>{cn.get('nationalMinutes', 0)}</b> &nbsp;·&nbsp; "
-                f"SMS: <b>{cn.get('sms', 0)}</b> &nbsp;·&nbsp; "
-                f"Datos: <b>{_num(cn.get('usedGB', cn.get('dataGB', 0)))} GB</b>")
-        block.append(Paragraph(summ, st["body"]))
+        cdrs = cn.get("cdrs", []) or []
+        data_bytes = float(cn.get("dataBytes", 0) or 0)
+        data_cost = float(cn.get("dataCost", 0) or 0)
+        story.append(PageBreak())
+        story.append(Paragraph(f"Detalle de consumo - Línea {cn.get('lineNumber', '')}", st["h"]))
+        story.append(Paragraph(f"Periodo: {cn.get('period', invoice.get('period', ''))}", st["muted"]))
+        story.append(Spacer(1, 3 * mm))
 
-        total_gb = float(cn.get("totalGB", 0) or 0)
-        used_gb = float(cn.get("usedGB", cn.get("dataGB", 0)) or 0)
-        if total_gb > 0:
-            pct = round(max(0.0, min(1.0, used_gb / total_gb)) * 100)
-            block.append(Spacer(1, 1.5 * mm))
-            block.append(Paragraph(f"Datos consumidos: {_num(used_gb)} GB de {_num(total_gb)} GB ({pct}%)", st["muted"]))
-            block.append(_data_bar(used_gb, total_gb, CONTENT_W))
-        story.append(KeepTogether(block))
-
-        calls = cn.get("calls", []) or []
-        if calls:
-            cdata = [[Paragraph("Fecha", st["cellH"]), Paragraph("Nº destino", st["cellH"]),
-                      Paragraph("Duración", ParagraphStyle("dh", parent=st["cellH"], alignment=TA_RIGHT))]]
-            for call in calls[:60]:
-                dur = int(call.get("duration", 0) or 0)
-                cdata.append([
-                    Paragraph(_fmt_date(call.get("date")), st["cell"]),
-                    Paragraph(str(call.get("number") or "—"), st["cell"]),
-                    Paragraph(f"{dur // 60}m {dur % 60}s", st["cellR"]),
-                ])
-            ctable = Table(cdata, colWidths=[CONTENT_W * 0.30, CONTENT_W * 0.45, CONTENT_W * 0.25], repeatRows=1)
-            ctable.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), INK),
-                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("LINEBELOW", (0, 1), (-1, -1), 0.5, LINE),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, SOFT]),
-            ]))
-            story.append(Spacer(1, 2 * mm))
-            story.append(ctable)
-        else:
-            story.append(Paragraph("Sin llamadas registradas en el periodo.", st["muted"]))
+        headers = ["FECHA", "HORA", "TIPO", "DESTINO", "TRÁFICO", "NÚMERO DESTINO", "COSTE (€)"]
+        rows = [[Paragraph(h, st["cellH"]) for h in headers]]
+        for c in cdrs:
+            fecha, hora = _split_dt(c.get("date"))
+            rows.append([
+                Paragraph(fecha, st["cellS"]), Paragraph(hora, st["cellS"]),
+                Paragraph(_cdr_type(c.get("type")), st["cellS"]),
+                Paragraph(str(c.get("destination") or "-"), st["cellS"]),
+                Paragraph(_fmt_traffic(c), st["cellS"]),
+                Paragraph(str(c.get("calledNumber") or "-"), st["cellS"]),
+                Paragraph(_eur(c.get("price", 0)), st["cellRS"]),
+            ])
+        if data_bytes > 0:
+            rows.append([
+                Paragraph("-", st["cellS"]), Paragraph("-", st["cellS"]),
+                Paragraph("Datos", st["cellS"]), Paragraph("Datos", st["cellS"]),
+                Paragraph(_fmt_bytes(data_bytes), st["cellS"]),
+                Paragraph("-", st["cellS"]), Paragraph(_eur(data_cost), st["cellRS"]),
+            ])
+        if len(rows) == 1:
+            story.append(Paragraph("Sin consumo registrado en el periodo.", st["muted"]))
+            continue
+        ctable = Table(rows, colWidths=[CONTENT_W * x for x in (0.13, 0.11, 0.13, 0.19, 0.14, 0.19, 0.11)], repeatRows=1)
+        ctable.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), INK),
+            ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.5, LINE),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, SOFT]),
+            ("ALIGN", (6, 0), (6, -1), "RIGHT"),
+        ]))
+        story.append(ctable)
 
     # ---- Página de aviso legal ----
     story.append(PageBreak())

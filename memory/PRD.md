@@ -514,3 +514,15 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - NUEVO "Te llamamos": botón bajo cada "Contratar" (`callback-<productId>`) → diálogo (nombre, apellido, teléfono) → POST /api/public/callback (colección callback_requests). Backend: public_callback, admin_callbacks (GET), admin_callback_status/delete (POST). Panel admin: nuevo menú "Llamadas" (/app/callbacks, perm solicitudes.manage) con tabla producto/nombre/apellido/teléfono, marcar Atendida/Reabrir y eliminar. Página /app/frontend/src/pages/admin/Callbacks.js.
 - Verificado: backend por curl (crear/listar/toggle/delete) + testing_agent frontend E2E 100% (iteration_15.json): 26 botones, diálogo, envío con toast, solicitud visible en panel con producto, toggle y delete OK.
 - Requiere rebuild de frontend + deploy backend en VPS.
+
+---
+## 2026-08-02 · Facturación estilo Likes (100% idéntica) + generación día 1 / cobro día 5
+- Requisito: facturas del CRM idénticas a las que emite Likes (mismo formato y datos por cliente). TV a precio completo, resto prorrateado por días. Emitir día 1 (mes vencido), enviar masivo por email, cobrar día 5.
+- Backend (server.py):
+  - `_build_month_invoice(cust, lines, now, p_start, p_end, period, run_key)`: TV = precio completo (NO prorratea); resto = `_arrears_line_amount` (prorrateo por días activación→fin de mes). Ítems: TV detalle=email suscripción, móvil detalle=número, + fila "Consumo extra" (suma de price de CDRs). Detalle de consumo por línea via `_build_line_consumption` (trae CDRs de Likes `get_line_cdrs`, filtra por periodo, agrega DATA). Totales `_invoice_totals` → base = total/1.21 (idéntico a Likes).
+  - `monthly_invoicing_job` (día 1, `invoiceDay`): GENERA + envía email, no cobra. `monthly_billing_job` (día 5, `billingDay`): COBRA las facturas ya emitidas del mes (si no existen, las genera al vuelo). Scheduler: invoicing CronTrigger(hour=5) + billing hour=6 (chequean el día dentro).
+  - Endpoints: `POST /api/billing/generate-invoices` {sendEmail}, `POST /api/billing/send-invoices` {runKey,onlyPending}, `POST /api/billing/run-monthly` (cobro).
+- invoices.py: página "Detalle de consumo" rehecha con columnas EXACTAS de Likes (FECHA·HORA·TIPO·DESTINO·TRÁFICO·NÚMERO DESTINO·COSTE), llamadas individuales + fila Datos agregada, formato MB→GB (decimal). Helpers `_split_dt`, `_cdr_type`, `_fmt_bytes`, `_fmt_traffic`, estilos cellS/cellRS.
+- Frontend Billing.js: botones "Generar facturas del mes" (azul), "Enviar facturas por email", y "Cobrar mes (día 5)".
+- Verificado: prueba end-to-end → TV 9,00 completa, móvil 6,07 (15,67×12/31), consumo extra 0,12, base 12,55 + IVA 2,64 = total 15,19; PDF analizado = idéntico a la factura Likes de ejemplo (cabecera, FACTURAR A, ítems, totales, página consumo con GB, páginas legales). CDR fields reales de Likes confirmados por OpenAPI.
+- Pendiente: IVR Zadarma (en pausa, esperando API key/secret del usuario). Requiere rebuild frontend + deploy backend en VPS.

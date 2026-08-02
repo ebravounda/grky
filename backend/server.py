@@ -3774,10 +3774,127 @@ async def billing_daily_job():
                     f"Alerta de consumo {threshold}% enviada · línea {l['lineNumber']}")
 
 
+async def _build_line_consumption(line, p_start, p_end):
+    """Trae los CDRs de Likes de la línea y los agrupa para el detalle de consumo de la factura.
+    Devuelve (consumo_dict, coste_extra)."""
+    ln = line.get("lineNumber")
+    cdrs = []
+    if line.get("source") == "likes" and ln:
+        try:
+            live = await asyncio.to_thread(likes_client.get_line_cdrs, ln)
+            if isinstance(live, list):
+                cdrs = live
+        except Exception as e:  # noqa
+            logger.warning("get_line_cdrs %s: %s", ln, e)
+    if not cdrs:
+        cdrs = line.get("cdrs", []) or []
+    # filtrar por periodo facturado
+    def _in_period(c):
+        try:
+            d = datetime.fromisoformat(str(c.get("date")).replace("Z", "+00:00")).date()
+            return p_start <= d <= p_end
+        except Exception:
+            return True
+    cdrs = [c for c in cdrs if _in_period(c)]
+    individual = [c for c in cdrs if (c.get("type") or "").upper() != "DATA"]
+    data_bytes = sum(float(c.get("bytes", 0) or 0) for c in cdrs if (c.get("type") or "").upper() == "DATA")
+    data_cost = sum(float(c.get("price", 0) or 0) for c in cdrs if (c.get("type") or "").upper() == "DATA")
+    extra = round(sum(float(c.get("price", 0) or 0) for c in cdrs), 2)
+    cons = {"lineNumber": ln, "productName": line.get("productName"),
+            "cdrs": individual[:200], "dataBytes": data_bytes, "dataCost": round(data_cost, 2)}
+    return cons, extra
+
+
+async def _build_month_invoice(cust, active_lines, now, p_start, p_end, billed_period, run_key):
+    """Construye la factura mensual VENCIDA de un cliente (idéntica a Likes): TV a precio completo,
+    resto prorrateado por días, fila de consumo extra y detalle de CDRs por línea."""
+    fid = cust["fiscalId"]
+    items, consumption = [], []
+    for l in active_lines:
+        pvp = round(float(await _contract_price(l.get("productId"), l.get("price") or 0)), 2)
+        if pvp <= 0:
+            continue
+        family = l.get("family")
+        is_tv = family == "TV"
+        if is_tv:
+            amount, kind = pvp, "full"   # la TV NO se prorratea
+            detail = l.get("subscriptionEmail") or cust.get("email") or ""
+        else:
+            act = l.get("activationDate") or l.get("created")
+            amount, days, kind = _arrears_line_amount(pvp, act, now)
+            detail = l.get("lineNumber") or ""
+        if kind == "future" or amount <= 0:
+            continue
+        items.append({"description": l.get("productName", "Cuota mensual"),
+                      "detail": detail, "quantity": 1, "amount": amount})
+        # detalle de consumo + fila de consumo extra (solo líneas móviles/con CDRs)
+        if family in ("Mobile", "Fibra", "Fiber") or l.get("cdrs"):
+            cons, extra = await _build_line_consumption(l, p_start, p_end)
+            consumption.append({**cons, "period": billed_period})
+            items.append({"description": "Consumo extra", "detail": l.get("lineNumber") or "",
+                          "quantity": 1, "amount": round(extra, 2)})
+    if not items:
+        return None
+    total, subtotal, tax = _invoice_totals(items)
+    ba = cust.get("billingAddress", {}) or {}
+    address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
+    number = await _next_invoice_number()
+    return {
+        "invoiceNumber": number, "fiscalId": fid,
+        "customerName": f"{cust['name']} {cust.get('firstSurname', '')}".strip().upper(),
+        "customerEmail": cust.get("email"), "customerAddress": address,
+        "items": items, "subtotal": subtotal, "tax": tax, "total": total,
+        "status": "pending", "date": now.isoformat(), "period": billed_period,
+        "billingRunKey": run_key, "dueDate": (now + timedelta(days=30)).isoformat(),
+        "paymentMethod": cust.get("paymentMethod", "NO"),
+        "consumption": consumption, "kind": "recurring",
+    }
+
+
+async def monthly_invoicing_job(force=False, send_email=True):
+    """Día 1: GENERA (y envía por email) la factura VENCIDA del mes anterior de cada cliente con
+    líneas activas, idéntica a Likes (TV completa, resto prorrateado, consumo extra y CDRs).
+    NO cobra: el cobro se hace el día 5 (`monthly_billing_job`). Idempotente por mes."""
+    settings = await get_app_settings()
+    invoice_day = int(settings.get("invoiceDay", 1) or 1)
+    now = datetime.now(timezone.utc)
+    if not force and now.day != invoice_day:
+        return {"skipped": True, "reason": f"hoy no es día {invoice_day}"}
+    p_start, p_end = _prev_month_bounds(now)
+    billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
+    run_key = now.strftime("%Y-%m")
+    result = {"period": billed_period, "invoiced": 0, "emailed": 0, "skipped": 0}
+    customers = await db.customers.find().to_list(20000)
+    for cust in customers:
+        fid = cust["fiscalId"]
+        if await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key}):
+            result["skipped"] += 1
+            continue
+        active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
+        if not active_lines:
+            result["skipped"] += 1
+            continue
+        inv = await _build_month_invoice(cust, active_lines, now, p_start, p_end, billed_period, run_key)
+        if not inv:
+            result["skipped"] += 1
+            continue
+        res = await db.invoices.insert_one(inv)
+        inv["_id"] = res.inserted_id
+        result["invoiced"] += 1
+        if send_email:
+            try:
+                await _email_invoice(inv)
+                result["emailed"] += 1
+            except Exception as e:  # noqa
+                logger.warning("email_invoice %s: %s", fid, e)
+    await log_event("billing", "info",
+                    f"Facturación {billed_period}: {result['invoiced']} facturas generadas · {result['emailed']} enviadas")
+    return result
+
+
 async def monthly_billing_job(force=False):
-    """Cada día {billingDay}: emite y cobra la cuota VENCIDA (mes anterior ya consumido) de cada
-    cliente con líneas activas. El PRIMER cobro prorratea los días ya disfrutados desde el alta.
-    Si tiene tarjeta guardada, cobra automáticamente (off-session). Idempotente por mes de cobro.
+    """Día {billingDay} (5): COBRA con la tarjeta guardada las facturas VENCIDAS ya emitidas del mes.
+    Si no existe la factura del mes (no se generó el día 1), la genera al vuelo y la cobra.
     Los clientes con suscripción de Stripe legacy se omiten (Stripe los cobra vía webhook)."""
     settings = await get_app_settings()
     billing_day = int(settings.get("billingDay", 5) or 5)
@@ -3785,90 +3902,64 @@ async def monthly_billing_job(force=False):
     if not force and now.day != billing_day:
         return {"skipped": True, "reason": f"hoy no es día {billing_day}"}
     await _stripe_apply()
-    p_start, p_end = _prev_month_bounds(now)          # mes VENCIDO que se factura
+    p_start, p_end = _prev_month_bounds(now)
     billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
-    run_key = now.strftime("%Y-%m")                    # dedup: un cobro por mes natural
-    result = {"period": billed_period, "invoiced": 0, "charged": 0, "skipped": 0, "failed": 0}
+    run_key = now.strftime("%Y-%m")
+    result = {"period": billed_period, "charged": 0, "skipped": 0, "failed": 0, "generated": 0}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
         fid = cust["fiscalId"]
-        # Stripe ya cobra a los que tienen suscripción de tarjeta activa (legacy)
         if (cust.get("recurring") or {}).get("stripeSubscriptionId"):
             result["skipped"] += 1
             continue
-        active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
-        if not active_lines:
-            result["skipped"] += 1
-            continue
-        # dedup: ya facturado en esta ejecución mensual
-        exists = await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key})
-        if exists:
-            result["skipped"] += 1
-            continue
-        items = []
-        for l in active_lines:
-            pvp = round(float(await _contract_price(l.get("productId"), l.get("price") or 0)), 2)
-            if pvp <= 0:
+        inv = await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key})
+        if not inv:
+            # no se generó el día 1 → generarla ahora
+            active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
+            if not active_lines:
+                result["skipped"] += 1
                 continue
-            act = l.get("activationDate") or l.get("created")
-            amount, days, kind = _arrears_line_amount(pvp, act, now)
-            if kind == "future" or amount <= 0:
-                continue  # la línea aún no consumió el mes facturado
-            detail = (f"Cuota mensual · {billed_period}" if kind == "full"
-                      else f"Parte proporcional · {days} días de {billed_period}")
-            items.append({"description": l.get("productName", "Cuota mensual"),
-                          "detail": detail, "quantity": 1, "amount": amount})
-        if not items:
+            inv = await _build_month_invoice(cust, active_lines, now, p_start, p_end, billed_period, run_key)
+            if not inv:
+                result["skipped"] += 1
+                continue
+            r = await db.invoices.insert_one(inv)
+            inv["_id"] = r.inserted_id
+            result["generated"] += 1
+            try:
+                await _email_invoice(inv)
+            except Exception:  # noqa
+                pass
+        if inv.get("status") == "paid" or inv.get("chargeStatus") == "paid":
             result["skipped"] += 1
             continue
-        total, subtotal, tax = _invoice_totals(items)
-        consumption = [_line_usage(l) for l in active_lines if l.get("family") == "Mobile"]
-        ba = cust.get("billingAddress", {}) or {}
-        address = f"{ba.get('street', '')} {ba.get('streetNumber', '')}, {ba.get('postalCode', '')} {ba.get('cityName', '')} ({ba.get('provinceName', '')})".strip()
-        number = await _next_invoice_number()
-        inv = {
-            "invoiceNumber": number, "fiscalId": fid,
-            "customerName": f"{cust['name']} {cust.get('firstSurname', '')}".strip().upper(),
-            "customerEmail": cust.get("email"), "customerAddress": address,
-            "items": items, "subtotal": subtotal, "tax": tax, "total": total,
-            "status": "pending", "date": now.isoformat(), "period": billed_period,
-            "billingRunKey": run_key,
-            "dueDate": (now + timedelta(days=15)).isoformat(),
-            "paymentMethod": cust.get("paymentMethod", "NO"),
-            "consumption": consumption, "kind": "recurring",
-        }
-        # cobro automático con tarjeta guardada
+        total = float(inv.get("total", 0) or 0)
         cid, pm = await _get_saved_pm(cust)
-        if cid and pm:
-            try:
-                pi = stripe.PaymentIntent.create(
-                    amount=int(round(total * 100)), currency="eur", customer=cid,
-                    payment_method=pm, off_session=True, confirm=True,
-                    description=f"Cuota mensual {billed_period}",
-                    metadata={"fiscalId": fid, "kind": "recurring", "period": billed_period})
-                if pi.status == "succeeded":
-                    inv["status"] = "paid"
-                    inv["chargeStatus"] = "paid"
-                    result["charged"] += 1
-                else:
-                    inv["chargeStatus"] = "failed"
-                    inv["chargeAttempts"] = 1
-                    inv["nextRetryAt"] = (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()
-                    result["failed"] += 1
-            except Exception as e:  # noqa
-                inv["chargeStatus"] = "failed"
-                inv["chargeAttempts"] = 1
-                inv["nextRetryAt"] = (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()
-                inv["chargeError"] = str(e)[:150]
+        if not (cid and pm) or total <= 0:
+            result["skipped"] += 1
+            continue
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=int(round(total * 100)), currency="eur", customer=cid,
+                payment_method=pm, off_session=True, confirm=True,
+                description=f"Cuota mensual {billed_period}",
+                metadata={"fiscalId": fid, "kind": "recurring", "period": billed_period})
+            if pi.status == "succeeded":
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"status": "paid", "chargeStatus": "paid"}})
+                result["charged"] += 1
+            else:
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                    "chargeStatus": "failed", "chargeAttempts": 1,
+                    "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
                 result["failed"] += 1
-                await log_event("billing", "warning", f"Cobro mensual con tarjeta falló · {fid}: {str(e)[:100]}",
-                                {"fiscalId": fid})
-        res = await db.invoices.insert_one(inv)
-        inv["_id"] = res.inserted_id
-        await _email_invoice(inv)
-        result["invoiced"] += 1
+        except Exception as e:  # noqa
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                "chargeStatus": "failed", "chargeAttempts": 1, "chargeError": str(e)[:150],
+                "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
+            result["failed"] += 1
+            await log_event("billing", "warning", f"Cobro mensual con tarjeta falló · {fid}: {str(e)[:100]}", {"fiscalId": fid})
     await log_event("billing", "info",
-                    f"Facturación mensual {billed_period}: {result['invoiced']} facturas · {result['charged']} cobradas · {result['failed']} fallidas")
+                    f"Cobro mensual {billed_period}: {result['charged']} cobradas · {result['failed']} fallidas · {result['generated']} generadas al vuelo")
     return result
 
 
@@ -3902,10 +3993,48 @@ async def card_reminder_job():
 
 @api.post("/billing/run-monthly")
 async def run_monthly_billing(request: Request):
-    """Ejecuta manualmente la facturación mensual (para probar sin esperar al día de facturación)."""
+    """Ejecuta manualmente el COBRO mensual (día 5) sin esperar a la fecha."""
     await require_admin(request)
     res = await monthly_billing_job(force=True)
     return {"ok": True, **res}
+
+
+@api.post("/billing/generate-invoices")
+async def generate_invoices_endpoint(request: Request):
+    """Genera manualmente las facturas del mes anterior (idénticas a Likes) y las envía por email."""
+    await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    send = body.get("sendEmail", True)
+    res = await monthly_invoicing_job(force=True, send_email=send)
+    return {"ok": True, **res}
+
+
+@api.post("/billing/send-invoices")
+async def send_invoices_endpoint(request: Request):
+    """Envía por email (masivo) las facturas pendientes de un periodo (por defecto el mes en curso)."""
+    await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    run_key = body.get("runKey") or datetime.now(timezone.utc).strftime("%Y-%m")
+    invs = await db.invoices.find({"kind": "recurring", "billingRunKey": run_key}).to_list(20000)
+    sent = 0
+    for inv in invs:
+        if body.get("onlyPending") and inv.get("status") == "paid":
+            continue
+        try:
+            await _email_invoice(inv)
+            sent += 1
+        except Exception as e:  # noqa
+            logger.warning("send_invoice %s: %s", inv.get("invoiceNumber"), e)
+    await log_event("billing", "info", f"Envío masivo de facturas ({run_key}): {sent} enviadas")
+    return {"ok": True, "sent": sent, "total": len(invs), "runKey": run_key}
 
 
 async def retry_failed_charges_job():
@@ -5403,6 +5532,7 @@ async def startup():
         scheduler.add_job(likes_reconcile_job, "interval", minutes=20, id="likes_reconcile", replace_existing=True)
         # Facturación mensual automática: se ejecuta cada día a las 06:00 UTC y solo actúa el día de facturación (día 5)
         from apscheduler.triggers.cron import CronTrigger
+        scheduler.add_job(monthly_invoicing_job, CronTrigger(hour=5, minute=0), id="monthly_invoicing", replace_existing=True)
         scheduler.add_job(monthly_billing_job, CronTrigger(hour=6, minute=0), id="monthly_billing", replace_existing=True)
         # Recordatorio de tarjeta: una vez al día
         scheduler.add_job(card_reminder_job, CronTrigger(hour=9, minute=0), id="card_reminder", replace_existing=True)

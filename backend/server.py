@@ -1567,8 +1567,12 @@ def _arrears_line_amount(price, activation_value, now):
         return round(price, 2), dim, "full"
     if act > p_end:
         return 0.0, 0, "future"
-    days = (p_end - act).days + 1
-    return round(price * days / dim, 2), days, "prorated"
+    # Prorrateo estilo Likes: tarifa diaria anual (cuota × 12 ÷ 366) × días de servicio,
+    # contando los días sobre base 30 (días = 30 − día de activación). Base 366 calibrada
+    # con factura real de Likes (15,67 €, alta 24/07 → 6 días → 3,08 €).
+    dias = max(1, 30 - act.day)
+    daily = price * 12 / 366
+    return round(daily * dias, 2), dias, "prorated"
 
 
 

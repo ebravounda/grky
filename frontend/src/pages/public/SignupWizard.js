@@ -25,6 +25,7 @@ export default function SignupWizard() {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [coverageOk, setCoverageOk] = useState(null);
+  const [coverage, setCoverage] = useState(null);
   const [f, setF] = useState({
     docType: "DNI", customerType: "Residential", fiscalId: "", name: "", firstSurname: "", lastSurname: "", dob: "",
     contactPhone: "", email: "", address: "", city: "", postalCode: "", province: "",
@@ -68,7 +69,7 @@ export default function SignupWizard() {
     if (!f.acceptedTerms) return toast.error("Debes aceptar los términos");
     setSaving(true);
     try {
-      const { data } = await api.post("/public/applications", { productId, ...f });
+      const { data } = await api.post("/public/applications", { productId, ...f, coverage: isFiber ? coverage : null });
       toast.success("Solicitud creada. Ahora firma tu contrato.");
       navigate(`/firmar/${data.token}`);
     } catch (e) { toast.error(apiErr(e)); } finally { setSaving(false); }
@@ -147,7 +148,7 @@ export default function SignupWizard() {
               {isFiber && (
                 <div className="rounded-lg border border-border bg-accent/30 p-4">
                   <Label className="mb-2 block">Comprueba la cobertura de fibra en tu dirección *</Label>
-                  <CoverageChecker onResult={(ok) => setCoverageOk(ok)} />
+                  <CoverageChecker onResult={(ok, data) => { setCoverageOk(ok); setCoverage(ok ? (data?.coverage || null) : null); }} />
                   {coverageOk === false && (
                     <p className="text-xs text-destructive mt-2">Sin cobertura de fibra en esa dirección. Prueba otra o contrata una tarifa móvil.</p>
                   )}

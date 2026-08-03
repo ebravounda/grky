@@ -70,7 +70,16 @@ def _customer_payload(customer, app_doc):
     return payload
 
 
-def _products_payload(order, likes_product_id, customer_email=None):
+def _installation_contact(customer):
+    """Nombre y teléfono de contacto para la instalación de fibra (los exige Likes)."""
+    customer = customer or {}
+    name = " ".join(p for p in [customer.get("name", ""), customer.get("firstSurname", ""),
+                                customer.get("lastSurname", "")] if p).strip()
+    phone = (customer.get("contactPhone") or "").strip()
+    return name, phone
+
+
+def _products_payload(order, likes_product_id, customer_email=None, customer=None):
     """Construye el array products para /signupv2 según la familia (mismo proceso que Likes)."""
     family = order.get("family", "Mobile")
     portability = bool(order.get("portability"))
@@ -88,8 +97,14 @@ def _products_payload(order, likes_product_id, customer_email=None):
             prod["icc"] = order.get("simIcc")
         # "ship" (Enviar SIM): se omite icc → Likes deja la línea en PENDING_MANUAL_SHIPPING
     elif family == "Fiber":
+        # Fibra: Likes exige `coverage` y el contacto de instalación (nombre + teléfono).
         if order.get("coverage"):
             prod["coverage"] = order["coverage"]
+        inst_name, inst_phone = _installation_contact(customer)
+        if inst_name:
+            prod["installationContactName"] = inst_name
+        if inst_phone:
+            prod["installationContactPhone"] = inst_phone
         if portability:
             prod["lineNumber"] = order.get("portMsisdn") or order.get("lineNumber")
             if order.get("donorOperatorId"):
@@ -152,7 +167,7 @@ async def sync_alta_to_likes(db, app_doc, customer, order, contract_pdf_bytes, l
     order_payload = {
         "digitalSignature": False,
         "fiscalId": customer["fiscalId"],
-        "products": _products_payload(order, likes_product_id, customer.get("email")),
+        "products": _products_payload(order, likes_product_id, customer.get("email"), customer),
     }
     odata, oerr = await asyncio.to_thread(likes_client.create_order, order_payload)
     if oerr:

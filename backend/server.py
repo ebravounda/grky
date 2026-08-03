@@ -292,6 +292,7 @@ class OrderCreate(BaseModel):
     currentHolderLastSurname: Optional[str] = None
     currentHolderFiscalId: Optional[str] = None
     currentHolderDocType: Optional[str] = "DNI"  # DNI | NIE | Passport
+    coverage: Optional[dict] = None              # objeto de cobertura de fibra (Likes)
     charge: bool = True
 
 
@@ -401,6 +402,7 @@ class ApplicationCreate(BaseModel):
     currentHolderName: Optional[str] = None  # titular actual del número
     currentHolderFiscalId: Optional[str] = None
     changeHolder: bool = False               # el número está a nombre de otra persona
+    coverage: Optional[dict] = None          # objeto de cobertura de fibra (flujo Likes)
 
 
 class SignBody(BaseModel):
@@ -1779,6 +1781,15 @@ async def create_order(body: OrderCreate, request: Request):
     if product["family"] == "TV":
         # TV: Likes exige lineNumber = email de suscripción del cliente; no lleva portability.
         prod_payload = {"family": "TV", "productId": likes_pid, "lineNumber": customer.get("email") or ""}
+    if product["family"] == "Fiber":
+        # Fibra: Likes exige `coverage` y el contacto de instalación (nombre + teléfono).
+        if body.coverage:
+            prod_payload["coverage"] = body.coverage
+        _in, _ip = likes_sync._installation_contact(customer)
+        if _in:
+            prod_payload["installationContactName"] = _in
+        if _ip:
+            prod_payload["installationContactPhone"] = _ip
     if is_mobile:
         if body.simType == "esim":
             prod_payload["eSim"] = True
@@ -5235,6 +5246,7 @@ async def create_application(body: ApplicationCreate):
         "currentHolderName": body.currentHolderName if is_port else None,
         "currentHolderFiscalId": body.currentHolderFiscalId if is_port else None,
         "changeHolder": bool(body.changeHolder) if is_port else False,
+        "coverage": body.coverage if product["family"] == "Fiber" else None,
         "paymentStatus": "pending", "reviewStatus": "PENDING_REVIEW",
         "createdAt": now_iso(),
     }

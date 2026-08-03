@@ -526,3 +526,14 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Frontend Billing.js: botones "Generar facturas del mes" (azul), "Enviar facturas por email", y "Cobrar mes (día 5)".
 - Verificado: prueba end-to-end → TV 9,00 completa, móvil 6,07 (15,67×12/31), consumo extra 0,12, base 12,55 + IVA 2,64 = total 15,19; PDF analizado = idéntico a la factura Likes de ejemplo (cabecera, FACTURAR A, ítems, totales, página consumo con GB, páginas legales). CDR fields reales de Likes confirmados por OpenAPI.
 - Pendiente: IVR Zadarma (en pausa, esperando API key/secret del usuario). Requiere rebuild frontend + deploy backend en VPS.
+
+### Iteración 2026-06 (fork) — Fix alta de FIBRA en Likes (signupv2)
+- **Bug**: alta de fibra desde la tienda pública fallaba con `POST /signupv2 ERROR: HTTP 400 {"message":"NUMERO CONTACTO INSTALACIÓN INVALIDO: undefined"}`. El cliente se creaba OK pero la orden de fibra no.
+- **Causa raíz** (confirmada con `backend/likes_openapi.json`): el producto Fiber de `/signupv2` requiere `coverage` + `installationContactName`/`installationContactPhone`. El flujo público NUNCA capturaba ni enviaba el objeto de cobertura, y el payload de fibra no incluía el teléfono/nombre de contacto de instalación → Likes recibía `undefined`.
+- **Fix (full-stack)**:
+  1. `CoverageChecker` ya emitía `onResult(ok, data)`; `SignupWizard.js` ahora guarda `coverage` (data.coverage) y lo envía en `POST /public/applications` (solo fibra).
+  2. `ApplicationCreate` + `create_application`: nuevo campo `coverage` (dict) que se persiste en la solicitud (solo family=Fiber).
+  3. `sign_application` ya copiaba `coverage: app_doc.get('coverage')` a la orden.
+  4. `likes_sync._products_payload(order, pid, email, customer)`: para Fiber añade `coverage`, `installationContactName` (nombre+apellidos del cliente) e `installationContactPhone` (customer.contactPhone). Helper `_installation_contact()`.
+  5. Alta manual admin (`create_order` + `OrderCreate.coverage`): misma lógica para fibra.
+- Verificado end-to-end en preview: la solicitud pública de fibra almacena el objeto coverage; el payload signupv2 construido incluye coverage + installationContact*. ⚠️ La llamada REAL a Likes es MOCK en preview (IP no autorizada) → validar el alta real en el VPS.

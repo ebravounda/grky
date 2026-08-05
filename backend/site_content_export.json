@@ -1,0 +1,106 @@
+{
+  "hero": {
+    "badge": "Promo portabilidad",
+    "title": "Móvil y fibra que se adaptan",
+    "titleHighlight": "a ti",
+    "subtitle": "Cámbiate a roky móvil y conserva tu número gratis. Tarifas claras, cobertura nacional y alta 100% online en minutos.",
+    "ctaPrimary": "Ver tarifas",
+    "ctaSecondary": "Comprobar fibra"
+  },
+  "brandName": "GoRoky",
+  "cities": [
+    "Madrid",
+    "Barcelona",
+    "Valencia",
+    "Alicante",
+    "Granada",
+    "Málaga",
+    "Fuengirola",
+    "Benidorm",
+    "Marbella",
+    "Cádiz",
+    "Cáceres",
+    "Segovia",
+    "Tarancón",
+    "Cuenca",
+    "Elche",
+    "Jaen",
+    "Villarubia",
+    "Santiago de Horcajo",
+    "Santa Cruz"
+  ],
+  "coverage": {
+    "eyebrow": "Fibra óptica",
+    "title": "¿Llega la fibra a tu casa?",
+    "description": "Comprueba la cobertura real de fibra en tu dirección antes de contratar. Disponible en las principales ciudades de España."
+  },
+  "footer": {
+    "description": "GoRoky (soyroky · roky móvil) es tu operador de móvil y fibra. Portabilidad gratis y alta 100% online con cobertura en las principales ciudades de España.",
+    "company": "Roky Movil - Tramilex - Like T. "
+  },
+  "plans": {
+    "eyebrow": "Tarifas GoRoky",
+    "title": "Elige tu tarifa y contrata en minutos"
+  },
+  "trust": [
+    {
+      "icon": "Repeat",
+      "title": "Portabilidad gratis",
+      "desc": "Conserva tu número sin coste ni cortes."
+    },
+    {
+      "icon": "Zap",
+      "title": "Alta 100% online",
+      "desc": "Firma digital y activación en minutos."
+    },
+    {
+      "icon": "Smartphone",
+      "title": "App GoRoky",
+      "desc": "Controla tu consumo y facturas desde el móvil."
+    },
+    {
+      "icon": "Headphones",
+      "title": "Atención cercana",
+      "desc": "Soporte real, sin robots que no resuelven."
+    }
+  ],
+  "heroBanners": [
+    {
+      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/1kiqysi8_38E7DCAE-B474-4ACC-B85F-567E355FC77A.png",
+      "link": "/contratar",
+      "active": true
+    },
+    {
+      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/4rr0yfu7_09340161-6E41-4E99-879A-46180CD52BAF.png",
+      "link": "/contratar",
+      "active": true
+    },
+    {
+      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/s3ec1nez_793C95CE-2767-47AC-8D2E-F0F1D8FED455.png",
+      "link": "/contratar",
+      "active": true
+    },
+    {
+      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/yvzl93v3_4677667E-FF4F-414F-882C-0D8DCF3940B2.png",
+      "link": "/contratar",
+      "active": true
+    }
+  ],
+  "partners": [
+    {
+      "name": "Orange",
+      "logo": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/gkv0mvde_IMG_8555.jpeg",
+      "active": true
+    },
+    {
+      "name": "Yoigo",
+      "logo": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/rz9cdwhz_IMG_8551.png",
+      "active": true
+    },
+    {
+      "name": "+Media",
+      "logo": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/gdbfx0nj_IMG_8554.jpeg",
+      "active": true
+    }
+  ]
+}

@@ -106,6 +106,10 @@ export default function PublicCatalog() {
     if (link.startsWith("http")) window.open(link, "_blank");
     else navigate(link);
   };
+  const hasBanners = banners.length > 0;
+  const heroImages = hasBanners
+    ? banners.map((b) => ({ url: imgSrc(b.url), alt: "GoRoky", link: b.link }))
+    : HERO_SLIDES;
 
   return (
     <div className="min-h-screen bg-white text-[#0A0A0A] font-body selection:bg-[#FF7A00] selection:text-white" data-testid="public-catalog">
@@ -137,49 +141,7 @@ export default function PublicCatalog() {
         </div>
       </header>
 
-      {/* Carrusel de banners del inicio (gestionable desde admin → Contenido web) */}
-      {banners.length > 0 && (
-        <section id="top" className="relative bg-white pt-24 lg:pt-28 pb-10" data-testid="hero-banner-carousel">
-          <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
-          <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
-          <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
-            <div className="relative rounded-[2rem] overflow-hidden shadow-2xl aspect-square bg-slate-100 ring-1 ring-black/5">
-              <AnimatePresence mode="wait">
-                <motion.img
-                  key={slide % banners.length}
-                  src={imgSrc(banners[slide % banners.length].url)}
-                  alt="GoRoky"
-                  onClick={() => openBanner(banners[slide % banners.length].link)}
-                  initial={{ opacity: 0, scale: 1.04 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.8, ease: "easeInOut" }}
-                  className={`absolute inset-0 w-full h-full object-cover ${banners[slide % banners.length].link ? "cursor-pointer" : ""}`}
-                  data-testid="hero-banner-img" />
-              </AnimatePresence>
-              {banners.length > 1 && (
-                <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {banners.map((_, i) => (
-                    <button key={i} aria-label={`Banner ${i + 1}`} onClick={() => setSlide(i)} data-testid={`banner-dot-${i}`}
-                      className={`h-2 rounded-full transition-all ${i === slide % banners.length ? "w-6 bg-white" : "w-2 bg-white/60 hover:bg-white/90"}`} />
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col sm:flex-row gap-4 mt-8 justify-center">
-              <a href="#planes" data-testid="banner-cta-planes"
-                className="rounded-full bg-[#015EEF] hover:bg-[#004cc7] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(1,94,239,0.3)]">
-                Ver tarifas <ArrowRight size={18} />
-              </a>
-              <a href="#cobertura" data-testid="banner-cta-cobertura"
-                className="rounded-full bg-[#FF7A00] hover:bg-[#e66e00] text-white font-bold px-8 py-4 inline-flex items-center justify-center gap-2 transition-[transform,box-shadow,background-color] hover:-translate-y-1 shadow-[0_10px_30px_rgba(255,122,0,0.3)]">
-                Comprobar fibra
-              </a>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Hero — light, con carrusel dinámico de imágenes (se muestra si no hay banners) */}
-      {banners.length === 0 && (
+      {/* Hero — texto a la izquierda + banner/imagen a la derecha */}
       <section id="top" className="relative overflow-hidden bg-white">
         <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
         <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
@@ -216,22 +178,25 @@ export default function PublicCatalog() {
             </motion.div>
           </motion.div>
           <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.15 }} className="lg:col-span-6 relative">
-            {/* Carrusel de imágenes */}
-            <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5] bg-slate-100">
+            {/* Banner/carrusel de imágenes */}
+            <div className={`relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-slate-100 ${hasBanners ? "aspect-square ring-1 ring-black/5" : "aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5]"}`}>
               <AnimatePresence>
-                <motion.img key={slide % HERO_SLIDES.length} src={HERO_SLIDES[slide % HERO_SLIDES.length].url} alt={HERO_SLIDES[slide % HERO_SLIDES.length].alt}
+                <motion.img key={slide % heroImages.length} src={heroImages[slide % heroImages.length].url} alt={heroImages[slide % heroImages.length].alt || "GoRoky"}
+                  onClick={() => heroImages[slide % heroImages.length].link && openBanner(heroImages[slide % heroImages.length].link)}
                   initial={{ opacity: 0, scale: 1.06 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                   transition={{ duration: 0.9, ease: "easeInOut" }}
-                  className="absolute inset-0 w-full h-full object-cover" data-testid="hero-carousel-img" />
+                  className={`absolute inset-0 w-full h-full object-cover ${heroImages[slide % heroImages.length].link ? "cursor-pointer" : ""}`} data-testid="hero-carousel-img" />
               </AnimatePresence>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent pointer-events-none" />
+              {!hasBanners && <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent pointer-events-none" />}
               {/* Puntitos */}
-              <div className="absolute bottom-5 right-5 flex gap-1.5">
-                {HERO_SLIDES.map((_, i) => (
-                  <button key={i} aria-label={`Imagen ${i + 1}`} onClick={() => setSlide(i)} data-testid={`hero-dot-${i}`}
-                    className={`h-2 rounded-full transition-all ${i === slide % HERO_SLIDES.length ? "w-6 bg-white" : "w-2 bg-white/50 hover:bg-white/80"}`} />
-                ))}
-              </div>
+              {heroImages.length > 1 && (
+                <div className="absolute bottom-5 right-5 flex gap-1.5">
+                  {heroImages.map((_, i) => (
+                    <button key={i} aria-label={`Imagen ${i + 1}`} onClick={() => setSlide(i)} data-testid={`hero-dot-${i}`}
+                      className={`h-2 rounded-full transition-all ${i === slide % heroImages.length ? "w-6 bg-white" : "w-2 bg-white/50 hover:bg-white/80"}`} />
+                  ))}
+                </div>
+              )}
             </div>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
               className="absolute -bottom-5 -left-2 sm:left-6 bg-white text-[#0A0A0A] rounded-2xl shadow-xl px-5 py-4 flex items-center gap-3 border border-slate-100">
@@ -241,7 +206,6 @@ export default function PublicCatalog() {
           </motion.div>
         </div>
       </section>
-      )}
 
       {/* Planes */}
       <section id="planes" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
@@ -479,11 +443,11 @@ export default function PublicCatalog() {
         <section className="bg-white border-t border-slate-100 py-14" aria-label="Nuestra red y partners" data-testid="partners-section">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400 mb-8">Navegamos con la mejor red</p>
-            <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-8">
+            <div className="flex flex-wrap items-center justify-center gap-x-14 gap-y-8">
               {partnerLogos.map((p, i) => (
                 <img key={i} src={imgSrc(p.logo)} alt={p.name || "Partner"} title={p.name || ""}
                   data-testid={`partner-logo-${i}`}
-                  className="h-12 sm:h-14 w-auto object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 focus:grayscale-0 focus:opacity-100 active:grayscale-0 active:opacity-100 transition-[filter,opacity] duration-300" />
+                  className="h-14 sm:h-16 w-auto object-contain hover:scale-105 transition-transform duration-300" />
               ))}
             </div>
           </div>

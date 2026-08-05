@@ -537,3 +537,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
   4. `likes_sync._products_payload(order, pid, email, customer)`: para Fiber añade `coverage`, `installationContactName` (nombre+apellidos del cliente) e `installationContactPhone` (customer.contactPhone). Helper `_installation_contact()`.
   5. Alta manual admin (`create_order` + `OrderCreate.coverage`): misma lógica para fibra.
 - Verificado end-to-end en preview: la solicitud pública de fibra almacena el objeto coverage; el payload signupv2 construido incluye coverage + installationContact*. ⚠️ La llamada REAL a Likes es MOCK en preview (IP no autorizada) → validar el alta real en el VPS.
+
+### Iteración 2026-06 (fork) — Rediseño hero + partners + sync contenido a producción
+- **Problema real "no se ven los cambios"**: NO era despliegue ni caché (confirmado: servidor entrega `main.188feb73.js`, sin CDN). Los banners/partners se guardan en `db.site_content` (CMS) y la BD de PRODUCCIÓN estaba vacía de ese contenido (solo estaba en la BD del preview).
+- **Fix contenido**: `backend/seed_site_content.py` + `backend/site_content_export.json` — script idempotente que sincroniza el contenido del CMS (4 heroBanners + 3 partners + hero/footer/plans/trust/cities) a la BD de producción. Ejecutar una vez en el VPS: `cd /opt/goroky/backend && python3 seed_site_content.py`. Imágenes en CDN público (200 OK).
+- **Rediseño hero** (`PublicCatalog.js`): eliminado el banner cuadrado centrado (feo). Ahora hero de 2 columnas SIEMPRE: textos a la IZQUIERDA (badge, título, subtítulo, CTAs, trust) + banner a la DERECHA (tarjeta `aspect-square` si hay banners subidos; si no, carrusel `HERO_SLIDES` `aspect-[4/5]`). `heroImages`/`hasBanners` computados; banner clicable (openBanner) si tiene link.
+- **Partners a color**: logos ya no en grayscale/opacity-60 → full color, `h-14 sm:h-16`, hover scale.
+- Verificado en preview (screenshot): hero 2 columnas correcto (texto izq + banner der). ⚠️ Cambios de FRONTEND → requieren `yarn build` + deploy en VPS para verse en a.rokymovil.com.

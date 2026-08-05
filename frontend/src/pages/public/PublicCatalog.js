@@ -91,6 +91,13 @@ export default function PublicCatalog() {
     api.get("/public/site-content").then((r) => setContent(r.data)).catch(() => {});
   }, []);
 
+  // Precarga de banners para que el carrusel no parpadee ni muestre imágenes a medio cargar
+  useEffect(() => {
+    ((content && content.heroBanners) || [])
+      .filter((b) => b && b.url && b.active !== false)
+      .forEach((b) => { const im = new Image(); im.src = imgSrc(b.url); });
+  }, [content]);
+
   if (!content) {
     return <div className="min-h-screen grid place-items-center bg-white"><div className="h-10 w-10 rounded-full border-2 border-[#015EEF] border-t-transparent animate-spin" /></div>;
   }
@@ -180,11 +187,11 @@ export default function PublicCatalog() {
           <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7, delay: 0.15 }} className="lg:col-span-6 relative">
             {/* Banner/carrusel de imágenes */}
             <div className={`relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-slate-100 ${hasBanners ? "aspect-square ring-1 ring-black/5" : "aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5]"}`}>
-              <AnimatePresence>
+              <AnimatePresence mode="wait">
                 <motion.img key={slide % heroImages.length} src={heroImages[slide % heroImages.length].url} alt={heroImages[slide % heroImages.length].alt || "GoRoky"}
                   onClick={() => heroImages[slide % heroImages.length].link && openBanner(heroImages[slide % heroImages.length].link)}
-                  initial={{ opacity: 0, scale: 1.06 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.9, ease: "easeInOut" }}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  transition={{ duration: 0.4, ease: "easeInOut" }}
                   className={`absolute inset-0 w-full h-full object-cover ${heroImages[slide % heroImages.length].link ? "cursor-pointer" : ""}`} data-testid="hero-carousel-img" />
               </AnimatePresence>
               {!hasBanners && <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent pointer-events-none" />}

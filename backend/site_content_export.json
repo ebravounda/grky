@@ -66,22 +66,22 @@
   ],
   "heroBanners": [
     {
-      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/1kiqysi8_38E7DCAE-B474-4ACC-B85F-567E355FC77A.png",
+      "url": "/banners/banner1.webp",
       "link": "/contratar",
       "active": true
     },
     {
-      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/4rr0yfu7_09340161-6E41-4E99-879A-46180CD52BAF.png",
+      "url": "/banners/banner2.webp",
       "link": "/contratar",
       "active": true
     },
     {
-      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/s3ec1nez_793C95CE-2767-47AC-8D2E-F0F1D8FED455.png",
+      "url": "/banners/banner3.webp",
       "link": "/contratar",
       "active": true
     },
     {
-      "url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/yvzl93v3_4677667E-FF4F-414F-882C-0D8DCF3940B2.png",
+      "url": "/banners/banner4.webp",
       "link": "/contratar",
       "active": true
     }

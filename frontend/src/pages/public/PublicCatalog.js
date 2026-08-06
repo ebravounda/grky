@@ -20,7 +20,7 @@ const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telec
 const APP_MOCKUP = "https://static.prod-images.emergentagent.com/jobs/8c47229e-970c-4034-957a-3142574f48e1/images/d9a60518184f6cf887fa916269edbc7b3c2e5b2e7ff680c7b4d73f914366d7a5.jpeg";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
-const imgSrc = (u) => (u && u.startsWith("/") ? `${BACKEND}${u}` : u);
+const imgSrc = (u) => (u && u.startsWith("/") && !u.startsWith("/banners/") ? `${BACKEND}${u}` : u);
 
 const HERO_SLIDES = [
   { url: "https://images.unsplash.com/photo-1758272420990-30a0735e68a1?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200", alt: "Chica feliz con su móvil" },

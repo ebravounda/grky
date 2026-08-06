@@ -76,6 +76,10 @@ export default function PublicCatalog() {
       setCbProduct(null); setCbForm({ name: "", surname: "", phone: "" });
     } catch (err) { toast.error(apiErr(err)); } finally { setCbBusy(false); }
   };
+  const openCallback = (product = null) => {
+    setCbForm({ name: "", surname: "", phone: "" });
+    setCbProduct(product || { general: true });
+  };
 
   useEffect(() => {
     const id = setInterval(() => setSlide((s) => s + 1), 4500);
@@ -127,6 +131,10 @@ export default function PublicCatalog() {
           <nav className="hidden md:flex items-center gap-8 text-sm font-bold">
             <a href="#planes" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Tarifas</a>
             <a href="#cobertura" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Cobertura fibra</a>
+            <button onClick={() => openCallback()} data-testid="header-callback-btn"
+              className="inline-flex items-center gap-2 text-slate-800 hover:text-[#FF7A00] transition-colors tracking-wide">
+              <PhoneCall size={16} /> Te llamamos
+            </button>
             <button onClick={() => navigate("/login")} data-testid="header-login-btn"
               className="rounded-full border-2 border-[#015EEF] text-[#015EEF] hover:bg-[#015EEF] hover:text-white font-bold px-6 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2">Mi cuenta</button>
           </nav>
@@ -140,6 +148,10 @@ export default function PublicCatalog() {
                 <img src={LOGO} alt="GoRoky" className="h-9 w-auto" />
                 <a href="#planes" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Tarifas</a>
                 <a href="#cobertura" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Cobertura fibra</a>
+                <button onClick={() => { setMenuOpen(false); openCallback(); }} data-testid="mobile-callback-btn"
+                  className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
+                  <PhoneCall size={18} className="text-[#FF7A00]" /> Te llamamos
+                </button>
                 <button onClick={() => { setMenuOpen(false); navigate("/login"); }} data-testid="mobile-login-btn"
                   className="rounded-full bg-[#015EEF] text-white font-bold px-6 py-3 mt-2">Mi cuenta</button>
               </SheetContent>
@@ -496,7 +508,9 @@ export default function PublicCatalog() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><PhoneCall size={18} className="text-[#015EEF]" /> Te llamamos</DialogTitle>
             <DialogDescription>
-              Déjanos tus datos y te llamamos para informarte sobre <b>{cbProduct?.productName}</b>.
+              {cbProduct?.productName
+                ? <>Déjanos tus datos y te llamamos para informarte sobre <b>{cbProduct.productName}</b>.</>
+                : <>Déjanos tus datos y te llamamos para informarte sobre <b>nuestras tarifas de móvil y fibra</b>.</>}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitCallback} className="space-y-3 pt-1">

@@ -544,3 +544,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Rediseño hero** (`PublicCatalog.js`): eliminado el banner cuadrado centrado (feo). Ahora hero de 2 columnas SIEMPRE: textos a la IZQUIERDA (badge, título, subtítulo, CTAs, trust) + banner a la DERECHA (tarjeta `aspect-square` si hay banners subidos; si no, carrusel `HERO_SLIDES` `aspect-[4/5]`). `heroImages`/`hasBanners` computados; banner clicable (openBanner) si tiene link.
 - **Partners a color**: logos ya no en grayscale/opacity-60 → full color, `h-14 sm:h-16`, hover scale.
 - Verificado en preview (screenshot): hero 2 columnas correcto (texto izq + banner der). ⚠️ Cambios de FRONTEND → requieren `yarn build` + deploy en VPS para verse en a.rokymovil.com.
+
+### Iteración 2026-06 (fork) — Optimización imágenes + menú "Te llamamos" (DESPLEGADO Y VERIFICADO POR USUARIO)
+- **Banners optimizados**: los 4 heroBanners eran PNG de ~2,4 MB c/u (~9,5 MB portada) → convertidos a WebP 1000px q82 (~140-200 KB c/u, −92%). Guardados en `frontend/public/banners/banner{1..4}.webp` (se sirven same-origin, sin CDN externo). `imgSrc` ya NO antepone BACKEND a rutas `/banners/` (relativas → resuelven al origen del sitio). URLs actualizadas en BD preview + `site_content_export.json`.
+- **Precarga + mode="wait"** en el carrusel del hero → sin parpadeo ni banners superpuestos.
+- **Menú "Te llamamos"**: nuevo item en nav PC (`header-callback-btn`, con icono PhoneCall) y menú móvil (`mobile-callback-btn`). Helper `openCallback()` abre el MISMO modal del catálogo (`cbProduct={general:true}`); DialogDescription condicional (general vs producto). POST /public/callback → vista admin "Llamadas".
+- **Deploy VPS**: git pull + yarn build + copy build/ + restart goroky-api + `cd backend && venv/bin/python seed_site_content.py` (venv en `/opt/goroky/backend/venv`). Usuario confirmó "funciona super".

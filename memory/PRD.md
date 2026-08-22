@@ -550,3 +550,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Precarga + mode="wait"** en el carrusel del hero → sin parpadeo ni banners superpuestos.
 - **Menú "Te llamamos"**: nuevo item en nav PC (`header-callback-btn`, con icono PhoneCall) y menú móvil (`mobile-callback-btn`). Helper `openCallback()` abre el MISMO modal del catálogo (`cbProduct={general:true}`); DialogDescription condicional (general vs producto). POST /public/callback → vista admin "Llamadas".
 - **Deploy VPS**: git pull + yarn build + copy build/ + restart goroky-api + `cd backend && venv/bin/python seed_site_content.py` (venv en `/opt/goroky/backend/venv`). Usuario confirmó "funciona super".
+
+### Iteración 2026-06 (fork) — 5 fixes (contratación blank + accesos cliente) [testing_agent iter16: 100%]
+- **Fix pantalla en blanco "Nueva contratación"** (`admin/Orders.js`): `p.price.toFixed()` crasheaba si una tarifa (importada de Likes sin PVP) tenía price null → `Number(p.price||0).toFixed(2)`.
+- **Banner "Instalar app" centrado** (`InstallPrompt.js`): de `left-1/2 -translate-x-1/2` a `inset-x-3 mx-auto max-w-[520px]` (centrado robusto sin transform).
+- **Botón "Suspender" solo admin** (`LinePanel.js`): `toggle-block-btn` envuelto en `{canSupport && (...)}` → oculto para el cliente en /portal/lines/{n}, visible para admin en /app/lines/{n}.
+- **Botón "Cambiar" del cliente** (`ClientDashboard.js`): `change-pack-{n}` ahora muestra toast "Para realizar cambios en tu línea contacta con soporte: soporte@goroky.com" (ya no abre cambio de tarifa).
+- **"Enviar accesos" súper admin** (backend `POST /api/admin/app-users/{uid}/send-access` + `AppUsers.js` botón `send-access-{id}`): genera contraseña NUEVA, la hashea, invalida la anterior (sessionEpoch++) y reenvía el correo de credenciales (`_send_app_credentials`, mismo template: App URL + Usuario + Contraseña). ⚠️ El enlace del correo usa `FRONTEND_URL` → en el VPS debe ser `https://rokymovil.com` para que diga la URL correcta.
+- Verificado por testing_agent (iter16): backend 4/4 pytest, frontend 5/5. Test creds: admin@goroky.com / cliente@goroky.com (Cliente2026!, restaurada).

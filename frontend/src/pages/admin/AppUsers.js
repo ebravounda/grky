@@ -40,6 +40,7 @@ export default function AppUsers() {
   };
 
   const resetPw = (u) => act(u, () => api.post(`/admin/app-users/${u.id}/reset-password`), `Contraseña restablecida y enviada a ${u.email}`);
+  const sendAccess = (u) => act(u, () => api.post(`/admin/app-users/${u.id}/send-access`), `Accesos enviados a ${u.email}`);
   const forceLogout = (u) => act(u, () => api.post(`/admin/app-users/${u.id}/logout`), "Sesión cerrada en su dispositivo");
   const toggleBlock = (u) => act(u, () => api.post(`/admin/app-users/${u.id}/block`, { blocked: !u.appBlocked }), u.appBlocked ? "Acceso desbloqueado" : "Acceso bloqueado");
   const saveManualPw = async () => {
@@ -103,6 +104,8 @@ export default function AppUsers() {
                   </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1.5 justify-end">
+                      <Button size="sm" className="rounded-full h-8 gap-1.5" disabled={busy === u.id}
+                        data-testid={`send-access-${u.id}`} onClick={() => sendAccess(u)}><Smartphone size={13} /> Enviar accesos</Button>
                       <Button size="sm" variant="outline" className="rounded-full h-8 gap-1.5" disabled={busy === u.id}
                         data-testid={`reset-pw-${u.id}`} onClick={() => resetPw(u)}><RefreshCw size={13} /> Restablecer</Button>
                       <Button size="sm" variant="outline" className="rounded-full h-8 gap-1.5" disabled={busy === u.id}

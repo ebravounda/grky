@@ -65,7 +65,7 @@ export default function InstallPrompt() {
           initial={{ y: 90, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 90, opacity: 0 }}
           transition={{ type: "spring", stiffness: 320, damping: 30 }}
           data-testid="install-banner"
-          className="fixed bottom-[92px] left-1/2 -translate-x-1/2 w-[calc(100%-24px)] max-w-[520px] z-50">
+          className="fixed bottom-[92px] inset-x-3 mx-auto w-[calc(100%-24px)] max-w-[520px] z-50">
           <div className="rounded-2xl bg-white border border-slate-200 shadow-[0_10px_40px_-8px_rgba(0,0,0,0.25)] p-3.5">
             <div className="flex items-center gap-3">
               <img src={ICON} alt="GoRoky" className="h-11 w-11 rounded-xl shrink-0" />

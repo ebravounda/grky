@@ -127,10 +127,12 @@ export default function LinePanel({ lineNumber, backLink, backLabel }) {
         </div>
         <div className="flex items-center gap-3">
           <StatusPill status={line.status} />
-          <Button data-testid="toggle-block-btn" onClick={toggleBlock} disabled={busy}
-            variant={line.status === "ACTIVE" ? "outline" : "default"} className="rounded-full gap-2">
-            {line.status === "ACTIVE" ? <><Lock size={15} /> Suspender</> : <><Unlock size={15} /> Reactivar</>}
-          </Button>
+          {canSupport && (
+            <Button data-testid="toggle-block-btn" onClick={toggleBlock} disabled={busy}
+              variant={line.status === "ACTIVE" ? "outline" : "default"} className="rounded-full gap-2">
+              {line.status === "ACTIVE" ? <><Lock size={15} /> Suspender</> : <><Unlock size={15} /> Reactivar</>}
+            </Button>
+          )}
         </div>
       </div>
 

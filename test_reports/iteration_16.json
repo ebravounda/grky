@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 16 validated the 5 requested fixes/features. Backend: 4/4 pytest tests pass for POST /api/admin/app-users/{id}/send-access (200 ok/emailed, invalidates old pw, requires admin, 404 on bad id). Client password restored to 'Cliente2026!' after test via set-password. Frontend: (1) Admin /app/orders 'Nueva contratación' opens the 'Crear servicio / orden' dialog with Cliente + Producto selects, no blank screen or crash. (2) 'Enviar accesos' button present per app-user row (data-testid=send-access-{id}); clicking on a non-cliente user (cadenaandrea58@gmail.com) shows toast 'Accesos enviados a cadenaandrea58@gmail.com'. (3) Client /portal 'Cambiar' now shows toast 'Para realizar cambios en tu línea contacta con soporte: soporte@goroky.com' and does NOT open a dialog. (4) Client /portal/lines/{n} correctly hides toggle-block-btn. (5) install-banner not shown on desktop Chrome (expected - only appears on non-standalone mobile with beforeinstallprompt event); classes verified in code: fixed bottom-[92px] inset-x-3 mx-auto max-w-[520px] => centered. Admin lines list link wasn't clicked (no direct anchor found in table); toggle-block for admin was verified via code inspection: LinePanel guards the button with `canSupport && (...)` which is true for admin (role=admin or permission lines.support).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_send_access.py", "/app/test_reports/pytest/iteration_16.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Orders table shows empty 'Importe' cells (only '€') for existing orders - not related to this iteration's fix but worth double-checking price field mapping in orders list rendering."
+  ],
+  "updated_files": ["/app/backend/tests/test_send_access.py", "/app/test_reports/iteration_16.json"],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (all 5 spec items verified)"},
+  "test_credentials": "admin@goroky.com / Goroky2026! ; cliente@goroky.com / Cliente2026! (restored after send-access test)",
+  "seed_data_creation": "None. send-access was invoked on cadenaandrea58@gmail.com (existing seed user) to avoid rotating cliente@goroky.com password unnecessarily.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 5 requested fixes verified and passing. send-access endpoint rotates password + increments sessionEpoch. If future tests reuse cadenaandrea58@gmail.com credentials, note its password was rotated by send-access. cliente@goroky.com password restored to Cliente2026!.",
+  "rca of the issue": "N/A - fixes already applied by main agent; verification only."
+}

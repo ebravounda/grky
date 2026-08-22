@@ -965,6 +965,23 @@ async def admin_app_users(request: Request):
     return out
 
 
+@api.post("/admin/app-users/{uid}/send-access")
+async def admin_send_access(uid: str, request: Request):
+    """Genera una contraseña NUEVA y envía al cliente el correo con sus accesos a la app."""
+    await require_admin(request)
+    u = await db.users.find_one({"_id": _OID(uid), "role": "client"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not u.get("email"):
+        raise HTTPException(status_code=400, detail="El usuario no tiene email")
+    pw = _gen_password()
+    await db.users.update_one({"_id": u["_id"]},
+                              {"$set": {"password_hash": hash_password(pw)}, "$inc": {"sessionEpoch": 1}})
+    await _send_app_credentials(u["email"], u.get("name"), pw, reset=False)
+    await log_event("system", "info", f"Accesos enviados al cliente · {u['email']}")
+    return {"ok": True, "emailed": True}
+
+
 @api.post("/admin/app-users/{uid}/reset-password")
 async def admin_reset_app_pw(uid: str, request: Request):
     await require_admin(request)

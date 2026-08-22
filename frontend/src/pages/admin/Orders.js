@@ -128,7 +128,7 @@ export default function Orders() {
                   <Select value={form.productId} onValueChange={(v) => set("productId", v)}>
                     <SelectTrigger data-testid="order-product"><SelectValue placeholder="Selecciona producto" /></SelectTrigger>
                     <SelectContent>
-                      {products.map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {p.price.toFixed(2)} €</SelectItem>)}
+                      {products.map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {Number(p.price || 0).toFixed(2)} €</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

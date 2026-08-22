@@ -152,7 +152,7 @@ export default function ClientDashboard() {
                   <Button variant="outline" size="sm" className="w-full rounded-xl gap-1.5" data-testid={`view-line-${l.lineNumber}`}>Detalle <ArrowRight size={14} /></Button>
                 </Link>
                 {sub && (
-                  <Button size="sm" className="rounded-xl gap-1.5" data-testid={`change-pack-${l.lineNumber}`} onClick={() => openChange(sub)}>
+                  <Button size="sm" className="rounded-xl gap-1.5" data-testid={`change-pack-${l.lineNumber}`} onClick={() => toast.info("Para realizar cambios en tu línea contacta con soporte: soporte@goroky.com", { duration: 8000 })}>
                     <Repeat size={14} /> Cambiar
                   </Button>
                 )}

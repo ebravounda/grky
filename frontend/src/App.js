@@ -27,6 +27,7 @@ import Invoices from "@/pages/admin/Invoices";
 import Tickets from "@/pages/admin/Tickets";
 import Users from "@/pages/admin/Users";
 import AppUsers from "@/pages/admin/AppUsers";
+import Payments from "@/pages/admin/Payments";
 import Commissions from "@/pages/admin/Commissions";
 import ClientDashboard from "@/pages/client/ClientDashboard";
 import ClientLineDetail from "@/pages/client/ClientLineDetail";
@@ -38,6 +39,7 @@ import SignupWizard from "@/pages/public/SignupWizard";
 import SignContract from "@/pages/public/SignContract";
 import ContractSign from "@/pages/public/ContractSign";
 import ResubmitDocs from "@/pages/public/ResubmitDocs";
+import PayBill from "@/pages/public/PayBill";
 import LegalPage from "@/pages/public/LegalPage";
 
 function Loading() {
@@ -87,6 +89,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/payment/:result" element={<PaymentResult />} />
           <Route path="/contratar" element={<PublicCatalog />} />
+          <Route path="/pagar-cuenta" element={<PayBill />} />
           <Route path="/contratar/:productId" element={<SignupWizard />} />
           <Route path="/firmar/:token" element={<SignContract />} />
           <Route path="/firmar-contrato/:token" element={<ContractSign />} />
@@ -109,6 +112,7 @@ function App() {
             <Route path="site-content" element={<PermGuard perm="settings.manage"><SiteContent /></PermGuard>} />
             <Route path="orders" element={<PermGuard perm="orders.manage"><Orders /></PermGuard>} />
             <Route path="billing" element={<PermGuard perm="billing.manage"><Billing /></PermGuard>} />
+            <Route path="payments" element={<PermGuard perm="billing.manage"><Payments /></PermGuard>} />
             <Route path="shipments" element={<PermGuard perm="shipments.manage"><Shipments /></PermGuard>} />
             <Route path="promotions" element={<PermGuard perm="promotions.manage"><Promociones /></PermGuard>} />
             <Route path="installations" element={<PermGuard perm="installations.manage"><Installations /></PermGuard>} />

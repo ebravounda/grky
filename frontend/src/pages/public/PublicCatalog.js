@@ -12,7 +12,7 @@ import {
 import CoverageChecker from "@/components/CoverageChecker";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
-  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info, PhoneCall,
+  Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info, PhoneCall, CreditCard,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -135,6 +135,10 @@ export default function PublicCatalog() {
               className="inline-flex items-center gap-2 text-slate-800 hover:text-[#FF7A00] transition-colors tracking-wide">
               <PhoneCall size={16} /> Te llamamos
             </button>
+            <button onClick={() => navigate("/pagar-cuenta")} data-testid="header-paybill-btn"
+              className="inline-flex items-center gap-2 text-slate-800 hover:text-[#FF7A00] transition-colors tracking-wide">
+              <CreditCard size={16} /> Pagar cuenta
+            </button>
             <button onClick={() => navigate("/login")} data-testid="header-login-btn"
               className="rounded-full border-2 border-[#015EEF] text-[#015EEF] hover:bg-[#015EEF] hover:text-white font-bold px-6 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2">Mi cuenta</button>
           </nav>
@@ -151,6 +155,10 @@ export default function PublicCatalog() {
                 <button onClick={() => { setMenuOpen(false); openCallback(); }} data-testid="mobile-callback-btn"
                   className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
                   <PhoneCall size={18} className="text-[#FF7A00]" /> Te llamamos
+                </button>
+                <button onClick={() => { setMenuOpen(false); navigate("/pagar-cuenta"); }} data-testid="mobile-paybill-btn"
+                  className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
+                  <CreditCard size={18} className="text-[#FF7A00]" /> Pagar cuenta
                 </button>
                 <button onClick={() => { setMenuOpen(false); navigate("/login"); }} data-testid="mobile-login-btn"
                   className="rounded-full bg-[#015EEF] text-white font-bold px-6 py-3 mt-2">Mi cuenta</button>

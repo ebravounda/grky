@@ -119,7 +119,7 @@ export default function Orders() {
                   <Select value={form.fiscalId} onValueChange={(v) => set("fiscalId", v)}>
                     <SelectTrigger data-testid="order-customer"><SelectValue placeholder="Selecciona cliente" /></SelectTrigger>
                     <SelectContent>
-                      {customers.map((c) => <SelectItem key={c.fiscalId} value={c.fiscalId}>{c.name} {c.firstSurname} — {c.fiscalId}</SelectItem>)}
+                      {customers.filter((c) => c.fiscalId).map((c) => <SelectItem key={c.fiscalId} value={c.fiscalId}>{c.name} {c.firstSurname} — {c.fiscalId}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -128,7 +128,7 @@ export default function Orders() {
                   <Select value={form.productId} onValueChange={(v) => set("productId", v)}>
                     <SelectTrigger data-testid="order-product"><SelectValue placeholder="Selecciona producto" /></SelectTrigger>
                     <SelectContent>
-                      {products.map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {Number(p.price || 0).toFixed(2)} €</SelectItem>)}
+                      {products.filter((p) => p.productId).map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {Number(p.price || 0).toFixed(2)} €</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -149,7 +149,7 @@ export default function Orders() {
                       <Select value={form.donorOperatorId} onValueChange={(v) => set("donorOperatorId", v)}>
                         <SelectTrigger data-testid="order-donor"><SelectValue placeholder="Operador de origen" /></SelectTrigger>
                         <SelectContent>
-                          {donors.map((d) => <SelectItem key={d.Code} value={d.Code}>{d.Name}</SelectItem>)}
+                          {donors.filter((d) => d.Code).map((d) => <SelectItem key={d.Code} value={d.Code}>{d.Name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>

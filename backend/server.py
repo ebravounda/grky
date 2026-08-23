@@ -2666,6 +2666,87 @@ async def create_checkout(body: CheckoutRequest, request: Request):
     return {"checkout_url": session.url, "session_id": session.id}
 
 
+class AccountLookup(BaseModel):
+    query: str
+    origin_url: Optional[str] = None
+
+
+async def _resolve_customer_by_query(q: str):
+    q = (q or "").strip()
+    if not q:
+        return None
+    customer = await db.customers.find_one({"fiscalId": _norm_fiscal(q)})
+    if not customer:
+        line = await db.lines.find_one({"lineNumber": q})
+        if line:
+            customer = await db.customers.find_one({"fiscalId": line.get("fiscalId")})
+    return customer
+
+
+async def _pending_invoices(fiscal_id):
+    invs = await db.invoices.find({"fiscalId": fiscal_id, "status": "pending"}).to_list(300)
+    total = round(sum(float(i.get("total") or 0) for i in invs), 2)
+    return invs, total
+
+
+@api.post("/public/account/lookup")
+async def public_account_lookup(body: AccountLookup):
+    customer = await _resolve_customer_by_query(body.query)
+    if not customer:
+        raise HTTPException(status_code=404, detail="No encontramos ninguna cuenta con esos datos. Revisa tu DNI/CIF o número de línea.")
+    invs, total = await _pending_invoices(customer["fiscalId"])
+    items = [{"invoiceNumber": i.get("invoiceNumber"),
+              "total": round(float(i.get("total") or 0), 2),
+              "date": (i.get("date") or i.get("issueDate") or i.get("created") or "")[:10]}
+             for i in invs]
+    first = (customer.get("name") or "").split(" ")[0]
+    return {"fiscalId": customer["fiscalId"], "name": first,
+            "pendingTotal": total, "count": len(invs), "invoices": items}
+
+
+@api.post("/public/account/checkout")
+async def public_account_checkout(body: AccountLookup):
+    customer = await _resolve_customer_by_query(body.query)
+    if not customer:
+        raise HTTPException(status_code=404, detail="No encontramos ninguna cuenta con esos datos.")
+    invs, total = await _pending_invoices(customer["fiscalId"])
+    if not invs or total <= 0:
+        raise HTTPException(status_code=400, detail="No tienes facturas pendientes de pago. ¡Estás al día!")
+    origin = (body.origin_url or os.environ.get("FRONTEND_URL", "")).rstrip("/")
+    await _stripe_apply()
+    session = stripe.checkout.Session.create(
+        line_items=[{
+            "price_data": {"currency": "eur", "unit_amount": int(round(total * 100)),
+                           "product_data": {"name": f"Pago de facturas GoRoky · {customer.get('name', '')}".strip()}},
+            "quantity": 1,
+        }],
+        mode="payment",
+        success_url=f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{origin}/payment/cancel",
+        metadata={"fiscalId": customer["fiscalId"], "kind": "public_account"},
+    )
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "kind": "public_account",
+        "fiscalId": customer["fiscalId"], "customerName": customer.get("name"),
+        "invoice_ids": [str(i["_id"]) for i in invs],
+        "invoice_number": f"{len(invs)} factura(s)",
+        "amount": total, "currency": "eur",
+        "status": "initiated", "payment_status": "pending",
+        "created_at": now_iso(), "updated_at": now_iso()})
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+@api.get("/admin/payments")
+async def admin_payments(request: Request):
+    await require_admin(request)
+    txns = await db.payment_transactions.find({"payment_status": "paid"}).sort("updated_at", -1).to_list(2000)
+    return [{"id": str(t["_id"]), "invoiceNumber": t.get("invoice_number"),
+             "customerName": t.get("customerName"), "fiscalId": t.get("fiscalId"),
+             "amount": round(float(t.get("amount") or 0), 2), "currency": t.get("currency", "eur"),
+             "sessionId": t.get("session_id"), "kind": t.get("kind", "invoice"),
+             "paidAt": t.get("updated_at") or t.get("created_at")} for t in txns]
+
+
 @api.get("/payments/status/{session_id}")
 async def payment_status(session_id: str):
     from bson import ObjectId
@@ -2686,6 +2767,12 @@ async def payment_status(session_id: str):
                         {"billing.stripeSubscriptionId": s.get("subscription")}) if s.get("subscription") else None
                     if not already:
                         await _on_subscription_checkout(dict(s))
+                elif record.get("kind") == "public_account" and record.get("invoice_ids"):
+                    for iid in record["invoice_ids"]:
+                        try:
+                            await db.invoices.update_one({"_id": ObjectId(iid)}, {"$set": {"status": "paid"}})
+                        except Exception:  # noqa
+                            pass
                 elif record.get("invoice_id"):
                     await db.invoices.update_one({"_id": ObjectId(record["invoice_id"])},
                                                  {"$set": {"status": "paid"}})
@@ -2724,6 +2811,13 @@ async def stripe_webhook(request: Request):
             inv_id = obj.get("metadata", {}).get("invoice_id")
             if inv_id:
                 await db.invoices.update_one({"_id": ObjectId(inv_id)}, {"$set": {"status": "paid"}})
+            if obj.get("metadata", {}).get("kind") == "public_account":
+                rec = await db.payment_transactions.find_one({"session_id": obj["id"]})
+                for iid in (rec or {}).get("invoice_ids", []):
+                    try:
+                        await db.invoices.update_one({"_id": ObjectId(iid)}, {"$set": {"status": "paid"}})
+                    except Exception:  # noqa
+                        pass
     elif t == "invoice.payment_succeeded":
         sub_id = obj.get("subscription")
         if sub_id and obj.get("billing_reason") == "subscription_cycle":

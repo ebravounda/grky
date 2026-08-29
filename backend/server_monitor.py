@@ -7,6 +7,7 @@ import re
 import time
 import glob
 import subprocess
+from urllib.parse import unquote
 from datetime import datetime, timezone
 from collections import Counter, defaultdict
 
@@ -134,104 +135,190 @@ def service_status(services=None):
 
 
 # ------------------------- análisis de logs web por dominio (ataques) -------------------------
-_LOG_LINE = re.compile(r'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) [^"]*" (\d{3}) (\S+)')
+# Formato de log (CLF/combined): capta IP, timestamp, método, ruta, estado y user-agent (si existe)
+_LOG_LINE = re.compile(
+    r'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+)[^"]*" (\d{3}) (\S+)(?: "[^"]*" "([^"]*)")?')
 
-# rutas típicas de escaneo/ataque (WordPress, credenciales, shells, etc.)
+# rutas sensibles típicas de escaneo de vulnerabilidades
 _SENSITIVE = re.compile(
-    r"(wp-login\.php|xmlrpc\.php|/wp-admin|/\.env|/\.git|/phpmyadmin|/pma|/administrator|"
-    r"/admin\.php|/shell|/eval|/\.aws|/config\.php|/vendor/|/\.ssh|/setup\.php|/boaform|"
-    r"/cgi-bin|/wp-content/uploads/.*\.php|/\.well-known/.*\.php)", re.I)
+    r"(wp-login\.php|xmlrpc\.php|/wp-admin|/\.env|/\.git|/phpmyadmin|/pma\b|/administrator|"
+    r"/admin\.php|/shell|/\.aws|/config\.php|/vendor/|/\.ssh|/setup\.php|/boaform|/manager/html|"
+    r"/cgi-bin|/wp-content/uploads/.*\.php|/\.well-known/.*\.php|/solr/|/actuator|/console)", re.I)
+
+# endpoints de autenticación (fuerza bruta)
+_AUTH = re.compile(r"(wp-login\.php|xmlrpc\.php|/login|/signin|/wp-json/.*users|/administrator|/user/login|/admin/login)", re.I)
+
+# firmas de inyección (SQLi / XSS / LFI / RCE) en la ruta o query
+_INJECT = re.compile(
+    r"(union[\s/*]+select|select.+from\s|information_schema|sleep\(|benchmark\(|"
+    r"<script|%3cscript|onerror=|javascript:|"
+    r"\.\./\.\./|/etc/passwd|/etc/shadow|c:\\\\windows|"
+    r"base64_decode|eval\(|system\(|exec\(|passthru\(|shell_exec|/bin/sh|wget\s|curl\s|\bor\b\s+1=1)", re.I)
+
+# crawlers legítimos conocidos (informativo; no evita el flag si hay firmas de ataque)
+_KNOWN_BOT = re.compile(r"(googlebot|bingbot|yandexbot|duckduckbot|applebot|facebookexternalhit|ahrefsbot|semrushbot|uptimerobot|pingdom)", re.I)
 
 
-def domain_traffic(max_lines=4000, top_n=12):
-    """Recorre los access logs de cada vhost, cuenta peticiones recientes, top IPs y
-    marca posibles ataques explicando el porqué (razones)."""
+def _parse_ts(s):
+    """'29/Aug/2026:10:00:00 +0000' → epoch (float). None si no parsea."""
+    try:
+        return datetime.strptime(s, "%d/%b/%Y:%H:%M:%S %z").timestamp()
+    except Exception:  # noqa
+        return None
+
+
+def domain_traffic(max_lines=20000, top_n=15, window_minutes=60,
+                   flood_rpm=120, auth_threshold=30, scan_threshold=25,
+                   inject_threshold=5, min_events=150, whitelist=None):
+    """Análisis PRECISO por IP y ventana de tiempo. Solo marca ataque cuando hay una FIRMA
+    clara (fuerza bruta, escaneo de vulnerabilidades, inyección o flood), con evidencia y
+    nivel de confianza — para minimizar falsos positivos."""
     base = _vhosts_path()
+    whitelist = set(whitelist or [])
     if not os.path.isdir(base):
         return {"available": False,
                 "note": f"No hay acceso a {base} (solo disponible en el VPS con Plesk).",
-                "domains": []}
-    domains = []
+                "domains": [], "attackers": []}
     try:
         entries = sorted(os.listdir(base))
     except Exception as e:  # noqa
-        return {"available": False, "note": str(e)[:160], "domains": []}
+        return {"available": False, "note": str(e)[:160], "domains": [], "attackers": []}
 
+    domains = []
+    all_attackers = []
     for dom in entries:
         logs_dir = os.path.join(base, dom, "logs")
         if not os.path.isdir(logs_dir):
             continue
-        log_files = []
-        for pat in ("access_ssl_log", "access_log", "proxy_access_ssl_log", "proxy_access_log"):
-            fp = os.path.join(logs_dir, pat)
-            if os.path.isfile(fp):
-                log_files.append(fp)
-        if not log_files:
-            continue
         lines = []
-        for fp in log_files:
+        log_names = ("access_ssl_log", "access_log", "proxy_access_ssl_log", "proxy_access_log")
+        present = [os.path.join(logs_dir, n) for n in log_names if os.path.isfile(os.path.join(logs_dir, n))]
+        if not present:
+            continue
+        for fp in present:
             try:
-                lines += _tail(fp, max_lines // max(len(log_files), 1))
+                lines += _tail(fp, max_lines // max(len(present), 1))
             except Exception:  # noqa
                 pass
         if not lines:
             continue
-        ip_counter = Counter()
-        status_counter = Counter()
-        path_counter = Counter()
-        errors = 0
-        not_found = 0
-        sensitive_hits = 0
-        sensitive_paths = Counter()
+
+        # 1) parsear y quedarnos con la ventana de tiempo real más reciente
+        parsed = []
+        latest = None
         for ln in lines:
             m = _LOG_LINE.match(ln)
             if not m:
                 continue
-            ip, _ts, _method, path, status, _size = m.groups()
-            ip_counter[ip] += 1
+            ip, ts_s, method, path, status, _size, ua = m.groups()
+            ts = _parse_ts(ts_s)
+            parsed.append((ip, ts, method, path or "", status, ua or ""))
+            if ts and (latest is None or ts > latest):
+                latest = ts
+        if not parsed:
+            continue
+        cutoff = (latest - window_minutes * 60) if latest else None
+        recent = [r for r in parsed if (r[1] is None or cutoff is None or r[1] >= cutoff)]
+        if not recent:
+            recent = parsed
+
+        # 2) agregación por IP
+        ips = defaultdict(lambda: {"count": 0, "status": Counter(), "paths": Counter(),
+                                   "auth": 0, "scan": 0, "inject": 0, "notfound": 0,
+                                   "first": None, "last": None, "ua": Counter(), "distinct": set()})
+        status_counter = Counter()
+        path_counter = Counter()
+        errors = 0
+        not_found = 0
+        for ip, ts, method, path, status, ua in recent:
+            d = ips[ip]
+            d["count"] += 1
+            d["status"][status] += 1
+            d["paths"][path[:100]] += 1
+            d["distinct"].add(path.split("?")[0][:100])
+            if ua:
+                d["ua"][ua[:60]] += 1
+            if ts:
+                d["first"] = ts if d["first"] is None else min(d["first"], ts)
+                d["last"] = ts if d["last"] is None else max(d["last"], ts)
             status_counter[status] += 1
             path_counter[path[:80]] += 1
             if status and status[0] in ("4", "5"):
                 errors += 1
             if status == "404":
                 not_found += 1
-            if _SENSITIVE.search(path):
-                sensitive_hits += 1
-                sensitive_paths[path[:80]] += 1
-        total = sum(ip_counter.values())
+                d["notfound"] += 1
+            if _AUTH.search(path) and method in ("POST", "PUT"):
+                d["auth"] += 1
+            if _SENSITIVE.search(path) and status in ("404", "403", "401"):
+                d["scan"] += 1
+            if _INJECT.search(unquote(path)):
+                d["inject"] += 1
+
+        total = sum(d["count"] for d in ips.values())
         if total == 0:
             continue
-        top_ip = ip_counter.most_common(1)[0] if ip_counter else ("", 0)
-        ip_share = (top_ip[1] / total) if total else 0
-        err_rate = errors / total if total else 0
-        nf_rate = not_found / total if total else 0
 
-        # razones del "posible ataque"
-        reasons = []
-        if top_ip[1] > 300 and ip_share > 0.4:
-            reasons.append(f"La IP {top_ip[0]} concentra el {round(ip_share*100)}% del tráfico ({top_ip[1]} peticiones) — posible fuerza bruta o DoS.")
-        if err_rate > 0.5 and total > 200:
-            reasons.append(f"Tasa de errores muy alta: {round(err_rate*100)}% ({errors} de {total}).")
-        if nf_rate > 0.4 and total > 200:
-            reasons.append(f"Muchos 404 ({round(nf_rate*100)}%) — típico de un escáner buscando rutas vulnerables.")
-        if sensitive_hits > 20:
-            top_sens = ", ".join(p for p, _ in sensitive_paths.most_common(3))
-            reasons.append(f"{sensitive_hits} peticiones a rutas sensibles (p. ej. {top_sens}).")
+        # 3) evaluar cada IP contra firmas de ataque
+        span_min = max((latest - min((d["first"] for d in ips.values() if d["first"]), default=latest)) / 60.0, 1.0) if latest else float(window_minutes)
+        flagged = []
+        for ip, d in ips.items():
+            if ip in whitelist:
+                continue
+            dur = max(((d["last"] - d["first"]) / 60.0) if (d["first"] and d["last"]) else span_min, 1.0)
+            rpm = d["count"] / dur
+            reasons = []
+            kinds = []
+            if d["auth"] >= auth_threshold:
+                reasons.append(f"{d['auth']} intentos de autenticación (POST a login) — fuerza bruta.")
+                kinds.append("brute_force")
+            if d["scan"] >= scan_threshold:
+                top_s = ", ".join(p for p, _ in d["paths"].most_common(3))
+                reasons.append(f"{d['scan']} accesos fallidos a rutas sensibles (escaneo de vulnerabilidades). Ej.: {top_s}")
+                kinds.append("vuln_scan")
+            if d["inject"] >= inject_threshold:
+                reasons.append(f"{d['inject']} peticiones con firmas de inyección (SQLi/XSS/LFI/RCE).")
+                kinds.append("injection")
+            if rpm >= flood_rpm and d["count"] >= min_events:
+                reasons.append(f"{round(rpm)} peticiones/min sostenidas ({d['count']} en {round(dur)} min) — flood/DoS.")
+                kinds.append("flood")
+            if not reasons:
+                continue
+            # confianza: alta si múltiples señales o volumen muy alto
+            strong = len(kinds) >= 2 or d["auth"] >= auth_threshold * 3 or d["scan"] >= scan_threshold * 3 or rpm >= flood_rpm * 2
+            flagged.append({
+                "ip": ip, "kinds": kinds, "reasons": reasons,
+                "requests": d["count"], "rpm": round(rpm, 1),
+                "authAttempts": d["auth"], "scanHits": d["scan"], "injectHits": d["inject"],
+                "notFound": d["notfound"],
+                "confidence": "high" if strong else "medium",
+                "userAgent": (d["ua"].most_common(1)[0][0] if d["ua"] else ""),
+                "knownBot": bool(d["ua"] and _KNOWN_BOT.search(" ".join(d["ua"]))),
+                "samplePaths": [{"path": p, "hits": c} for p, c in d["paths"].most_common(5)],
+            })
 
-        suspicious = len(reasons) > 0
-        severity = "high" if (top_ip[1] > 1000 or sensitive_hits > 100 or (err_rate > 0.7 and total > 500)) else ("medium" if suspicious else "ok")
+        flagged.sort(key=lambda x: (x["confidence"] == "high", x["requests"]), reverse=True)
+        suspicious = len(flagged) > 0
+        severity = "high" if any(f["confidence"] == "high" for f in flagged) else ("medium" if suspicious else "ok")
+        for f in flagged:
+            all_attackers.append({**f, "domain": dom})
+
         domains.append({
-            "domain": dom, "requests": total, "errors": errors,
-            "errorRate": round(errors / total * 100, 1),
-            "notFound": not_found,
-            "topIps": [{"ip": ip, "hits": c} for ip, c in ip_counter.most_common(5)],
-            "topPaths": [{"path": p, "hits": c} for p, c in path_counter.most_common(5)],
-            "sensitivePaths": [{"path": p, "hits": c} for p, c in sensitive_paths.most_common(5)],
+            "domain": dom, "windowMinutes": window_minutes,
+            "requests": total, "uniqueIps": len(ips), "errors": errors,
+            "errorRate": round(errors / total * 100, 1), "notFound": not_found,
+            "topIps": [{"ip": ip, "hits": d["count"]} for ip, d in sorted(ips.items(), key=lambda x: x[1]["count"], reverse=True)[:5]],
+            "topPaths": [{"path": p, "hits": c} for p, c in path_counter.most_common(6)],
             "statusCodes": dict(status_counter.most_common(6)),
-            "suspicious": suspicious, "severity": severity, "reasons": reasons,
+            "suspicious": suspicious, "severity": severity,
+            "flaggedIps": flagged,
+            "reasons": [f"IP {f['ip']}: {f['reasons'][0]}" for f in flagged[:4]],
         })
-    domains.sort(key=lambda d: (d["suspicious"], d["requests"]), reverse=True)
-    return {"available": True, "sampleLines": max_lines, "domains": domains[:top_n]}
+
+    domains.sort(key=lambda d: ({"high": 2, "medium": 1, "ok": 0}[d["severity"]], d["requests"]), reverse=True)
+    all_attackers.sort(key=lambda x: (x["confidence"] == "high", x["requests"]), reverse=True)
+    return {"available": True, "windowMinutes": window_minutes, "sampleLines": max_lines,
+            "attackers": all_attackers[:40], "domains": domains[:top_n]}
 
 
 def _tail(path, n):

@@ -411,8 +411,36 @@ export default function ServerMonitor() {
               </div>
             )}
             {domains.traffic.available && (
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="font-semibold mb-4 inline-flex items-center gap-2"><ShieldAlert size={18} /> Tráfico por dominio (muestra reciente)</h3>
+              <>
+                {/* Panel destacado de IPs atacando */}
+                {(domains.traffic.attackers || []).length === 0 ? (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 inline-flex items-center gap-2" data-testid="no-attacks">
+                    <CheckCircle2 size={16} /> Sin ataques detectados en los últimos {domains.traffic.windowMinutes} min.
+                  </div>
+                ) : (
+                  <div className="rounded-xl border-2 border-red-500/40 bg-red-500/5 p-5" data-testid="attackers-panel">
+                    <h3 className="font-semibold mb-4 inline-flex items-center gap-2 text-red-600"><ShieldAlert size={18} /> {domains.traffic.attackers.length} IP(s) atacando · últimos {domains.traffic.windowMinutes} min</h3>
+                    <div className="space-y-3">
+                      {domains.traffic.attackers.map((a, i) => (
+                        <div key={i} data-testid={`attacker-${i}`} className="rounded-lg border border-border bg-card p-3">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${a.confidence === "high" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600"}`}>{a.confidence === "high" ? "Confianza alta" : "Confianza media"}</span>
+                            <span className="font-mono font-semibold">{a.ip}</span>
+                            <span className="text-xs text-muted-foreground">→ {a.domain}</span>
+                            {a.kinds.map((k) => <span key={k} className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">{({brute_force:"Fuerza bruta",vuln_scan:"Escaneo",injection:"Inyección",flood:"Flood/DoS"})[k] || k}</span>)}
+                            <span className="ml-auto text-xs text-muted-foreground">{a.requests} pet · {a.rpm}/min</span>
+                          </div>
+                          <ul className="list-disc pl-5 text-sm space-y-0.5">{a.reasons.map((r, ri) => <li key={ri}>{r}</li>)}</ul>
+                          {a.userAgent && <p className="text-[11px] text-muted-foreground mt-1 font-mono truncate">UA: {a.userAgent}{a.knownBot ? " · (parece bot conocido — verificar, el UA se puede falsificar)" : ""}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-3">Umbrales configurables en «Plesk & MySQL». Ventana de análisis: {domains.traffic.windowMinutes} min.</p>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="font-semibold mb-4 inline-flex items-center gap-2"><ShieldAlert size={18} /> Tráfico por dominio ({domains.traffic.windowMinutes} min)</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm min-w-[720px]">
                     <thead><tr className="text-left text-muted-foreground border-b border-border">
@@ -443,8 +471,16 @@ export default function ServerMonitor() {
                                 <div><p className="font-semibold mb-1">Rutas más pedidas</p>{d.topPaths.map((x, xi) => <div key={xi} className="flex justify-between gap-2"><span className="font-mono truncate">{x.path}</span><span className="text-muted-foreground">{x.hits}</span></div>)}</div>
                                 <div><p className="font-semibold mb-1">Códigos de estado</p>{Object.entries(d.statusCodes).map(([c, n]) => <div key={c} className="flex justify-between"><span className="font-mono">{c}</span><span className="text-muted-foreground">{n}</span></div>)}</div>
                               </div>
-                              {d.sensitivePaths && d.sensitivePaths.length > 0 && (
-                                <div className="mt-3"><p className="font-semibold text-xs text-amber-600 mb-1">Rutas sensibles atacadas</p>{d.sensitivePaths.map((x, xi) => <div key={xi} className="flex justify-between text-xs"><span className="font-mono truncate">{x.path}</span><span className="text-muted-foreground">{x.hits}</span></div>)}</div>
+                              {d.flaggedIps && d.flaggedIps.length > 0 && (
+                                <div className="mt-3">
+                                  <p className="font-semibold text-xs text-red-600 mb-1">IPs marcadas ({d.flaggedIps.length})</p>
+                                  {d.flaggedIps.map((f, fi) => (
+                                    <div key={fi} className="text-xs py-1 border-t border-border/40 first:border-0">
+                                      <span className="font-mono font-semibold">{f.ip}</span> · {f.confidence === "high" ? "alta" : "media"} · {f.requests} pet ({f.rpm}/min)
+                                      <span className="text-muted-foreground"> — {f.reasons.join(" ")}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </td></tr>
                           )}
@@ -454,6 +490,7 @@ export default function ServerMonitor() {
                   </table>
                 </div>
               </div>
+              </>
             )}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="font-semibold mb-4 inline-flex items-center gap-2"><HardDrive size={18} /> Uso de disco por dominio</h3>

@@ -3018,11 +3018,20 @@ async def monitor_system(request: Request):
 
 @api.get("/admin/monitor/domains")
 async def monitor_domains(request: Request):
-    """Consumo por dominio: tráfico/peticiones (logs) + uso de disco. Detecta posibles ataques."""
+    """Consumo por dominio: tráfico/peticiones (logs) + uso de disco. Detecta ataques con firmas precisas."""
     await require_superadmin(request)
-    traffic = await asyncio.to_thread(server_monitor.domain_traffic)
+    cfg = await _monitor_cfg()
+    kw = {
+        "window_minutes": int(cfg.get("attackWindowMinutes") or 60),
+        "flood_rpm": int(cfg.get("attackFloodRpm") or 120),
+        "auth_threshold": int(cfg.get("attackAuthThreshold") or 30),
+        "scan_threshold": int(cfg.get("attackScanThreshold") or 25),
+        "inject_threshold": int(cfg.get("attackInjectThreshold") or 5),
+        "whitelist": cfg.get("attackWhitelistIps") or [],
+    }
+    traffic = await asyncio.to_thread(lambda: server_monitor.domain_traffic(**kw))
     disk = await asyncio.to_thread(server_monitor.domain_disk_usage)
-    return {"traffic": traffic, "disk": disk}
+    return {"traffic": traffic, "disk": disk, "thresholds": kw}
 
 
 @api.get("/admin/monitor/file-changes")

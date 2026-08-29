@@ -70,12 +70,14 @@ packaging==26.2
 pandas==3.0.3
 passlib==1.7.4
 pathspec==1.1.1
+pdf2image==1.17.0
 pillow==12.3.0
 platformdirs==4.11.0
 pluggy==1.6.0
 propcache==0.5.2
 proto-plus==1.28.1
 protobuf==5.29.6
+psutil==7.2.2
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycodestyle==2.14.0
@@ -86,6 +88,7 @@ pyflakes==3.4.0
 Pygments==2.20.0
 PyJWT==2.13.0
 pymongo==4.6.3
+PyMySQL==1.2.0
 pyparsing==3.3.2
 pytest==9.1.1
 pytest-xdist==3.8.0

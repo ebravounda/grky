@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
-  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe, PhoneCall, CreditCard,
+  Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe, PhoneCall, CreditCard, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,14 +34,15 @@ const nav = [
   { to: "/app/users", label: "Usuarios y permisos", icon: ShieldCheck, id: "usuarios", perm: "users.manage" },
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion", perm: "settings.manage" },
   { to: "/app/site-content", label: "Contenido web", icon: Globe, id: "contenido-web", perm: "settings.manage" },
+  { to: "/app/monitor", label: "Monitor servidor", icon: Activity, id: "monitor", superadmin: true },
 ];
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 
-function NavItems({ onNavigate, unread, hasPerm }) {
+function NavItems({ onNavigate, unread, hasPerm, monitorAllowed }) {
   return (
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-      {nav.filter((n) => hasPerm(n.perm)).map((n) => (
+      {nav.filter((n) => (n.superadmin ? monitorAllowed : hasPerm(n.perm))).map((n) => (
         <NavLink
           key={n.to}
           to={n.to}
@@ -83,7 +84,12 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [monitorAllowed, setMonitorAllowed] = useState(false);
   const doLogout = () => logout().then(() => navigate("/login"));
+
+  useEffect(() => {
+    api.get("/admin/monitor/access").then((r) => setMonitorAllowed(!!r.data.allowed)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!hasPerm("alerts.view")) return;
@@ -99,7 +105,7 @@ export default function AdminLayout() {
     <div className="min-h-screen flex bg-background">
       <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))]">
         <Brand />
-        <NavItems unread={unread} hasPerm={hasPerm} />
+        <NavItems unread={unread} hasPerm={hasPerm} monitorAllowed={monitorAllowed} />
         <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
           <div className="px-3 py-2 mb-1">
             <p className="text-sm font-semibold truncate text-white">{user?.name}</p>
@@ -123,7 +129,7 @@ export default function AdminLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="p-0 w-72 flex flex-col bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] border-0" data-testid="mobile-menu-sheet">
                 <Brand />
-                <NavItems unread={unread} hasPerm={hasPerm} onNavigate={() => setOpen(false)} />
+                <NavItems unread={unread} hasPerm={hasPerm} monitorAllowed={monitorAllowed} onNavigate={() => setOpen(false)} />
                 <div className="p-3 border-t border-[hsl(var(--sidebar-accent))]">
                   <div className="px-3 py-2 mb-1">
                     <p className="text-sm font-semibold truncate text-white">{user?.name}</p>

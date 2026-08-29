@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend testing of new 'Monitor del servidor' (super admin only). All required flows work: super admin login shows nav-monitor + nav-pagos; monitor page renders with tabs Sistema (gauges CPU=38%, RAM=53%, Swap=0%, Uptime card, disks, servicios, integraciones MongoDB/Likes/Stripe/Email, top procesos, Auto 5s checkbox, Actualizar btn); Dominios & Ataques tab shows amber warning about /var/www/vhosts (expected in preview); Cambios de archivos tab has changes-hours selector and amber note (expected); Plesk tab shows host + apikey inputs (writable), Guardar y probar btn, and 'Abrir panel de Plesk' correctly disabled (no key configured). Regression: nav-pagos works and navigates to /app/payments (payments-page). Cliente user cannot access /app/monitor (redirected to /portal).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Non-blocking: /app/admin/monitor/access is fetched inside AdminLayout on every mount which is fine, but consider caching in AuthContext to avoid repeated calls per nav render."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (super admin); cliente@goroky.com / Cliente2026!",
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ServerMonitor page fully verified in preview. Endpoints /admin/monitor/system returns real container metrics; /domains and /file-changes return available:false with note (rendered as amber warning). Plesk config unconfigured → open panel button disabled as expected. Client account correctly blocked from /app/monitor (redirected to /portal by role guard).",
+  "rca of the issue": "N/A - all scenarios green"
+}

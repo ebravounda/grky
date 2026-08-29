@@ -1,0 +1,16 @@
+{
+  "summary": "Frontend verified for new Monitor tabs 'Bases de datos' + 'Servicios & Apps' and MySQL config fields on 'Plesk & MySQL'. Super admin login OK, /app/monitor renders 6 tabs (Sistema, Bases de datos, Servicios & Apps, Dominios & Ataques, Cambios de archivos, Plesk & MySQL). Databases tab: db-mongo shows real data (MongoDB v7.0.40, 31.3 MB, 4/405 conexiones, 21m uptime, list of DBs test_database/config/local/admin + Ops counters). db-mysql shows expected 'no configurado' message without crashing. Services tab: 5 app cards found (tramilex, goroky, ingresoqr, gym24, mvg) each with 'Sin servicios systemd detectados' (expected in preview) + 'Puertos a la escucha' section rendered with 1 listening port (0.0.0.0:* python/uvicorn). monitor-refresh works on both new tabs. Plesk & MySQL tab: plesk-host, plesk-apikey and all mysql-host/mysql-port/mysql-user/mysql-pw fields are editable; plesk-save button clicks and triggers save+test without breaking UI. System tab regression OK (CPU/RAM/Swap/Uptime keywords present). No console/page errors, no error-class elements.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com / Goroky2026!",
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ServerMonitor now has 6 tabs. New endpoints /api/admin/monitor/databases and /services rendered correctly in preview. MongoDB real data shows on db-mongo card. MySQL and systemd apps degrade gracefully in preview as expected. Plesk & MySQL config form contains both plesk-* and mysql-* editable fields plus plesk-save action.",
+  "rca of the issue": "N/A - all scenarios green"
+}

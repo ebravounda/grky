@@ -28,6 +28,7 @@ import Tickets from "@/pages/admin/Tickets";
 import Users from "@/pages/admin/Users";
 import AppUsers from "@/pages/admin/AppUsers";
 import Payments from "@/pages/admin/Payments";
+import ServerMonitor from "@/pages/admin/ServerMonitor";
 import Commissions from "@/pages/admin/Commissions";
 import ClientDashboard from "@/pages/client/ClientDashboard";
 import ClientLineDetail from "@/pages/client/ClientLineDetail";
@@ -113,6 +114,7 @@ function App() {
             <Route path="orders" element={<PermGuard perm="orders.manage"><Orders /></PermGuard>} />
             <Route path="billing" element={<PermGuard perm="billing.manage"><Billing /></PermGuard>} />
             <Route path="payments" element={<PermGuard perm="billing.manage"><Payments /></PermGuard>} />
+            <Route path="monitor" element={<ServerMonitor />} />
             <Route path="shipments" element={<PermGuard perm="shipments.manage"><Shipments /></PermGuard>} />
             <Route path="promotions" element={<PermGuard perm="promotions.manage"><Promociones /></PermGuard>} />
             <Route path="installations" element={<PermGuard perm="installations.manage"><Installations /></PermGuard>} />

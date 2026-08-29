@@ -25,6 +25,9 @@ import likes_sync
 import likes_reconcile
 import emailer
 import base64
+import plesk_client
+import server_monitor
+import db_monitor
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
 from contracts import generate_contract_pdf, DEFAULT_TEMPLATE as DEFAULT_CONTRACT_TEMPLATE
@@ -61,6 +64,20 @@ async def require_admin(request: Request) -> dict:
     user = await get_current_user(request, db)
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Solo administradores")
+    return user
+
+
+def _superadmin_emails():
+    raw = os.environ.get("MONITOR_ADMIN_EMAILS") or os.environ.get("ADMIN_EMAIL") or ""
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+async def require_superadmin(request: Request) -> dict:
+    """Solo el super administrador (email en ADMIN_EMAIL/MONITOR_ADMIN_EMAILS) accede al monitor."""
+    user = await get_current_user(request, db)
+    allowed = _superadmin_emails()
+    if user.get("role") != "admin" or (allowed and (user.get("email") or "").lower() not in allowed):
+        raise HTTPException(status_code=403, detail="Acceso restringido al administrador principal")
     return user
 
 
@@ -2961,6 +2978,195 @@ async def system_health(request: Request):
     }
 
 
+# ------------------------- Monitor del servidor (solo super admin) -------------------------
+async def _monitor_cfg():
+    doc = await db.app_settings.find_one({"_id": "monitor"}) or {}
+    return doc
+
+
+@api.get("/admin/monitor/access")
+async def monitor_access(request: Request):
+    """Indica si el usuario actual puede ver el monitor (para mostrar/ocultar el menú)."""
+    user = await current_user(request)
+    allowed = _superadmin_emails()
+    ok = user.get("role") == "admin" and (not allowed or (user.get("email") or "").lower() in allowed)
+    return {"allowed": bool(ok)}
+
+
+@api.get("/admin/monitor/system")
+async def monitor_system(request: Request):
+    await require_superadmin(request)
+    metrics = await asyncio.to_thread(server_monitor.system_metrics)
+    services = await asyncio.to_thread(server_monitor.service_status)
+    # estado de MongoDB
+    mongo_ok = True
+    try:
+        await db.command("ping")
+    except Exception:  # noqa
+        mongo_ok = False
+    integrations = {
+        "likes": {"live": likes_client.CONNECTION_STATE.get("live"),
+                  "error": likes_client.CONNECTION_STATE.get("last_error")},
+        "stripe": {"mode": os.environ.get("STRIPE_MODE", "test")},
+        "email": {"configured": emailer.is_configured(), "sender": os.environ.get("SENDER_EMAIL", "")},
+        "mongo": {"ok": mongo_ok},
+    }
+    cfg = await _monitor_cfg()
+    return {"metrics": metrics, "services": services, "integrations": integrations,
+            "pleskConfigured": plesk_client.configured(cfg)}
+
+
+@api.get("/admin/monitor/domains")
+async def monitor_domains(request: Request):
+    """Consumo por dominio: tráfico/peticiones (logs) + uso de disco. Detecta posibles ataques."""
+    await require_superadmin(request)
+    traffic = await asyncio.to_thread(server_monitor.domain_traffic)
+    disk = await asyncio.to_thread(server_monitor.domain_disk_usage)
+    return {"traffic": traffic, "disk": disk}
+
+
+@api.get("/admin/monitor/file-changes")
+async def monitor_file_changes(request: Request, hours: int = 24):
+    await require_superadmin(request)
+    hours = max(1, min(hours, 720))
+    data = await asyncio.to_thread(server_monitor.recent_file_changes, hours)
+    return data
+
+
+def _app_keywords(cfg):
+    kw = cfg.get("appKeywords") if isinstance(cfg, dict) else None
+    if isinstance(kw, list) and kw:
+        return [str(k) for k in kw]
+    return ["tramilex", "goroky", "ingresoqr", "gym24", "mvg"]
+
+
+@api.get("/admin/monitor/services")
+async def monitor_services(request: Request):
+    """Servicios systemd agrupados por app + servicios activos + puertos a la escucha."""
+    await require_superadmin(request)
+    cfg = await _monitor_cfg()
+    apps = await asyncio.to_thread(db_monitor.app_services, _app_keywords(cfg))
+    ports = await asyncio.to_thread(db_monitor.listening_ports)
+    return {"apps": apps, "ports": ports, "keywords": _app_keywords(cfg)}
+
+
+@api.get("/admin/monitor/databases")
+async def monitor_databases(request: Request):
+    """Estado y consumo de las bases de datos (MongoDB en vivo + MySQL/MariaDB). Solo lectura."""
+    await require_superadmin(request)
+    # MongoDB (motor, async, seguro)
+    mongo = {"available": False, "note": "No disponible"}
+    try:
+        info = await client.admin.command("listDatabases")
+        dbs = sorted([{"name": d["name"], "bytes": int(d.get("sizeOnDisk", 0) or 0),
+                       "human": server_monitor._fmt_bytes(d.get("sizeOnDisk", 0) or 0)}
+                      for d in info.get("databases", [])],
+                     key=lambda x: x["bytes"], reverse=True)
+        ss = await client.admin.command("serverStatus")
+        conns = ss.get("connections", {}) or {}
+        opc = ss.get("opcounters", {}) or {}
+        mem = ss.get("mem", {}) or {}
+        mongo = {
+            "available": True,
+            "version": ss.get("version"),
+            "uptime": int(ss.get("uptime", 0) or 0),
+            "totalBytes": int(info.get("totalSize", 0) or 0),
+            "totalHuman": server_monitor._fmt_bytes(info.get("totalSize", 0) or 0),
+            "databases": dbs,
+            "connections": {"current": conns.get("current"), "available": conns.get("available"),
+                            "active": conns.get("active")},
+            "opcounters": opc,
+            "memResidentMB": mem.get("resident"),
+        }
+    except Exception as e:  # noqa
+        mongo = {"available": False, "note": f"MongoDB: {str(e)[:140]}"}
+    cfg = await _monitor_cfg()
+    mysql = await asyncio.to_thread(db_monitor.mysql_stats, cfg)
+    return {"mongo": mongo, "mysql": mysql}
+
+
+@api.get("/admin/monitor/plesk/domains")
+async def monitor_plesk_domains(request: Request):
+    await require_superadmin(request)
+    cfg = await _monitor_cfg()
+    data, err = await asyncio.to_thread(plesk_client.list_domains, cfg)
+    if err:
+        raise HTTPException(status_code=503, detail=f"Plesk: {err}")
+    return {"domains": data}
+
+
+@api.post("/admin/monitor/plesk/login-link")
+async def monitor_plesk_login(request: Request):
+    """Genera un enlace de un solo uso para entrar al panel de Plesk."""
+    await require_superadmin(request)
+    cfg = await _monitor_cfg()
+    data, err = await asyncio.to_thread(plesk_client.login_link, cfg)
+    if err:
+        raise HTTPException(status_code=503, detail=f"Plesk: {err}")
+    stdout = ""
+    if isinstance(data, dict):
+        stdout = (data.get("stdout") or data.get("output") or "").strip()
+    links = re.findall(r"https?://\S+", stdout)
+    host = (cfg.get("pleskHost") or os.environ.get("PLESK_HOST") or "").rstrip("/")
+    return {"links": links, "raw": stdout, "panelUrl": host}
+
+
+class MonitorPleskConfig(BaseModel):
+    pleskHost: Optional[str] = None
+    pleskApiKey: Optional[str] = None
+    mysqlHost: Optional[str] = None
+    mysqlUser: Optional[str] = None
+    mysqlPassword: Optional[str] = None
+    mysqlPort: Optional[int] = None
+    appKeywords: Optional[List[str]] = None
+
+
+def _mask(v):
+    if not v:
+        return ""
+    return f"••••{v[-4:]}" if len(v) > 4 else "••••"
+
+
+@api.get("/admin/monitor/plesk/config")
+async def get_monitor_plesk_config(request: Request):
+    await require_superadmin(request)
+    cfg = await _monitor_cfg()
+    key = cfg.get("pleskApiKey") or os.environ.get("PLESK_API_KEY") or ""
+    mysql_pw = cfg.get("mysqlPassword") or os.environ.get("MYSQL_PASSWORD") or ""
+    return {"pleskHost": cfg.get("pleskHost") or os.environ.get("PLESK_HOST") or "https://127.0.0.1:8443",
+            "pleskApiKeyMasked": _mask(key), "configured": bool(key),
+            "mysqlHost": cfg.get("mysqlHost") or os.environ.get("MYSQL_HOST") or "127.0.0.1",
+            "mysqlUser": cfg.get("mysqlUser") or os.environ.get("MYSQL_USER") or "admin",
+            "mysqlPort": cfg.get("mysqlPort") or 3306,
+            "mysqlPasswordMasked": _mask(mysql_pw), "mysqlConfigured": bool(mysql_pw),
+            "appKeywords": _app_keywords(cfg)}
+
+
+@api.put("/admin/monitor/plesk/config")
+async def set_monitor_plesk_config(body: MonitorPleskConfig, request: Request):
+    await require_superadmin(request)
+    upd = {}
+    if body.pleskHost is not None:
+        upd["pleskHost"] = body.pleskHost.strip().rstrip("/")
+    if body.pleskApiKey is not None and body.pleskApiKey.strip() and "••••" not in body.pleskApiKey:
+        upd["pleskApiKey"] = body.pleskApiKey.strip()
+    if body.mysqlHost is not None:
+        upd["mysqlHost"] = body.mysqlHost.strip()
+    if body.mysqlUser is not None:
+        upd["mysqlUser"] = body.mysqlUser.strip()
+    if body.mysqlPort is not None:
+        upd["mysqlPort"] = int(body.mysqlPort)
+    if body.mysqlPassword is not None and body.mysqlPassword.strip() and "••••" not in body.mysqlPassword:
+        upd["mysqlPassword"] = body.mysqlPassword.strip()
+    if body.appKeywords is not None:
+        upd["appKeywords"] = [k.strip() for k in body.appKeywords if k.strip()]
+    if upd:
+        await db.app_settings.update_one({"_id": "monitor"}, {"$set": upd}, upsert=True)
+    cfg = await _monitor_cfg()
+    test = await asyncio.to_thread(plesk_client.test_connection, cfg)
+    return {"ok": True, "test": test}
+
+
 # ------------------------- Solicitudes (application review) -------------------------
 @api.get("/applications")
 async def list_applications(request: Request, status: Optional[str] = None):
@@ -5164,7 +5370,6 @@ async def send_order_tracking(order_id: str, request: Request):
 
 
 # ------------------------- portal público de contratación -------------------------
-import secrets as _secrets
 from bson import ObjectId as _OID
 
 

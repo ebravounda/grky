@@ -3111,6 +3111,40 @@ async def monitor_plesk_login(request: Request):
     return {"links": links, "raw": stdout, "panelUrl": host}
 
 
+class FileLinkBody(BaseModel):
+    domain: str
+    path: str
+
+
+@api.post("/admin/monitor/plesk/file-link")
+async def monitor_plesk_file_link(body: FileLinkBody, request: Request):
+    """Genera el enlace al Administrador de Archivos de Plesk en la carpeta del archivo modificado."""
+    await require_superadmin(request)
+    from urllib.parse import quote
+    cfg = await _monitor_cfg()
+    host = (cfg.get("pleskHost") or os.environ.get("PLESK_HOST") or "https://127.0.0.1:8443").rstrip("/")
+    data, err = await asyncio.to_thread(plesk_client.list_domains, cfg)
+    if err:
+        raise HTTPException(status_code=503, detail=f"Plesk: {err}")
+    dom = body.domain.strip().lower()
+    did = None
+    for d in (data or []):
+        if str(d.get("name", "")).lower() == dom or str(d.get("ascii_name", "")).lower() == dom:
+            did = d.get("id")
+            break
+    # path viene como "<dominio>/httpdocs/.../fichero" → relativo al home = quitar "<dominio>/"
+    rel = body.path
+    if rel.startswith(body.domain + "/"):
+        rel = rel[len(body.domain) + 1:]
+    folder = "/" + os.path.dirname(rel).strip("/")
+    cur = quote(folder, safe="")
+    if did:
+        url = f"{host}/smb/file-manager/list/domainId/{did}?currentDir={cur}"
+    else:
+        url = f"{host}/smb/file-manager/list/?currentDir={cur}"
+    return {"url": url, "domainId": did, "folder": folder}
+
+
 class MonitorPleskConfig(BaseModel):
     pleskHost: Optional[str] = None
     pleskApiKey: Optional[str] = None

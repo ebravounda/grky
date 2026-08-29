@@ -136,10 +136,16 @@ def service_status(services=None):
 # ------------------------- análisis de logs web por dominio (ataques) -------------------------
 _LOG_LINE = re.compile(r'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) [^"]*" (\d{3}) (\S+)')
 
+# rutas típicas de escaneo/ataque (WordPress, credenciales, shells, etc.)
+_SENSITIVE = re.compile(
+    r"(wp-login\.php|xmlrpc\.php|/wp-admin|/\.env|/\.git|/phpmyadmin|/pma|/administrator|"
+    r"/admin\.php|/shell|/eval|/\.aws|/config\.php|/vendor/|/\.ssh|/setup\.php|/boaform|"
+    r"/cgi-bin|/wp-content/uploads/.*\.php|/\.well-known/.*\.php)", re.I)
+
 
 def domain_traffic(max_lines=4000, top_n=12):
     """Recorre los access logs de cada vhost, cuenta peticiones recientes, top IPs y
-    marca posibles ataques (una IP con muchísimas peticiones o muchos 4xx/5xx)."""
+    marca posibles ataques explicando el porqué (razones)."""
     base = _vhosts_path()
     if not os.path.isdir(base):
         return {"available": False,
@@ -174,6 +180,9 @@ def domain_traffic(max_lines=4000, top_n=12):
         status_counter = Counter()
         path_counter = Counter()
         errors = 0
+        not_found = 0
+        sensitive_hits = 0
+        sensitive_paths = Counter()
         for ln in lines:
             m = _LOG_LINE.match(ln)
             if not m:
@@ -184,21 +193,44 @@ def domain_traffic(max_lines=4000, top_n=12):
             path_counter[path[:80]] += 1
             if status and status[0] in ("4", "5"):
                 errors += 1
+            if status == "404":
+                not_found += 1
+            if _SENSITIVE.search(path):
+                sensitive_hits += 1
+                sensitive_paths[path[:80]] += 1
         total = sum(ip_counter.values())
         if total == 0:
             continue
         top_ip = ip_counter.most_common(1)[0] if ip_counter else ("", 0)
-        # heurística de ataque: una IP concentra >40% del tráfico y >300 hits, o >50% de errores
-        suspicious = (top_ip[1] > 300 and top_ip[1] / total > 0.4) or (errors / total > 0.5 and total > 200)
+        ip_share = (top_ip[1] / total) if total else 0
+        err_rate = errors / total if total else 0
+        nf_rate = not_found / total if total else 0
+
+        # razones del "posible ataque"
+        reasons = []
+        if top_ip[1] > 300 and ip_share > 0.4:
+            reasons.append(f"La IP {top_ip[0]} concentra el {round(ip_share*100)}% del tráfico ({top_ip[1]} peticiones) — posible fuerza bruta o DoS.")
+        if err_rate > 0.5 and total > 200:
+            reasons.append(f"Tasa de errores muy alta: {round(err_rate*100)}% ({errors} de {total}).")
+        if nf_rate > 0.4 and total > 200:
+            reasons.append(f"Muchos 404 ({round(nf_rate*100)}%) — típico de un escáner buscando rutas vulnerables.")
+        if sensitive_hits > 20:
+            top_sens = ", ".join(p for p, _ in sensitive_paths.most_common(3))
+            reasons.append(f"{sensitive_hits} peticiones a rutas sensibles (p. ej. {top_sens}).")
+
+        suspicious = len(reasons) > 0
+        severity = "high" if (top_ip[1] > 1000 or sensitive_hits > 100 or (err_rate > 0.7 and total > 500)) else ("medium" if suspicious else "ok")
         domains.append({
             "domain": dom, "requests": total, "errors": errors,
             "errorRate": round(errors / total * 100, 1),
+            "notFound": not_found,
             "topIps": [{"ip": ip, "hits": c} for ip, c in ip_counter.most_common(5)],
             "topPaths": [{"path": p, "hits": c} for p, c in path_counter.most_common(5)],
+            "sensitivePaths": [{"path": p, "hits": c} for p, c in sensitive_paths.most_common(5)],
             "statusCodes": dict(status_counter.most_common(6)),
-            "suspicious": suspicious,
+            "suspicious": suspicious, "severity": severity, "reasons": reasons,
         })
-    domains.sort(key=lambda d: d["requests"], reverse=True)
+    domains.sort(key=lambda d: (d["suspicious"], d["requests"]), reverse=True)
     return {"available": True, "sampleLines": max_lines, "domains": domains[:top_n]}
 
 

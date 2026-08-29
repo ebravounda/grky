@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import api, { apiErr } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,15 @@ export default function ServerMonitor() {
   const [databases, setDatabases] = useState(null);
   const [services, setServices] = useState(null);
   const [mysqlPw, setMysqlPw] = useState("");
+  const [openDom, setOpenDom] = useState(null);
+
+  const openInPlesk = async (f) => {
+    try {
+      const { data: res } = await api.post("/admin/monitor/plesk/file-link", { domain: f.domain, path: f.path });
+      if (res.url) window.open(res.url, "_blank");
+      else toast.error("No se pudo generar el enlace");
+    } catch (e) { toast.error(apiErr(e)); }
+  };
 
   const loadSystem = useCallback(() => {
     api.get("/admin/monitor/system").then((r) => setData(r.data)).catch((e) => toast.error(apiErr(e)));
@@ -412,13 +421,34 @@ export default function ServerMonitor() {
                     </tr></thead>
                     <tbody>
                       {domains.traffic.domains.map((d, i) => (
-                        <tr key={i} data-testid={`traffic-${i}`} className="border-b border-border/50 last:border-0">
-                          <td className="p-2 font-medium">{d.domain}</td>
-                          <td className="p-2 text-right">{d.requests.toLocaleString()}</td>
-                          <td className="p-2 text-right">{d.errors} ({d.errorRate}%)</td>
-                          <td className="p-2 text-xs">{d.topIps[0] ? `${d.topIps[0].ip} (${d.topIps[0].hits})` : "—"}</td>
-                          <td className="p-2">{d.suspicious ? <span className="inline-flex items-center gap-1 text-red-600 font-semibold text-xs"><AlertTriangle size={13} /> Posible ataque</span> : <span className="text-emerald-600 text-xs">OK</span>}</td>
-                        </tr>
+                        <Fragment key={i}>
+                          <tr data-testid={`traffic-${i}`} onClick={() => setOpenDom(openDom === i ? null : i)}
+                            className={`border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/40 ${d.suspicious ? "bg-red-500/5" : ""}`}>
+                            <td className="p-2 font-medium">{d.domain}</td>
+                            <td className="p-2 text-right">{d.requests.toLocaleString()}</td>
+                            <td className="p-2 text-right">{d.errors} ({d.errorRate}%)</td>
+                            <td className="p-2 text-xs">{d.topIps[0] ? `${d.topIps[0].ip} (${d.topIps[0].hits})` : "—"}</td>
+                            <td className="p-2">{d.suspicious ? <span data-testid={`attack-${i}`} className={`inline-flex items-center gap-1 font-semibold text-xs ${d.severity === "high" ? "text-red-600" : "text-amber-600"}`}><AlertTriangle size={13} /> {d.severity === "high" ? "Ataque probable" : "Posible ataque"} · ver</span> : <span className="text-emerald-600 text-xs">OK</span>}</td>
+                          </tr>
+                          {openDom === i && (
+                            <tr data-testid={`traffic-detail-${i}`}><td colSpan={5} className="p-4 bg-muted/30">
+                              {d.reasons.length > 0 ? (
+                                <div className="mb-3">
+                                  <p className="text-xs font-semibold text-red-600 mb-1 inline-flex items-center gap-1.5"><ShieldAlert size={14} /> Motivos de la alerta</p>
+                                  <ul className="list-disc pl-5 space-y-0.5 text-sm">{d.reasons.map((r, ri) => <li key={ri}>{r}</li>)}</ul>
+                                </div>
+                              ) : <p className="text-sm text-muted-foreground mb-2">Sin indicios de ataque. Detalle del tráfico:</p>}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                                <div><p className="font-semibold mb-1">Top IPs</p>{d.topIps.map((x, xi) => <div key={xi} className="flex justify-between"><span className="font-mono">{x.ip}</span><span className="text-muted-foreground">{x.hits}</span></div>)}</div>
+                                <div><p className="font-semibold mb-1">Rutas más pedidas</p>{d.topPaths.map((x, xi) => <div key={xi} className="flex justify-between gap-2"><span className="font-mono truncate">{x.path}</span><span className="text-muted-foreground">{x.hits}</span></div>)}</div>
+                                <div><p className="font-semibold mb-1">Códigos de estado</p>{Object.entries(d.statusCodes).map(([c, n]) => <div key={c} className="flex justify-between"><span className="font-mono">{c}</span><span className="text-muted-foreground">{n}</span></div>)}</div>
+                              </div>
+                              {d.sensitivePaths && d.sensitivePaths.length > 0 && (
+                                <div className="mt-3"><p className="font-semibold text-xs text-amber-600 mb-1">Rutas sensibles atacadas</p>{d.sensitivePaths.map((x, xi) => <div key={xi} className="flex justify-between text-xs"><span className="font-mono truncate">{x.path}</span><span className="text-muted-foreground">{x.hits}</span></div>)}</div>
+                              )}
+                            </td></tr>
+                          )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -462,7 +492,7 @@ export default function ServerMonitor() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[680px]">
                   <thead><tr className="text-left text-muted-foreground border-b border-border">
-                    <th className="p-2 font-medium">Fecha</th><th className="p-2 font-medium">Dominio</th><th className="p-2 font-medium">Ruta</th><th className="p-2 font-medium text-right">Tamaño</th>
+                    <th className="p-2 font-medium">Fecha</th><th className="p-2 font-medium">Dominio</th><th className="p-2 font-medium">Ruta</th><th className="p-2 font-medium text-right">Tamaño</th><th className="p-2 font-medium"></th>
                   </tr></thead>
                   <tbody>
                     {changes.files.map((f, i) => (
@@ -471,6 +501,12 @@ export default function ServerMonitor() {
                         <td className="p-2 font-medium">{f.domain}</td>
                         <td className="p-2 text-xs font-mono break-all">{f.suspicious && <AlertTriangle size={12} className="inline mr-1 text-amber-500" />}{f.path}</td>
                         <td className="p-2 text-right text-muted-foreground">{f.sizeH}</td>
+                        <td className="p-2 text-right">
+                          <button data-testid={`change-plesk-${i}`} onClick={() => openInPlesk(f)}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline whitespace-nowrap">
+                            <ExternalLink size={12} /> Revisar en Plesk
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

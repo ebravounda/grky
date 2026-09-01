@@ -1050,6 +1050,80 @@ async def admin_block_app_user(uid: str, body: BlockBody, request: Request):
     return {"ok": True, "appBlocked": bool(body.blocked)}
 
 
+# ------------------------- dar acceso a clientes de Likes con servicio activo -------------------------
+async def _eligible_customers_for_access():
+    """Clientes con ≥1 línea ACTIVE que aún NO tienen usuario de app."""
+    active_fids = await db.lines.distinct("fiscalId", {"status": "ACTIVE"})
+    if not active_fids:
+        return []
+    existing = await db.users.find({"role": "client"}, {"fiscalId": 1, "email": 1}).to_list(100000)
+    taken_fids = {u.get("fiscalId") for u in existing if u.get("fiscalId")}
+    taken_emails = {(u.get("email") or "").lower() for u in existing if u.get("email")}
+    out = []
+    for fid in active_fids:
+        if not fid or fid in taken_fids:
+            continue
+        cust = await db.customers.find_one({"fiscalId": fid})
+        if not cust:
+            continue
+        email = (cust.get("email") or "").lower()
+        if email and email in taken_emails:
+            continue
+        active = await db.lines.count_documents({"fiscalId": fid, "status": "ACTIVE"})
+        name = f"{cust.get('name', '')} {cust.get('firstSurname', '')}".strip() or cust.get("name") or "—"
+        out.append({"fiscalId": fid, "name": name, "email": cust.get("email") or "",
+                    "hasEmail": bool(email), "activeServices": active})
+    out.sort(key=lambda x: (not x["hasEmail"], -x["activeServices"]))
+    return out
+
+
+@api.get("/admin/app-access/eligible")
+async def admin_app_access_eligible(request: Request):
+    await require_admin(request)
+    items = await _eligible_customers_for_access()
+    return {"count": len(items), "withEmail": sum(1 for i in items if i["hasEmail"]), "items": items}
+
+
+@api.post("/admin/app-access/grant")
+async def admin_app_access_grant(body: dict, request: Request):
+    """Da acceso a la app a UN cliente (con servicio activo): crea usuario y envía credenciales."""
+    await require_admin(request)
+    fid = (body or {}).get("fiscalId")
+    if not fid:
+        raise HTTPException(status_code=400, detail="fiscalId requerido")
+    cust = await db.customers.find_one({"fiscalId": fid})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if not cust.get("email"):
+        raise HTTPException(status_code=400, detail="El cliente no tiene email; añádelo primero en su ficha")
+    active = await db.lines.count_documents({"fiscalId": fid, "status": "ACTIVE"})
+    if active == 0:
+        raise HTTPException(status_code=400, detail="El cliente no tiene servicios activos")
+    if await db.users.find_one({"$or": [{"fiscalId": fid, "role": "client"}, {"email": cust["email"].lower()}]}):
+        raise HTTPException(status_code=409, detail="Este cliente ya tiene acceso a la app")
+    await _ensure_client_access(cust)
+    return {"ok": True, "emailed": True, "email": cust["email"]}
+
+
+@api.post("/admin/app-access/grant-all")
+async def admin_app_access_grant_all(request: Request):
+    """Da acceso a la app a TODOS los clientes con servicio activo que aún no lo tienen (y tienen email)."""
+    await require_admin(request)
+    items = await _eligible_customers_for_access()
+    granted = 0
+    skipped_no_email = 0
+    for it in items:
+        if not it["hasEmail"]:
+            skipped_no_email += 1
+            continue
+        cust = await db.customers.find_one({"fiscalId": it["fiscalId"]})
+        if cust:
+            await _ensure_client_access(cust)
+            granted += 1
+    await log_event("system", "info", f"Accesos a la app concedidos en masa · {granted} cliente(s)")
+    return {"ok": True, "granted": granted, "skippedNoEmail": skipped_no_email}
+
+
 # ------------------------- dashboard -------------------------
 @api.get("/dashboard/stats")
 async def dashboard_stats(request: Request):

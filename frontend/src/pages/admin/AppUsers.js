@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
-import { Smartphone, Search, KeyRound, LogOut, Lock, Unlock, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Smartphone, Search, KeyRound, LogOut, Lock, Unlock, RefreshCw, CheckCircle2, XCircle, UserPlus, Users, MailWarning } from "lucide-react";
 import { toast } from "sonner";
 
 function fmtDate(iso) {
@@ -25,12 +25,36 @@ export default function AppUsers() {
   const [busy, setBusy] = useState(null);
   const [pwDialog, setPwDialog] = useState(null);
   const [newPw, setNewPw] = useState("");
+  const [eligible, setEligible] = useState(null);
+  const [grantBusy, setGrantBusy] = useState(null);
 
   const load = () => {
     setLoading(true);
     api.get("/admin/app-users").then((r) => setUsers(r.data)).catch((e) => toast.error(apiErr(e))).finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  const loadEligible = () => {
+    api.get("/admin/app-access/eligible").then((r) => setEligible(r.data)).catch(() => {});
+  };
+  useEffect(() => { load(); loadEligible(); }, []);
+
+  const grantOne = async (it) => {
+    setGrantBusy(it.fiscalId);
+    try {
+      await api.post("/admin/app-access/grant", { fiscalId: it.fiscalId });
+      toast.success(`Acceso creado y enviado a ${it.email}`);
+      loadEligible(); load();
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setGrantBusy(null); }
+  };
+  const grantAll = async () => {
+    setGrantBusy("all");
+    try {
+      const { data } = await api.post("/admin/app-access/grant-all");
+      toast.success(`${data.granted} acceso(s) creados y enviados${data.skippedNoEmail ? ` · ${data.skippedNoEmail} sin email omitidos` : ""}`);
+      loadEligible(); load();
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setGrantBusy(null); }
+  };
 
   const act = async (u, fn, ok) => {
     setBusy(u.id);
@@ -61,6 +85,52 @@ export default function AppUsers() {
     <div data-testid="app-users-page">
       <PageHeader overline="Acceso" title="Usuarios de la app"
         subtitle="Clientes con acceso a la app: último ingreso, sesión, contraseña y bloqueo." />
+
+      {eligible && eligible.count > 0 && (
+        <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-5 mb-6" data-testid="eligible-panel">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <h3 className="font-semibold inline-flex items-center gap-2"><Users size={18} className="text-primary" /> {eligible.count} cliente(s) con servicio activo sin acceso a la app</h3>
+            <Button size="sm" className="rounded-full h-8 gap-1.5 ml-auto" disabled={grantBusy === "all" || eligible.withEmail === 0}
+              data-testid="grant-all-btn" onClick={grantAll}>
+              <UserPlus size={14} /> Dar acceso a todos ({eligible.withEmail})
+            </Button>
+          </div>
+          <div className="rounded-lg border border-border bg-card overflow-x-auto max-h-80 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-card">
+                <tr className="border-b border-border text-left text-muted-foreground">
+                  <th className="p-3 font-medium">Cliente</th>
+                  <th className="p-3 font-medium">Servicios activos</th>
+                  <th className="p-3 font-medium text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {eligible.items.map((it) => (
+                  <tr key={it.fiscalId} data-testid={`eligible-${it.fiscalId}`} className="border-b border-border/60 last:border-0 hover:bg-muted/40">
+                    <td className="p-3">
+                      <p className="font-medium text-foreground">{it.name}</p>
+                      <p className="text-xs text-muted-foreground">{it.fiscalId}</p>
+                      {it.hasEmail
+                        ? <p className="text-xs text-muted-foreground">{it.email}</p>
+                        : <p className="text-xs text-amber-600 inline-flex items-center gap-1"><MailWarning size={12} /> Sin email — añádelo en su ficha</p>}
+                    </td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center gap-1.5 text-success font-medium"><CheckCircle2 size={14} /> {it.activeServices} activo{it.activeServices > 1 ? "s" : ""}</span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <Button size="sm" className="rounded-full h-8 gap-1.5" disabled={!it.hasEmail || grantBusy === it.fiscalId || grantBusy === "all"}
+                        data-testid={`grant-${it.fiscalId}`} onClick={() => grantOne(it)}>
+                        <UserPlus size={13} /> Dar acceso
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-2">Se crea su usuario y se le envía por email el enlace de la app, su usuario y contraseña. Los que no tienen email quedan deshabilitados hasta añadirlo.</p>
+        </div>
+      )}
 
       <div className="relative mb-5 max-w-md">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

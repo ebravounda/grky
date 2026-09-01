@@ -590,3 +590,15 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - ⚠️ Ambas cosas solo se validan visualmente en el VPS (preview no tiene logs/vhosts/Plesk). Lógica backend verificada por unit test + curl; frontend compila limpio.
 - **Plesk API key generada por el usuario** (HTTP 201): `ac40752e-...` — NO se guarda en el repositorio (opción segura); el usuario la pega en la web (pestaña "Plesk & MySQL" → Guardar y probar) o vía env `PLESK_API_KEY` en el `.env` del VPS. Contraseña de Plesk del usuario: `admin` / `Ed$$2526759` (doble $).
 
+
+### Iteración 2026-06 (fork) — Dar acceso a la app a clientes de Likes con servicio activo
+- **Pedido**: los clientes registrados en Likes con servicio activo deben poder recibir acceso a la app de GoRoky.
+- **Arquitectura existente reutilizada**: customers (fiscalId+email) ← lines (status ACTIVE) ← users(role client, fiscalId). `_ensure_client_access(cust)` crea el usuario cliente y envía credenciales por email.
+- **Backend nuevo** (server.py, junto a app-users):
+  - `GET /api/admin/app-access/eligible` → clientes con ≥1 línea ACTIVE que aún NO tienen usuario de app (excluye por fiscalId y por email ya usado). Devuelve {count, withEmail, items[{fiscalId,name,email,hasEmail,activeServices}]}.
+  - `POST /api/admin/app-access/grant` {fiscalId} → valida servicio activo + email + no duplicado (409), crea usuario y envía credenciales.
+  - `POST /api/admin/app-access/grant-all` → concede a todos los elegibles con email; devuelve {granted, skippedNoEmail}.
+  - Helper `_eligible_customers_for_access()`.
+- **Frontend** (AppUsers.js): tarjeta "N clientes con servicio activo sin acceso" con tabla (nombre, NIF, email/aviso sin-email, servicios activos) + botón "Dar acceso" por cliente (data-testid `grant-{fiscalId}`) y "Dar acceso a todos (N)" (`grant-all-btn`). Los clientes sin email quedan deshabilitados con aviso para añadirlo en su ficha.
+- **Verificado por curl (E2E)**: eligible=22 (todos con email); grant 45678912C → crea usuario+email, segundo intento 409, eligible baja a 21, aparece en app-users. Frontend JSX válido + webpack OK. (No se usó testing_agent; backend verificado por curl, frontend por compilación.)
+

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download, Pencil, Trash2, Mail, Send, Landmark,
+  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download, Pencil, Trash2, Mail, Send, Landmark, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +55,12 @@ export default function CustomerDetail() {
   const [savingBilling, setSavingBilling] = useState(false);
   const [cardSending, setCardSending] = useState(false);
   const [sepaSending, setSepaSending] = useState(false);
+  // cobrar ahora (tarjeta / SEPA con método guardado)
+  const [chargeNowOpen, setChargeNowOpen] = useState(false);
+  const [chargeNowMethod, setChargeNowMethod] = useState("card");
+  const [chargeNowForm, setChargeNowForm] = useState({ concept: "", amount: "" });
+  const [chargeInfo, setChargeInfo] = useState(null);
+  const [chargingNow, setChargingNow] = useState(false);
   // facturas (crear / editar)
   const [invOpen, setInvOpen] = useState(false);
   const [invEditId, setInvEditId] = useState(null);
@@ -127,6 +133,33 @@ export default function CustomerDetail() {
       else toast.success("Enlace SEPA generado (abriendo en nueva pestaña)");
       if (res.checkout_url) window.open(res.checkout_url, "_blank");
     } catch (e) { toast.error(apiErr(e)); } finally { setSepaSending(false); }
+  };
+
+  const openChargeNow = async (method) => {
+    setChargeNowMethod(method);
+    setChargeInfo(null);
+    setChargeNowForm({ concept: "", amount: "" });
+    setChargeNowOpen(true);
+    try {
+      const { data } = await api.get(`/customers/${fiscalId}/charge-suggestion`);
+      setChargeInfo(data);
+      setChargeNowForm({ concept: data.concept || "", amount: data.amount ? String(data.amount) : "" });
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const doChargeNow = async () => {
+    const amount = parseFloat(String(chargeNowForm.amount).replace(",", "."));
+    if (!amount || amount <= 0) return toast.error("Indica un importe válido");
+    setChargingNow(true);
+    try {
+      const { data } = await api.post(`/customers/${fiscalId}/charge-now`, {
+        amount, method: chargeNowMethod, concept: chargeNowForm.concept,
+      });
+      if (data.status === "paid") toast.success(`Cobrado ${amount.toFixed(2)} € · Factura ${data.invoiceNumber}`);
+      else toast.success(`Adeudo SEPA iniciado · Factura ${data.invoiceNumber} (se liquidará en unos días)`);
+      setChargeNowOpen(false);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setChargingNow(false); }
   };
 
   const deleteCustomer = async () => {
@@ -290,6 +323,12 @@ export default function CustomerDetail() {
             </Button>
             <Button data-testid="open-charge-btn" className="rounded-full gap-2" onClick={() => setChargeOpen(true)}>
               <CreditCard size={16} /> Cobrar servicio
+            </Button>
+            <Button data-testid="charge-now-card-btn" className="rounded-full gap-2" onClick={() => openChargeNow("card")}>
+              <Zap size={16} /> Cobrar ahora tarjeta
+            </Button>
+            <Button data-testid="charge-now-sepa-btn" className="rounded-full gap-2" onClick={() => openChargeNow("sepa")}>
+              <Zap size={16} /> Cobrar ahora SEPA
             </Button>
             <Button data-testid="send-card-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendCardLink} disabled={cardSending}>
               <Send size={16} className={cardSending ? "animate-pulse" : ""} /> {cardSending ? "Generando…" : "Enviar enlace tarjeta"}
@@ -539,6 +578,44 @@ export default function CustomerDetail() {
           </div>
           <DialogFooter>
             <Button data-testid="confirm-charge-btn" onClick={doCharge} disabled={charging} className="rounded-full">{charging ? "Procesando…" : "Cobrar y facturar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cobrar ahora (tarjeta / SEPA con método guardado) */}
+      <Dialog open={chargeNowOpen} onOpenChange={setChargeNowOpen}>
+        <DialogContent data-testid="charge-now-dialog">
+          <DialogHeader>
+            <DialogTitle>Cobrar ahora · {chargeNowMethod === "sepa" ? "SEPA" : "Tarjeta"}</DialogTitle>
+            <DialogDescription>
+              {chargeNowMethod === "sepa"
+                ? "Ejecuta el adeudo con el mandato SEPA guardado del cliente. El cargo tarda unos días en liquidarse; la factura quedará en proceso hasta que el banco confirme."
+                : "Cobra al instante con la tarjeta guardada del cliente y emite la factura automáticamente."}
+            </DialogDescription>
+          </DialogHeader>
+          {chargeInfo && !((chargeNowMethod === "sepa" && chargeInfo.sepaOnFile) || (chargeNowMethod === "card" && chargeInfo.cardOnFile)) && (
+            <div data-testid="charge-now-nomethod" className="rounded-lg bg-destructive/10 text-destructive text-sm p-3">
+              Este cliente no tiene {chargeNowMethod === "sepa" ? "un mandato SEPA (IBAN)" : "una tarjeta"} guardado. Usa
+              {chargeNowMethod === "sepa" ? " \"Enviar SEPA\"" : " \"Enviar enlace tarjeta\""} para que lo domicilie primero.
+            </div>
+          )}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Concepto</Label>
+              <Input data-testid="charge-now-concept" value={chargeNowForm.concept} onChange={(e) => setChargeNowForm((f) => ({ ...f, concept: e.target.value }))} placeholder="Cuota mensual" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Importe (€ con IVA)</Label>
+              <Input data-testid="charge-now-amount" type="number" step="0.01" min="0" value={chargeNowForm.amount} onChange={(e) => setChargeNowForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+            </div>
+            {parseFloat(chargeNowForm.amount) > 0 && (
+              <p className="text-xs text-muted-foreground">Base sin IVA: <b>{(parseFloat(chargeNowForm.amount) / 1.21).toFixed(2)} €</b> · IVA 21%: <b>{(parseFloat(chargeNowForm.amount) - parseFloat(chargeNowForm.amount) / 1.21).toFixed(2)} €</b></p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button data-testid="confirm-charge-now-btn" onClick={doChargeNow} disabled={chargingNow} className="rounded-full">
+              {chargingNow ? "Procesando…" : `Cobrar ${parseFloat(chargeNowForm.amount) > 0 ? parseFloat(chargeNowForm.amount).toFixed(2) + " €" : "ahora"}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

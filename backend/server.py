@@ -440,6 +440,12 @@ class ServiceChargeBody(BaseModel):
     origin_url: Optional[str] = None    # necesario para link de pago (SEPA / sin tarjeta guardada)
 
 
+class ChargeNowBody(BaseModel):
+    amount: float                       # importe total CON IVA a cobrar
+    method: str = "card"                # "card" | "sepa" (método ya guardado del cliente)
+    concept: Optional[str] = None       # si se omite, se usa el nombre de la tarifa/servicio
+
+
 class CustomerBillingBody(BaseModel):
     iban: Optional[str] = None
     paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
@@ -2921,6 +2927,16 @@ async def stripe_webhook(request: Request):
             sub = await db.subscriptions.find_one({"billing.stripeSubscriptionId": sub_id})
             if sub:
                 await _billing_failed(sub)
+    elif t == "payment_intent.succeeded":
+        # cobro inmediato/SEPA que liquida más tarde → marcar la factura pagada
+        await db.invoices.update_one(
+            {"stripePaymentIntentId": obj["id"], "status": {"$ne": "paid"}},
+            {"$set": {"status": "paid", "chargeStatus": "paid"}})
+    elif t == "payment_intent.payment_failed":
+        err = (obj.get("last_payment_error") or {}).get("message") or ""
+        await db.invoices.update_one(
+            {"stripePaymentIntentId": obj["id"], "status": {"$ne": "paid"}},
+            {"$set": {"chargeStatus": "failed", "chargeError": err[:150]}})
     return {"status": "ok"}
 
 
@@ -3893,6 +3909,97 @@ async def charge_service(fiscalId: str, body: ServiceChargeBody, request: Reques
             f"<a href='{session.url}' style='background:#0033ff;color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none'>Pagar ahora</a>"))
     return {"status": "pending", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"],
             "checkout_url": session.url}
+
+
+async def _get_saved_pm_typed(customer, method):
+    """Devuelve (customer_id, payment_method) del método GUARDADO del tipo pedido
+    ('card' o 'sepa'), para ejecutar cobros off-session inmediatos."""
+    cid = customer.get("stripeCustomerId")
+    if not cid:
+        return None, None
+    want_sepa = (method == "sepa")
+    ptype = "sepa_debit" if want_sepa else "card"
+    rec = customer.get("recurring") or {}
+    if rec.get("savedPm") and ((rec.get("method") == "sepa") == want_sepa):
+        return cid, rec["savedPm"]
+    try:
+        pms = stripe.PaymentMethod.list(customer=cid, type=ptype)
+        if pms and pms.data:
+            return cid, pms.data[0].id
+    except Exception as e:  # noqa
+        logger.warning("get_saved_pm_typed failed: %s", e)
+    return cid, None
+
+
+@api.get("/customers/{fiscalId}/charge-suggestion")
+async def charge_suggestion(fiscalId: str, request: Request):
+    """Importe mensual sugerido + concepto + qué métodos tiene guardados el cliente."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    await _stripe_apply()
+    monthly, prod_name, _ = await _resolve_monthly(fiscalId)
+    _, card_pm = await _get_saved_pm_typed(customer, "card")
+    _, sepa_pm = await _get_saved_pm_typed(customer, "sepa")
+    return {"amount": monthly, "concept": prod_name or "Cuota mensual",
+            "cardOnFile": bool(card_pm), "sepaOnFile": bool(sepa_pm)}
+
+
+@api.post("/customers/{fiscalId}/charge-now")
+async def charge_now(fiscalId: str, body: ChargeNowBody, request: Request):
+    """Cobra AL INSTANTE el importe indicado con el método ya guardado del cliente.
+    Tarjeta → cobro inmediato (factura pagada). SEPA → adeudo con el mandato guardado
+    (liquida en unos días; la factura queda 'en proceso' hasta que Stripe confirme)."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="El importe debe ser mayor que 0")
+    method = "sepa" if body.method == "sepa" else "card"
+    await _stripe_apply()
+    _, prod_name, _ = await _resolve_monthly(fiscalId)
+    concept = (body.concept or "").strip() or prod_name or "Cuota mensual"
+    cid, pm = await _get_saved_pm_typed(customer, method)
+    if not (cid and pm):
+        if method == "sepa":
+            raise HTTPException(status_code=400,
+                detail="El cliente no tiene un mandato SEPA (IBAN) guardado. Usa \"Enviar SEPA\" para que lo domicilie primero.")
+        raise HTTPException(status_code=400,
+            detail="El cliente no tiene una tarjeta guardada. Usa \"Enviar enlace tarjeta\" para que la añada primero.")
+    pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+    try:
+        pi = stripe.PaymentIntent.create(
+            amount=int(round(body.amount * 100)), currency="eur", customer=cid,
+            payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
+            description=f"Cobro · {concept}",
+            metadata={"fiscalId": fiscalId, "concept": concept, "kind": "charge_now"})
+    except stripe.error.CardError as e:  # noqa
+        await log_event("stripe", "error", f"Tarjeta rechazada en cobro ahora · {fiscalId}: {str(e)[:100]}")
+        raise HTTPException(status_code=402, detail=f"Tarjeta rechazada: {e.user_message or str(e)}")
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        await log_event("stripe", "error", f"Error en cobro ahora · {fiscalId}: {msg[:120]}")
+        raise HTTPException(status_code=400, detail=f"No se pudo cobrar: {msg[:120]}")
+
+    if pi.status == "succeeded":
+        inv = await _create_service_invoice(customer, concept, body.amount, "paid")
+        await db.invoices.update_one({"_id": inv["_id"]},
+            {"$set": {"chargeStatus": "paid", "stripePaymentIntentId": pi.id}})
+        await log_event("stripe", "success",
+                        f"Cobro inmediato ({method}) · {concept} · {body.amount:.2f} € · {fiscalId}",
+                        {"fiscalId": fiscalId})
+        return {"status": "paid", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"]}
+    if pi.status in ("processing", "requires_action"):
+        inv = await _create_service_invoice(customer, concept, body.amount, "pending")
+        await db.invoices.update_one({"_id": inv["_id"]},
+            {"$set": {"chargeStatus": "processing", "stripePaymentIntentId": pi.id}})
+        await log_event("stripe", "info",
+                        f"Adeudo SEPA iniciado ({concept}) · {body.amount:.2f} € · {fiscalId} · liquida en días",
+                        {"fiscalId": fiscalId})
+        return {"status": "processing", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"]}
+    raise HTTPException(status_code=402, detail=f"El pago quedó en estado {pi.status}")
 
 
 async def _on_card_saved(obj):

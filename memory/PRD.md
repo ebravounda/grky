@@ -602,3 +602,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Frontend** (AppUsers.js): tarjeta "N clientes con servicio activo sin acceso" con tabla (nombre, NIF, email/aviso sin-email, servicios activos) + botón "Dar acceso" por cliente (data-testid `grant-{fiscalId}`) y "Dar acceso a todos (N)" (`grant-all-btn`). Los clientes sin email quedan deshabilitados con aviso para añadirlo en su ficha.
 - **Verificado por curl (E2E)**: eligible=22 (todos con email); grant 45678912C → crea usuario+email, segundo intento 409, eligible baja a 21, aparece en app-users. Frontend JSX válido + webpack OK. (No se usó testing_agent; backend verificado por curl, frontend por compilación.)
 
+
+### Iteración 2026-06 (fork) — Botón "Enviar SEPA" por cliente (domiciliación Stripe)
+- **Pedido**: botón en cada cliente "Enviar SEPA" que envíe un enlace de Stripe donde el cliente solo introduce su cuenta (IBAN) para domiciliar el pago (mandato SEPA).
+- **Reutiliza infraestructura existente**: `_create_recurring_checkout(customer, product, method="sepa", ...)` ya genera Checkout con `payment_method_types=["sepa_debit"]` en modo `setup` (0 € hoy, solo guarda el mandato). El webhook ya procesa `sepa_debit` (last4).
+- **Backend nuevo** (server.py): `_send_sepa_link(customer, ...)` (espejo de `_send_card_link` con método sepa + email SEPA) y endpoint `POST /api/customers/{fiscalId}/send-sepa-link` (perm billing.manage; body SendCardLinkBody con origin_url/sendEmail/amount/productName). Guarda seguimiento en `customer.sepaLink`.
+- **Frontend** (CustomerDetail.js): botón "Enviar SEPA" (data-testid `send-sepa-link-btn`, icono Landmark) junto a "Enviar enlace tarjeta". Pregunta importe mensual (o usa el de las líneas activas), llama al endpoint, envía email y abre el checkout.
+- **Verificado por curl**: `send-sepa-link` para 12345678A devuelve una sesión real de Stripe Checkout (`cs_test_...`, checkout.stripe.com). Frontend JSX válido + webpack OK. (Verificado backend por curl; frontend por compilación — no se usó testing_agent.)
+

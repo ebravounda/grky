@@ -54,6 +54,7 @@ export default function CustomerDetail() {
   const [billingForm, setBillingForm] = useState({ iban: "", paymentMethod: "NO" });
   const [savingBilling, setSavingBilling] = useState(false);
   const [cardSending, setCardSending] = useState(false);
+  const [sepaSending, setSepaSending] = useState(false);
   // facturas (crear / editar)
   const [invOpen, setInvOpen] = useState(false);
   const [invEditId, setInvEditId] = useState(null);
@@ -112,6 +113,20 @@ export default function CustomerDetail() {
       else toast.success("Enlace de tarjeta generado (abriendo en nueva pestaña)");
       if (res.checkout_url) window.open(res.checkout_url, "_blank");
     } catch (e) { toast.error(apiErr(e)); } finally { setCardSending(false); }
+  };
+
+  const sendSepaLink = async () => {
+    const val = window.prompt("Importe mensual a domiciliar por SEPA (€).\nDéjalo vacío para usar el importe de sus líneas activas:", "");
+    if (val === null) return;
+    const amount = val.trim() === "" ? undefined : parseFloat(val.replace(",", "."));
+    if (val.trim() !== "" && (!amount || amount <= 0)) return toast.error("Importe no válido");
+    setSepaSending(true);
+    try {
+      const { data: res } = await api.post(`/customers/${fiscalId}/send-sepa-link`, { origin_url: window.location.origin, sendEmail: true, amount });
+      if (res.emailed) toast.success(`Enlace SEPA enviado a ${res.email}`);
+      else toast.success("Enlace SEPA generado (abriendo en nueva pestaña)");
+      if (res.checkout_url) window.open(res.checkout_url, "_blank");
+    } catch (e) { toast.error(apiErr(e)); } finally { setSepaSending(false); }
   };
 
   const deleteCustomer = async () => {
@@ -278,6 +293,9 @@ export default function CustomerDetail() {
             </Button>
             <Button data-testid="send-card-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendCardLink} disabled={cardSending}>
               <Send size={16} className={cardSending ? "animate-pulse" : ""} /> {cardSending ? "Generando…" : "Enviar enlace tarjeta"}
+            </Button>
+            <Button data-testid="send-sepa-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendSepaLink} disabled={sepaSending}>
+              <Landmark size={16} className={sepaSending ? "animate-pulse" : ""} /> {sepaSending ? "Generando…" : "Enviar SEPA"}
             </Button>
             <Button data-testid="delete-customer-btn" variant="outline" className="rounded-full gap-2 text-destructive hover:text-destructive border-destructive/30" onClick={deleteCustomer}>
               <Trash2 size={16} /> Eliminar cliente

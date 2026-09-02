@@ -3715,6 +3715,71 @@ async def _send_card_link(customer, origin_url, send_email=True, is_reminder=Fal
             "email": customer.get("email")}
 
 
+async def _send_sepa_link(customer, origin_url, send_email=True, is_reminder=False, amount=None, product_name=None):
+    """Crea el enlace de Stripe para domiciliación SEPA (el cliente solo introduce su IBAN)
+    y lo envía por email. Reutiliza el mismo flujo que la tarjeta pero con método 'sepa'."""
+    fiscalId = customer["fiscalId"]
+    await _stripe_apply()
+    monthly, prod_name, sub = await _resolve_monthly(fiscalId)
+    if amount is not None and float(amount) > 0:
+        monthly = round(float(amount), 2)
+    if product_name:
+        prod_name = product_name
+    if monthly <= 0:
+        raise HTTPException(status_code=400,
+            detail="El cliente no tiene una tarifa con importe para domiciliar. Indica el importe o asigna una línea/suscripción primero.")
+    meta = {"fiscalId": fiscalId, "purpose": "card_setup"}
+    if sub:
+        meta["subscriptionId"] = sub["subscriptionId"]
+    product = {"productName": prod_name, "price": monthly}
+    shipping_now = await _pending_shipping_fee(customer)
+    session = await _create_recurring_checkout(customer, product, "sepa", origin_url, meta,
+                                               shipping_now=shipping_now)
+    settings = await get_app_settings()
+    billing_day = int(settings.get("billingDay", 5) or 5)
+    emailed = False
+    if send_email and customer.get("email"):
+        name = (customer.get("name") or "").title()
+        recordatorio = ("<b>Recordatorio:</b> aún no hemos recibido tus datos bancarios.<br><br>" if is_reminder else "")
+        html = emailer.base_template(
+            "Domicilia tu pago (SEPA)",
+            f"Hola {name},<br><br>{recordatorio}Para domiciliar el pago de tu servicio "
+            f"<b>{product['productName']}</b> ({float(product['price']):.2f} €/mes), solo tienes que introducir "
+            "el <b>número de cuenta (IBAN)</b> y autorizar el mandato SEPA en el siguiente enlace seguro. "
+            "El proceso lo gestiona Stripe; nosotros no almacenamos tus datos bancarios.<br><br>"
+            f'<a href="{session.url}" style="display:inline-block;background:#0033ff;color:#fff;'
+            'padding:12px 22px;border-radius:9999px;text-decoration:none;font-weight:600">Domiciliar mi pago</a>'
+            f"<br><br>La cuota mensual se cargará en tu cuenta el día <b>{billing_day}</b> de cada mes. "
+            "Si tienes cualquier duda, responde a este correo.")
+        emailed = await _send_mail_safe("email", customer["email"], "Domicilia tu pago (SEPA) · GoRoky", html)
+    reminders = (customer.get("sepaLink") or {}).get("remindersSent", 0)
+    await db.customers.update_one({"fiscalId": fiscalId}, {"$set": {"sepaLink": {
+        "sentAt": now_iso(), "lastSessionId": session.id, "emailed": emailed,
+        "remindersSent": reminders + (1 if is_reminder else 0), "monthly": monthly}}})
+    await log_event("stripe", "info", f"Enlace SEPA generado · {fiscalId}", {"fiscalId": fiscalId})
+    return {"checkout_url": session.url, "session_id": session.id, "emailed": emailed,
+            "email": customer.get("email")}
+
+
+@api.post("/customers/{fiscalId}/send-sepa-link")
+async def send_sepa_link(fiscalId: str, body: SendCardLinkBody, request: Request):
+    """Envía al cliente el enlace de Stripe para domiciliación SEPA (solo introduce su IBAN)."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    try:
+        return await _send_sepa_link(customer, body.origin_url, send_email=body.sendEmail,
+                                     amount=body.amount, product_name=body.productName)
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        await log_event("stripe", "error", f"send-sepa-link Stripe error · {fiscalId}: {msg[:150]}", {"fiscalId": fiscalId})
+        raise HTTPException(status_code=400, detail=f"Stripe: {msg}")
+    except Exception as e:  # noqa
+        await log_event("stripe", "error", f"send-sepa-link error · {fiscalId}: {str(e)[:150]}", {"fiscalId": fiscalId})
+        raise HTTPException(status_code=400, detail=f"No se pudo generar el enlace: {str(e)[:150]}")
 
 
 async def _get_saved_pm(customer):

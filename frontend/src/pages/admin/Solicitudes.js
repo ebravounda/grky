@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { ClipboardCheck, Check, X, Eye, CreditCard, Landmark, Smartphone, FileText, RotateCcw } from "lucide-react";
+import { ClipboardCheck, Check, X, Eye, CreditCard, Landmark, Smartphone, FileText, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const REVIEW = {
@@ -58,6 +58,16 @@ export default function Solicitudes() {
       setRejecting(null); setReason(""); setCategory(""); setDetail(null); load();
     }
     catch (e) { toast.error(apiErr(e)); } finally { setBusy(false); }
+  };
+
+  const removeApp = async (a) => {
+    if (!window.confirm(`¿Eliminar la solicitud de ${a.name} (${a.fiscalId})? Esta acción no se puede deshacer.`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/applications/${a.token}/delete`);
+      toast.success("Solicitud eliminada" + (data.orders ? ` · orden y ${data.invoices} factura(s) locales borradas` : ""));
+      setDetail(null); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(false); }
   };
 
   const pending = apps.filter((a) => a.reviewStatus === "PENDING_REVIEW" && a.status === "COMPLETED");
@@ -121,6 +131,9 @@ export default function Solicitudes() {
                           </Button>
                         </>
                       )}
+                      <Button data-testid={`delete-btn-${a.fiscalId}`} size="sm" variant="outline" className="rounded-full gap-1 h-8 text-destructive border-destructive/30" onClick={() => removeApp(a)} disabled={busy} title="Eliminar solicitud">
+                        <Trash2 size={14} />
+                      </Button>
                     </div>
                   </td>
                 </tr>

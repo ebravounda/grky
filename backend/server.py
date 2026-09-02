@@ -3485,6 +3485,32 @@ async def reject_application(token: str, body: RejectBody, request: Request):
     return {"ok": True, "reviewStatus": "CHANGES_REQUESTED"}
 
 
+@api.post("/applications/{token}/delete")
+async def delete_application(token: str, request: Request):
+    """Elimina una solicitud de alta del CRM. Si tiene una orden local aún NO aprovisionada
+    en Likes (sin likesOrderId y no activada), también la borra junto a su factura pendiente."""
+    await require_admin(request)
+    a = await db.applications.find_one({"token": token})
+    if not a:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    removed = {"orders": 0, "invoices": 0}
+    code = a.get("contractCode")
+    if code:
+        order = await db.orders.find_one({"contractNumber": code})
+        if order and not order.get("likesOrderId") and order.get("status") not in ("COMPLETED", "ACTIVE"):
+            inv = await db.invoices.delete_many(
+                {"contractNumber": code, "status": {"$ne": "paid"}})
+            removed["invoices"] = inv.deleted_count
+            await db.orders.delete_one({"orderId": order["orderId"]})
+            removed["orders"] = 1
+    await db.applications.delete_one({"token": token})
+    await log_event("order", "info",
+                    f"Solicitud eliminada · {a.get('name')} ({a.get('fiscalId')})"
+                    + (f" · orden y {removed['invoices']} factura(s) locales borradas" if removed["orders"] else ""))
+    return {"ok": True, **removed}
+
+
+
 # ------------------------- recurring billing (card / SEPA) -------------------------
 async def _ensure_stripe_customer(customer):
     """Devuelve el Customer de Stripe para el cliente EN EL MODO ACTUAL (test/live).

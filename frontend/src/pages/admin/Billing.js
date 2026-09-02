@@ -85,11 +85,11 @@ export default function Billing() {
   };
 
   const chargeAll = async () => {
-    if (!window.confirm("¿Cobrar ahora TODAS las facturas pendientes de clientes con tarjeta guardada?")) return;
+    if (!window.confirm("¿Cobrar ahora TODAS las facturas pendientes del mes con el método guardado de cada cliente (tarjeta al instante · SEPA adeudo en unos días)?")) return;
     setBusy("chargeall");
     try {
       const { data } = await api.post("/billing/charge-all-pending");
-      toast.success(`Cobro masivo: ${data.charged} cobradas · ${data.failed} fallidas · ${data.skipped} sin tarjeta`);
+      toast.success(`Cobro masivo: ${data.charged} cobradas · ${data.processing || 0} en proceso (SEPA) · ${data.failed} fallidas · ${data.skipped} sin método`);
       load(); loadStatus();
     } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
   };
@@ -122,7 +122,7 @@ export default function Billing() {
             <Button data-testid="generate-invoices-btn" className="rounded-full gap-2 bg-[#015EEF] hover:bg-[#004cc7]" onClick={generateInvoices} disabled={busy === "gen"}><FileText size={15} className={busy === "gen" ? "animate-pulse" : ""} /> {busy === "gen" ? "Generando…" : "Generar facturas del mes"}</Button>
             <Button data-testid="send-invoices-btn" variant="outline" className="rounded-full gap-2" onClick={sendInvoices} disabled={busy === "send"}><Send size={15} className={busy === "send" ? "animate-pulse" : ""} /> {busy === "send" ? "Enviando…" : "Enviar facturas por email"}</Button>
             <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Cobrando…" : "Cobrar mes (día 5)"}</Button>
-            <Button data-testid="charge-all-btn" variant="outline" className="rounded-full gap-2" onClick={chargeAll} disabled={busy === "chargeall"}><CreditCard size={15} className={busy === "chargeall" ? "animate-pulse" : ""} /> {busy === "chargeall" ? "Cobrando…" : "Cobrar pendientes"}</Button>
+            <Button data-testid="charge-all-btn" className="rounded-full gap-2 bg-success hover:bg-success/90 text-white" onClick={chargeAll} disabled={busy === "chargeall"}><CreditCard size={15} className={busy === "chargeall" ? "animate-pulse" : ""} /> {busy === "chargeall" ? "Cobrando…" : "Cobrar todo el mes"}</Button>
             <Button data-testid="retry-charges-btn" variant="outline" className="rounded-full gap-2" onClick={retryCharges} disabled={busy === "retry"}><RotateCcw size={15} /> {busy === "retry" ? "Reintentando…" : "Reintentar cobros"}</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={() => { load(); loadStatus(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualizar</Button>
             <Button data-testid="run-cycle-btn" className="rounded-full gap-2" onClick={runCycle}><PlayCircle size={15} /> Ejecutar ciclo</Button>

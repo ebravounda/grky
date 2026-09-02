@@ -493,6 +493,11 @@ export default function CustomerDetail() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="font-semibold text-sm">{i.total.toFixed(2)} €</span>
+                  {i.status !== "paid" && i.chargeStatus === "processing" && (
+                    <span data-testid={`inv-sepa-processing-${i.invoiceNumber}`} className="inline-flex items-center gap-1 rounded-full bg-blue-500/12 text-blue-600 px-2.5 py-0.5 text-xs font-semibold" title="Adeudo SEPA enviado; el banco tarda unos días en liquidarlo">
+                      <Landmark size={12} /> SEPA en proceso · liquida en unos días
+                    </span>
+                  )}
                   <StatusPill status={i.status} />
                   <button data-testid={`inv-pdf-${i.invoiceNumber}`} onClick={() => openInvoicePdf(i.id)} className="text-sm text-primary hover:underline">PDF</button>
                   {hasPerm("billing.manage") && (

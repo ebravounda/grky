@@ -4727,10 +4727,11 @@ async def run_retry_charges(request: Request):
 
 @api.post("/billing/charge-all-pending")
 async def charge_all_pending(request: Request):
-    """Cobra de una vez todas las facturas pendientes de clientes con tarjeta guardada (off-session)."""
+    """Cobra de una vez TODAS las facturas pendientes con el método guardado del cliente
+    (tarjeta → cobro inmediato; SEPA → adeudo que liquida en unos días → 'en proceso')."""
     await require_admin(request)
     await _stripe_apply()
-    result = {"total": 0, "charged": 0, "failed": 0, "skipped": 0}
+    result = {"total": 0, "charged": 0, "processing": 0, "failed": 0, "skipped": 0}
     invs = await db.invoices.find({"status": "pending"}).to_list(20000)
     pm_cache = {}
     for inv in invs:
@@ -4738,22 +4739,40 @@ async def charge_all_pending(request: Request):
         fid = inv["fiscalId"]
         if fid not in pm_cache:
             cust = await db.customers.find_one({"fiscalId": fid})
-            pm_cache[fid] = (cust, *(await _get_saved_pm(cust))) if cust else (None, None, None)
-        cust, cid, pm = pm_cache[fid]
+            method, cid, pm = None, None, None
+            if cust:
+                pref = "sepa" if (cust.get("recurring") or {}).get("method") == "sepa" else "card"
+                cid, pm = await _get_saved_pm_typed(cust, pref)
+                if pm:
+                    method = pref
+                else:
+                    alt = "card" if pref == "sepa" else "sepa"
+                    cid, pm = await _get_saved_pm_typed(cust, alt)
+                    if pm:
+                        method = alt
+            pm_cache[fid] = (cust, cid, pm, method)
+        cust, cid, pm, method = pm_cache[fid]
         if not (cust and cid and pm):
             result["skipped"] += 1
             continue
         attempts = int(inv.get("chargeAttempts", 0)) + 1
+        pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
         try:
             pi = stripe.PaymentIntent.create(
                 amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True,
+                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
                 description=f"Cobro masivo · {inv.get('period', '')} · {inv['invoiceNumber']}",
                 metadata={"fiscalId": fid, "kind": "bulk_charge", "invoiceNumber": inv["invoiceNumber"]})
             if pi.status == "succeeded":
                 await db.invoices.update_one({"_id": inv["_id"]},
-                    {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts}})
+                    {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts,
+                              "stripePaymentIntentId": pi.id}})
                 result["charged"] += 1
+            elif pi.status in ("processing", "requires_action"):
+                await db.invoices.update_one({"_id": inv["_id"]},
+                    {"$set": {"chargeStatus": "processing", "chargeAttempts": attempts,
+                              "stripePaymentIntentId": pi.id}})
+                result["processing"] += 1
             else:
                 raise Exception(f"estado {pi.status}")
         except Exception as e:  # noqa
@@ -4761,7 +4780,8 @@ async def charge_all_pending(request: Request):
                 {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
             result["failed"] += 1
     await log_event("billing", "info",
-                    f"Cobro masivo: {result['charged']} cobradas · {result['failed']} fallidas · {result['skipped']} sin tarjeta")
+                    f"Cobro masivo: {result['charged']} cobradas · {result['processing']} en proceso (SEPA) · "
+                    f"{result['failed']} fallidas · {result['skipped']} sin método")
     return {"ok": True, **result}
 
 

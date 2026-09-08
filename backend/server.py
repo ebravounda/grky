@@ -4552,12 +4552,13 @@ async def monthly_invoicing_job(force=False, send_email=True):
         return {"skipped": True, "reason": f"hoy no es día {invoice_day}"}
     p_start, p_end = _prev_month_bounds(now)
     billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
-    run_key = now.strftime("%Y-%m")
+    run_key = p_start.strftime("%Y-%m")
     result = {"period": billed_period, "invoiced": 0, "emailed": 0, "skipped": 0}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
         fid = cust["fiscalId"]
-        if await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key}):
+        # idempotente POR PERIODO FACTURADO (no por mes de ejecución): evita duplicados
+        if await db.invoices.find_one({"fiscalId": fid, "period": billed_period, "kind": {"$ne": "service"}}):
             result["skipped"] += 1
             continue
         active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
@@ -4594,7 +4595,7 @@ async def monthly_billing_job(force=False):
     await _stripe_apply()
     p_start, p_end = _prev_month_bounds(now)
     billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
-    run_key = now.strftime("%Y-%m")
+    run_key = p_start.strftime("%Y-%m")
     result = {"period": billed_period, "charged": 0, "processing": 0, "skipped": 0, "failed": 0, "generated": 0}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
@@ -4602,7 +4603,8 @@ async def monthly_billing_job(force=False):
         if (cust.get("recurring") or {}).get("stripeSubscriptionId"):
             result["skipped"] += 1
             continue
-        inv = await db.invoices.find_one({"fiscalId": fid, "kind": "recurring", "billingRunKey": run_key})
+        # busca la factura del periodo (cualquier tipo salvo servicio) → nunca duplica
+        inv = await db.invoices.find_one({"fiscalId": fid, "period": billed_period, "kind": {"$ne": "service"}})
         if not inv:
             # no se generó el día 1 → generarla ahora
             active_lines = await db.lines.find({"fiscalId": fid, "status": "ACTIVE"}).to_list(100)
@@ -4865,6 +4867,46 @@ async def charge_all_pending(request: Request):
                     f"Cobro masivo: {result['charged']} cobradas · {result['processing']} en proceso (SEPA) · "
                     f"{result['failed']} fallidas · {result['skipped']} sin método")
     return {"ok": True, **result}
+
+
+@api.post("/billing/dedupe-invoices")
+async def dedupe_invoices(request: Request, apply: bool = False):
+    """Detecta y (con apply=true) elimina facturas MENSUALES duplicadas del mismo cliente y periodo,
+    conservando una por grupo (prioriza la pagada / la más reciente). No toca las facturas de
+    servicios puntuales (kind='service'). Con apply=false es solo un simulacro informativo."""
+    await require_admin(request)
+    invs = await db.invoices.find({"kind": {"$ne": "service"}}).to_list(100000)
+    groups = {}
+    for i in invs:
+        groups.setdefault((i["fiscalId"], i.get("period")), []).append(i)
+
+    def _score(i):
+        s = 0
+        if i.get("status") == "paid":
+            s += 1000
+        if i.get("chargeStatus") in ("paid", "processing"):
+            s += 500
+        return (s, str(i.get("date") or ""))
+
+    to_delete, dup_groups = [], 0
+    for arr in groups.values():
+        if len(arr) <= 1:
+            continue
+        dup_groups += 1
+        arr.sort(key=_score, reverse=True)
+        to_delete.extend(arr[1:])
+    result = {
+        "duplicateGroups": dup_groups, "toDelete": len(to_delete), "kept": len(groups),
+        "paidAmongDeleted": sum(1 for d in to_delete if d.get("status") == "paid"),
+        "samples": [d.get("invoiceNumber") for d in to_delete[:15]], "applied": False, "deleted": 0,
+    }
+    if apply and to_delete:
+        r = await db.invoices.delete_many({"_id": {"$in": [d["_id"] for d in to_delete]}})
+        result["applied"] = True
+        result["deleted"] = r.deleted_count
+        await log_event("billing", "warning",
+                        f"Facturas duplicadas eliminadas: {r.deleted_count} (conservada 1 por cliente y periodo)")
+    return result
 
 
 

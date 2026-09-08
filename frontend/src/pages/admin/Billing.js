@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api, { apiErr } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users, Send, FileText } from "lucide-react";
+import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users, Send, FileText, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 const DOT = {
@@ -94,6 +94,21 @@ export default function Billing() {
     } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
   };
 
+  const dedupe = async () => {
+    setBusy("dedupe");
+    try {
+      const { data: dry } = await api.post("/billing/dedupe-invoices"); // simulacro
+      if (dry.toDelete === 0) { toast.success("No hay facturas duplicadas 🎉"); return; }
+      const msg = `Se encontraron ${dry.duplicateGroups} grupos con duplicados.\nSe eliminarán ${dry.toDelete} facturas (se conserva 1 por cliente y periodo)` +
+        (dry.paidAmongDeleted ? `.\n⚠️ ${dry.paidAmongDeleted} de las que se eliminarán figuran como PAGADAS (revisa posibles cobros dobles).` : ".") +
+        `\n\n¿Continuar y eliminarlas?`;
+      if (!window.confirm(msg)) return;
+      const { data } = await api.post("/billing/dedupe-invoices?apply=true");
+      toast.success(`${data.deleted} facturas duplicadas eliminadas`);
+      load(); loadStatus();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBusy(null); }
+  };
+
   const syncStripe = async () => {
     setBusy("sync");
     try {
@@ -123,6 +138,7 @@ export default function Billing() {
             <Button data-testid="send-invoices-btn" variant="outline" className="rounded-full gap-2" onClick={sendInvoices} disabled={busy === "send"}><Send size={15} className={busy === "send" ? "animate-pulse" : ""} /> {busy === "send" ? "Enviando…" : "Enviar facturas por email"}</Button>
             <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Cobrando…" : "Cobrar mes (día 5)"}</Button>
             <Button data-testid="charge-all-btn" className="rounded-full gap-2 bg-success hover:bg-success/90 text-white" onClick={chargeAll} disabled={busy === "chargeall"}><CreditCard size={15} className={busy === "chargeall" ? "animate-pulse" : ""} /> {busy === "chargeall" ? "Cobrando…" : "Cobrar todo el mes"}</Button>
+            <Button data-testid="dedupe-invoices-btn" variant="outline" className="rounded-full gap-2 text-destructive border-destructive/30" onClick={dedupe} disabled={busy === "dedupe"}><Copy size={15} className={busy === "dedupe" ? "animate-pulse" : ""} /> {busy === "dedupe" ? "Analizando…" : "Limpiar facturas duplicadas"}</Button>
             <Button data-testid="retry-charges-btn" variant="outline" className="rounded-full gap-2" onClick={retryCharges} disabled={busy === "retry"}><RotateCcw size={15} /> {busy === "retry" ? "Reintentando…" : "Reintentar cobros"}</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={() => { load(); loadStatus(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualizar</Button>
             <Button data-testid="run-cycle-btn" className="rounded-full gap-2" onClick={runCycle}><PlayCircle size={15} /> Ejecutar ciclo</Button>

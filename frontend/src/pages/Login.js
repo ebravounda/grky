@@ -85,10 +85,10 @@ export default function Login() {
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Plataforma de clientes GoRoky
           </span>
           <h1 className="font-heading text-4xl xl:text-5xl font-bold tracking-tight leading-[1.08] mt-6">
-            Tu operador,<br />bajo control total.
+            Contrata tu línea hoy
           </h1>
           <p className="text-white/70 text-base leading-relaxed mt-4 max-w-md">
-            Gestiona tus líneas, consumo, facturas y domiciliaciones desde un único panel diseñado para ti.
+            Gestiona tus líneas, consumo, facturas y pagos, así de Roky, así de simple.
           </p>
 
           <div className="mt-9 space-y-3">

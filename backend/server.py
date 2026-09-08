@@ -458,6 +458,10 @@ class MeSepaSetupBody(BaseModel):
     origin_url: Optional[str] = None
 
 
+class ChargePendingBody(BaseModel):
+    method: Optional[str] = None        # "sepa" | "card"; por defecto usa el método guardado del cliente
+
+
 class CustomerBillingBody(BaseModel):
     iban: Optional[str] = None
     paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
@@ -4069,6 +4073,61 @@ async def charge_now(fiscalId: str, body: ChargeNowBody, request: Request):
                         {"fiscalId": fiscalId})
         return {"status": "processing", "invoiceId": str(inv["_id"]), "invoiceNumber": inv["invoiceNumber"]}
     raise HTTPException(status_code=402, detail=f"El pago quedó en estado {pi.status}")
+
+
+@api.post("/customers/{fiscalId}/charge-pending")
+async def charge_pending(fiscalId: str, body: ChargePendingBody, request: Request):
+    """Cobra las FACTURAS PENDIENTES YA EXISTENTES del cliente con su método guardado (NO crea
+    facturas nuevas). Tarjeta → cobro inmediato; SEPA → adeudo que liquida en unos días ('en proceso')."""
+    await require_perm(request, "billing.manage")
+    customer = await db.customers.find_one({"fiscalId": fiscalId})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    await _stripe_apply()
+    if body.method in ("sepa", "card"):
+        method = body.method
+    else:
+        method = "sepa" if (customer.get("recurring") or {}).get("method") == "sepa" else "card"
+    cid, pm = await _get_saved_pm_typed(customer, method)
+    if not (cid and pm):
+        if method == "sepa":
+            raise HTTPException(status_code=400,
+                detail="El cliente no tiene un mandato SEPA (IBAN) guardado. Usa \"Enviar SEPA\" para que lo domicilie primero.")
+        raise HTTPException(status_code=400,
+            detail="El cliente no tiene una tarjeta guardada. Usa \"Enviar enlace tarjeta\" para que la añada primero.")
+    pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+    invs = await db.invoices.find({"fiscalId": fiscalId, "status": {"$ne": "paid"}}).to_list(1000)
+    result = {"total": len(invs), "charged": 0, "processing": 0, "failed": 0, "skipped": 0}
+    for inv in invs:
+        total = float(inv.get("total", 0) or 0)
+        if total <= 0 or inv.get("chargeStatus") == "processing":
+            result["skipped"] += 1
+            continue
+        attempts = int(inv.get("chargeAttempts", 0)) + 1
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=int(round(total * 100)), currency="eur", customer=cid,
+                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
+                description=f"Cobro pendiente · {inv.get('period', '')} · {inv['invoiceNumber']}",
+                metadata={"fiscalId": fiscalId, "kind": "charge_pending", "invoiceNumber": inv["invoiceNumber"]})
+            if pi.status == "succeeded":
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                    "status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts, "stripePaymentIntentId": pi.id}})
+                result["charged"] += 1
+            elif pi.status in ("processing", "requires_action"):
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                    "chargeStatus": "processing", "chargeAttempts": attempts, "stripePaymentIntentId": pi.id}})
+                result["processing"] += 1
+            else:
+                raise Exception(f"estado {pi.status}")
+        except Exception as e:  # noqa
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                "chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
+            result["failed"] += 1
+    await log_event("billing", "info",
+                    f"Cobro de pendientes ({method}) · {fiscalId}: {result['charged']} cobradas · "
+                    f"{result['processing']} en proceso · {result['failed']} fallidas", {"fiscalId": fiscalId})
+    return {"ok": True, "method": method, **result}
 
 
 async def _on_card_saved(obj):

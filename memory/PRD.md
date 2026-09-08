@@ -655,3 +655,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Verificado: dry-run → 44 to delete / 12 grupos / 22 kept; apply → 44 deleted; re-check → 0 grupos. Screenshot del botón en Cobros OK.
 - IMPORTANTE: los duplicados que ve el usuario están en PRODUCCIÓN (VPS), no solo en preview. Tras desplegar, el usuario debe pulsar "Limpiar facturas duplicadas" en Cobros (o curl al endpoint) para limpiar el histórico en su VPS. El fix de idempotencia evita que vuelvan a generarse.
 - DESPLIEGUE VPS (backend + frontend): git pull + yarn build + copiar build + restart backend.
+
+### Iteración 2026-06 (fork) — Botón "Cobrar pendientes SEPA" (cobra facturas pendientes existentes)
+- Nuevo botón en la ficha del cliente (`CustomerDetail.js`, data-testid `charge-pending-sepa-btn`) que COBRA las facturas PENDIENTES ya existentes del cliente por SEPA con su mandato guardado — NO crea facturas nuevas (a diferencia de "Cobrar ahora SEPA"/charge-now, que sí crea una factura por un importe). Confirmación + toast "Pendientes SEPA: X cobradas · Y en proceso · Z fallidas".
+- Backend `POST /api/customers/{fiscalId}/charge-pending` (require_perm billing.manage, body {method?: sepa|card}): determina el método (por defecto el guardado del cliente), busca facturas status!=paid, y las cobra off_session con `_get_saved_pm_typed`. Tarjeta→paid inmediato; SEPA→processing (stripePaymentIntentId guardado→cierra por webhook payment_intent.succeeded). Salta las que ya están en proceso o con total<=0. Devuelve {total,charged,processing,failed,skipped,method}. Si no hay método guardado→400 claro.
+- Verificado: curl (cliente sin mandato→400 correcto) + screenshot (botón visible). El cobro real off_session no es E2E-testeable en preview (sin mandatos guardados).
+- DESPLIEGUE VPS (backend + frontend): git pull + yarn build + copiar build + restart backend.

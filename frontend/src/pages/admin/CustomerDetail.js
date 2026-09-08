@@ -61,6 +61,7 @@ export default function CustomerDetail() {
   const [chargeNowForm, setChargeNowForm] = useState({ concept: "", amount: "" });
   const [chargeInfo, setChargeInfo] = useState(null);
   const [chargingNow, setChargingNow] = useState(false);
+  const [chargingPending, setChargingPending] = useState(false);
   // facturas (crear / editar)
   const [invOpen, setInvOpen] = useState(false);
   const [invEditId, setInvEditId] = useState(null);
@@ -133,6 +134,17 @@ export default function CustomerDetail() {
       else toast.success("Enlace SEPA generado (abriendo en nueva pestaña)");
       if (res.checkout_url) window.open(res.checkout_url, "_blank");
     } catch (e) { toast.error(apiErr(e)); } finally { setSepaSending(false); }
+  };
+
+  const chargePendingSepa = async () => {
+    if (!window.confirm("¿Cobrar por SEPA todas las facturas PENDIENTES de este cliente con su mandato guardado? (no se crean facturas nuevas)")) return;
+    setChargingPending(true);
+    try {
+      const { data } = await api.post(`/customers/${fiscalId}/charge-pending`, { method: "sepa" });
+      if (!data.total) toast.success("Este cliente no tiene facturas pendientes");
+      else toast.success(`Pendientes SEPA: ${data.charged} cobradas · ${data.processing} en proceso · ${data.failed} fallidas`);
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setChargingPending(false); }
   };
 
   const openChargeNow = async (method) => {
@@ -329,6 +341,9 @@ export default function CustomerDetail() {
             </Button>
             <Button data-testid="charge-now-sepa-btn" className="rounded-full gap-2" onClick={() => openChargeNow("sepa")}>
               <Zap size={16} /> Cobrar ahora SEPA
+            </Button>
+            <Button data-testid="charge-pending-sepa-btn" variant="outline" className="rounded-full gap-2 border-blue-500/40 text-blue-600" onClick={chargePendingSepa} disabled={chargingPending}>
+              <Landmark size={16} /> {chargingPending ? "Cobrando…" : "Cobrar pendientes SEPA"}
             </Button>
             <Button data-testid="send-card-link-btn" variant="outline" className="rounded-full gap-2" onClick={sendCardLink} disabled={cardSending}>
               <Send size={16} className={cardSending ? "animate-pulse" : ""} /> {cardSending ? "Generando…" : "Enviar enlace tarjeta"}

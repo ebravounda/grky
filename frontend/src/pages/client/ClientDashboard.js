@@ -162,7 +162,7 @@ export default function ClientDashboard() {
                 <p className="text-sm text-slate-500 flex items-center gap-1.5"><Wifi size={15} className="text-primary" /> Conexión activa</p>
               )}
 
-              <p className="font-bold text-xl mt-4 text-slate-900">{l.price?.toFixed(2)} <span className="text-sm font-medium text-slate-400">€/mes</span></p>
+              <p className="font-bold text-xl mt-4 text-slate-900">{Number(l.price || 0).toFixed(2)} <span className="text-sm font-medium text-slate-400">€/mes</span></p>
 
               <div className="flex gap-2 mt-4">
                 <Link to={`/portal/lines/${l.lineNumber}`} className="flex-1">
@@ -305,7 +305,7 @@ export default function ClientDashboard() {
               <Select value={newProduct} onValueChange={setNewProduct}>
                 <SelectTrigger data-testid="new-tariff-select"><SelectValue placeholder="Selecciona tarifa" /></SelectTrigger>
                 <SelectContent>
-                  {options.map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {p.price.toFixed(2)} €</SelectItem>)}
+                  {options.map((p) => <SelectItem key={p.productId} value={p.productId}>{p.productName} — {Number(p.price || 0).toFixed(2)} €</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

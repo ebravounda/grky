@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import AdminLayout from "@/layouts/AdminLayout";
 import ClientLayout from "@/layouts/ClientLayout";
@@ -104,7 +105,7 @@ function App() {
             <Route path="solicitudes" element={<PermGuard perm="solicitudes.manage"><Solicitudes /></PermGuard>} />
             <Route path="callbacks" element={<PermGuard perm="solicitudes.manage"><Callbacks /></PermGuard>} />
             <Route path="customers" element={<PermGuard perm="customers.view"><Customers /></PermGuard>} />
-            <Route path="customers/:fiscalId" element={<PermGuard perm="customers.view"><CustomerDetail /></PermGuard>} />
+            <Route path="customers/:fiscalId" element={<PermGuard perm="customers.view"><ErrorBoundary><CustomerDetail /></ErrorBoundary></PermGuard>} />
             <Route path="lines" element={<PermGuard perm="lines.view"><Lines /></PermGuard>} />
             <Route path="lines/:lineNumber" element={<PermGuard perm="lines.view"><LineDetail /></PermGuard>} />
             <Route path="catalog" element={<PermGuard perm="catalog.view"><Catalog /></PermGuard>} />
@@ -128,7 +129,7 @@ function App() {
           </Route>
 
           <Route path="/portal" element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
-            <Route index element={<ClientDashboard />} />
+            <Route index element={<ErrorBoundary><ClientDashboard /></ErrorBoundary>} />
             <Route path="lines/:lineNumber" element={<ClientLineDetail />} />
             <Route path="invoices" element={<ClientInvoices />} />
             <Route path="tickets" element={<ClientTickets />} />

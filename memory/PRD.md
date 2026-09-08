@@ -637,3 +637,13 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **Visualización del IBAN**: el IBAN completo que teclea el cliente se guarda en `customer.iban` y se muestra en el portal (enmascarado) y en el CRM admin (ficha, campo IBAN completo). Nota: Stripe solo devuelve el last4 del IBAN por seguridad; el IBAN completo visible es el que el cliente introdujo en nuestro campo.
 - Verificado: curl `/me/sepa-setup` (guarda IBAN ES91…1332, paymentMethod SEPA CORE, devuelve checkout_url real de Stripe) + screenshots (tarjeta SEPA + diálogo IBAN). El mandato/cobro real off_session no es E2E-testeable en preview.
 - DESPLIEGUE VPS (backend + frontend): git pull + yarn build + copiar build + restart backend.
+
+### Iteración 2026-06 (fork) — FIX ficha en blanco (precio como texto) + Error Boundary global
+- **BUG (pantalla en blanco al abrir un cliente, p.ej. Nicolas Hernandez F56553407)**: una línea tenía `price` guardado como STRING ("10.000045") → `l.price.toFixed(2)` lanzaba TypeError y React dejaba la pantalla en blanco (sin Error Boundary). Efecto colateral: "no se podía eliminar" a clientes como Ronald Mauricio (BG117405) porque su ficha también crasheaba → nunca se llegaba al botón Eliminar (el endpoint de borrado funciona; solo bloquea si hay líneas ACTIVAS).
+- **Fixes**:
+  1. Backend `_enrich_line`: coacciona `price` a float (maneja string/coma/None). Cubre /customers/{id}, /lines, /me/summary.
+  2. Migración BD one-off: 1 línea con price string → float (633377358 → 10.0). También revisadas invoices.total (0).
+  3. Frontend defensivo: `Number(x||0).toFixed(2)` en CustomerDetail (line.price, invoice.total, optional.price) y ClientDashboard (line.price, options.price).
+  4. **Error Boundary global** (`components/ErrorBoundary.js`) envolviendo las rutas CustomerDetail y ClientDashboard (App.js): ante cualquier crash muestra "Algo no se pudo mostrar · Reintentar" en vez de pantalla en blanco (data-testid `error-boundary`).
+- Verificado: curl (F56553407 ahora devuelve price float en ambas líneas) + screenshot (ficha de Nicolas carga OK con botón Eliminar). Ronald ya fue borrado por API (200).
+- DESPLIEGUE VPS (backend + frontend): git pull + yarn build + copiar build + restart backend. Tras desplegar, el `_enrich_line` normaliza al vuelo; la migración de datos ya se aplicó en preview pero conviene re-ejecutarla en el VPS si hubiera precios string allí.

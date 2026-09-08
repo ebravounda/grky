@@ -374,7 +374,7 @@ export default function CustomerDetail() {
                   <StatusPill status={l.status} />
                 </div>
                 <p className="text-sm text-muted-foreground mt-2">{l.productName}</p>
-                <p className="text-sm font-semibold mt-1">{l.price?.toFixed(2)} €/mes {l.eSim && <span className="text-xs text-primary">· eSIM</span>}</p>
+                <p className="text-sm font-semibold mt-1">{Number(l.price || 0).toFixed(2)} €/mes {l.eSim && <span className="text-xs text-primary">· eSIM</span>}</p>
               </Link>
             ))}
             {lines.length === 0 && <p className="text-sm text-muted-foreground">Sin líneas contratadas.</p>}
@@ -492,7 +492,7 @@ export default function CustomerDetail() {
                   <div className="min-w-0"><p className="text-sm font-medium truncate">{i.invoiceNumber}</p><p className="text-xs text-muted-foreground">{i.date?.slice(0, 10)} · {i.period || ""}</p></div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className="font-semibold text-sm">{i.total.toFixed(2)} €</span>
+                  <span className="font-semibold text-sm">{Number(i.total || 0).toFixed(2)} €</span>
                   {i.status !== "paid" && i.chargeStatus === "processing" && (
                     <span data-testid={`inv-sepa-processing-${i.invoiceNumber}`} className="inline-flex items-center gap-1 rounded-full bg-blue-500/12 text-blue-600 px-2.5 py-0.5 text-xs font-semibold" title="Adeudo SEPA enviado; el banco tarda unos días en liquidarlo">
                       <Landmark size={12} /> SEPA en proceso · liquida en unos días
@@ -542,7 +542,7 @@ export default function CustomerDetail() {
             <Label>Producto opcional</Label>
             <Select value={optSel} onValueChange={setOptSel}>
               <SelectTrigger data-testid="opt-select"><SelectValue placeholder="Selecciona bono/opcional" /></SelectTrigger>
-              <SelectContent>{optList.map((o) => <SelectItem key={o.productId} value={o.productId}>{o.productName} — {o.price.toFixed(2)} €</SelectItem>)}</SelectContent>
+              <SelectContent>{optList.map((o) => <SelectItem key={o.productId} value={o.productId}>{o.productName} — {Number(o.price || 0).toFixed(2)} €</SelectItem>)}</SelectContent>
             </Select>
             {optList.length === 0 && <p className="text-xs text-muted-foreground">No hay opcionales compatibles. Crea tarifas de tipo "Opcional" en Tarifas.</p>}
           </div>

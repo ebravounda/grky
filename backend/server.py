@@ -118,6 +118,13 @@ def _line_usage(line: dict) -> dict:
 
 
 def _enrich_line(line: dict) -> dict:
+    # Normaliza el precio a número (algunas líneas guardaron el precio como texto → rompía el frontend)
+    p = line.get("price")
+    if isinstance(p, str):
+        try:
+            line["price"] = round(float(p.replace(",", ".")), 2)
+        except (ValueError, TypeError):
+            line["price"] = 0.0
     if line.get("family") == "Mobile":
         u = _line_usage(line)
         line["nationalMinutes"] = u["nationalMinutes"]

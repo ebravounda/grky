@@ -12,7 +12,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight, FileSignature, Download } from "lucide-react";
+import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight, FileSignature, Download, Landmark, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -32,6 +32,9 @@ export default function ClientDashboard() {
   const [newProduct, setNewProduct] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeCard, setActiveCard] = useState(0);
+  const [sepaOpen, setSepaOpen] = useState(false);
+  const [sepaIban, setSepaIban] = useState("");
+  const [sepaBusy, setSepaBusy] = useState(false);
   const scrollRef = useRef();
 
   const load = () => api.get("/me/summary").then((r) => setData(r.data));
@@ -67,6 +70,20 @@ export default function ClientDashboard() {
   };
 
   const openChange = (sub) => { setChanging(sub); setNewProduct(""); };
+
+  const startSepa = async () => {
+    setSepaBusy(true);
+    try {
+      const { data } = await api.post("/me/sepa-setup", { iban: sepaIban.trim(), origin_url: window.location.origin });
+      if (data.checkout_url) window.location.href = data.checkout_url;
+      else toast.error("No se pudo iniciar la domiciliación");
+    } catch (e) { toast.error(apiErr(e)); setSepaBusy(false); }
+  };
+  const maskIban = (iban) => {
+    if (!iban) return "";
+    const c = iban.replace(/\s+/g, "");
+    return c.length <= 8 ? c : `${c.slice(0, 4)} •••• •••• ${c.slice(-4)}`;
+  };
   const confirmChange = async () => {
     if (!newProduct) return;
     setSaving(true);
@@ -202,6 +219,29 @@ export default function ClientDashboard() {
         </div>
       )}
 
+      {/* Domiciliación bancaria (SEPA) */}
+      <div className="px-5 mb-6">
+        <div data-testid="sepa-card" className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid place-items-center h-11 w-11 rounded-xl bg-primary/10 text-primary shrink-0"><Landmark size={22} /></span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-900 text-sm">Domiciliación bancaria (SEPA)</p>
+              {(data.customer?.recurring?.method === "sepa" || data.customer?.paymentMethod === "SEPA CORE") && (data.customer?.iban || data.customer?.recurring?.last4) ? (
+                <p data-testid="sepa-current" className="text-xs text-slate-500 truncate flex items-center gap-1.5">
+                  <ShieldCheck size={13} className="text-success shrink-0" />
+                  {data.customer?.iban ? maskIban(data.customer.iban) : `•••• ${data.customer.recurring.last4}`} · domiciliado
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 truncate">Aún no tienes una cuenta domiciliada para el cobro mensual.</p>
+              )}
+            </div>
+            <Button data-testid="sepa-setup-btn" size="sm" className="rounded-xl gap-1.5 shrink-0" onClick={() => { setSepaIban(data.customer?.iban || ""); setSepaOpen(true); }}>
+              {(data.customer?.recurring?.method === "sepa" || data.customer?.paymentMethod === "SEPA CORE") ? "Cambiar IBAN" : "Domiciliar"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Ofertas para ti */}
       {promos.offer?.length > 0 && (
         <>
@@ -272,6 +312,34 @@ export default function ClientDashboard() {
           </div>
           <DialogFooter>
             <Button data-testid="confirm-tariff-btn" onClick={confirmChange} disabled={saving} className="rounded-full">{saving ? "Cambiando…" : "Confirmar cambio"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Domiciliar SEPA */}
+      <Dialog open={sepaOpen} onOpenChange={(o) => { if (!sepaBusy) setSepaOpen(o); }}>
+        <DialogContent data-testid="sepa-dialog">
+          <DialogHeader>
+            <DialogTitle>Domiciliar mi pago (SEPA)</DialogTitle>
+            <DialogDescription>
+              Escribe el IBAN de tu cuenta. Al continuar, firmarás el mandato de forma segura en la pasarela de Stripe y tu cuota mensual se cobrará automáticamente por domiciliación.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>IBAN</Label>
+            <input
+              data-testid="sepa-iban-input"
+              value={sepaIban}
+              onChange={(e) => setSepaIban(e.target.value.toUpperCase())}
+              placeholder="ES00 0000 0000 0000 0000 0000"
+              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary tracking-wider"
+            />
+            <p className="text-xs text-slate-400">Tu IBAN quedará visible en tu cuenta. Los datos bancarios los gestiona Stripe de forma segura.</p>
+          </div>
+          <DialogFooter>
+            <Button data-testid="sepa-continue-btn" onClick={startSepa} disabled={sepaBusy || !sepaIban.trim()} className="rounded-full gap-2">
+              <Landmark size={16} /> {sepaBusy ? "Redirigiendo…" : "Continuar y firmar mandato"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

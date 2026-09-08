@@ -446,6 +446,11 @@ class ChargeNowBody(BaseModel):
     concept: Optional[str] = None       # si se omite, se usa el nombre de la tarifa/servicio
 
 
+class MeSepaSetupBody(BaseModel):
+    iban: Optional[str] = None          # IBAN que introduce el cliente (para visualizarlo en su cuenta)
+    origin_url: Optional[str] = None
+
+
 class CustomerBillingBody(BaseModel):
     iban: Optional[str] = None
     paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
@@ -2706,6 +2711,37 @@ async def me_summary(request: Request):
             "monthlyTotal": monthly, "pendingInvoices": pending, "contract": contract}
 
 
+@api.post("/me/sepa-setup")
+async def me_sepa_setup(body: MeSepaSetupBody, request: Request):
+    """El CLIENTE domicilia su pago por SEPA desde su área: guarda el IBAN (para visualizarlo)
+    y devuelve el enlace seguro de Stripe donde firma el mandato. Al completarlo, queda
+    domiciliado y el sistema le adeuda la cuota mensual automáticamente."""
+    user = await current_user(request)
+    fid = user.get("fiscalId")
+    if not fid:
+        raise HTTPException(status_code=400, detail="Cuenta sin cliente asociado")
+    cust = await db.customers.find_one({"fiscalId": fid})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if body.iban:
+        iban = body.iban.replace(" ", "").upper().strip()
+        await db.customers.update_one({"fiscalId": fid},
+            {"$set": {"iban": iban, "paymentMethod": "SEPA CORE"}})
+        cust["iban"] = iban
+    await _stripe_apply()
+    origin = body.origin_url or os.environ.get("FRONTEND_URL", "")
+    try:
+        res = await _send_sepa_link(cust, origin, send_email=False)
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        raise HTTPException(status_code=400, detail=f"Stripe: {msg}")
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=400, detail=f"No se pudo iniciar la domiciliación: {str(e)[:120]}")
+    return {"checkout_url": res["checkout_url"]}
+
+
 @api.get("/me/contract.pdf")
 async def my_contract_pdf(request: Request):
     user = await current_user(request)
@@ -4552,7 +4588,7 @@ async def monthly_billing_job(force=False):
     p_start, p_end = _prev_month_bounds(now)
     billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
     run_key = now.strftime("%Y-%m")
-    result = {"period": billed_period, "charged": 0, "skipped": 0, "failed": 0, "generated": 0}
+    result = {"period": billed_period, "charged": 0, "processing": 0, "skipped": 0, "failed": 0, "generated": 0}
     customers = await db.customers.find().to_list(20000)
     for cust in customers:
         fid = cust["fiscalId"]
@@ -4581,19 +4617,31 @@ async def monthly_billing_job(force=False):
             result["skipped"] += 1
             continue
         total = float(inv.get("total", 0) or 0)
-        cid, pm = await _get_saved_pm(cust)
+        method = "sepa" if (cust.get("recurring") or {}).get("method") == "sepa" else "card"
+        cid, pm = await _get_saved_pm_typed(cust, method)
+        if not (cid and pm):
+            alt = "card" if method == "sepa" else "sepa"
+            cid, pm = await _get_saved_pm_typed(cust, alt)
+            if cid and pm:
+                method = alt
         if not (cid and pm) or total <= 0:
             result["skipped"] += 1
             continue
+        pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
         try:
             pi = stripe.PaymentIntent.create(
                 amount=int(round(total * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True,
+                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
                 description=f"Cuota mensual {billed_period}",
                 metadata={"fiscalId": fid, "kind": "recurring", "period": billed_period})
             if pi.status == "succeeded":
                 await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"status": "paid", "chargeStatus": "paid"}})
                 result["charged"] += 1
+            elif pi.status in ("processing", "requires_action"):
+                # SEPA: el adeudo liquida en unos días → se cierra por webhook payment_intent.succeeded
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+                    "chargeStatus": "processing", "stripePaymentIntentId": pi.id}})
+                result["processing"] += 1
             else:
                 await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
                     "chargeStatus": "failed", "chargeAttempts": 1,
@@ -4604,9 +4652,10 @@ async def monthly_billing_job(force=False):
                 "chargeStatus": "failed", "chargeAttempts": 1, "chargeError": str(e)[:150],
                 "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
             result["failed"] += 1
-            await log_event("billing", "warning", f"Cobro mensual con tarjeta falló · {fid}: {str(e)[:100]}", {"fiscalId": fid})
+            await log_event("billing", "warning", f"Cobro mensual falló · {fid}: {str(e)[:100]}", {"fiscalId": fid})
     await log_event("billing", "info",
-                    f"Cobro mensual {billed_period}: {result['charged']} cobradas · {result['failed']} fallidas · {result['generated']} generadas al vuelo")
+                    f"Cobro mensual {billed_period}: {result['charged']} cobradas · {result['processing']} en proceso (SEPA) · "
+                    f"{result['failed']} fallidas · {result['generated']} generadas al vuelo")
     return result
 
 

@@ -2883,12 +2883,58 @@ async def public_account_checkout(body: AccountLookup):
 @api.get("/admin/payments")
 async def admin_payments(request: Request):
     await require_admin(request)
+    custs = {c["fiscalId"]: c for c in await db.customers.find().to_list(50000)}
+
+    def _method_of(inv, c):
+        if inv.get("chargeStatus") == "processing":
+            return "sepa"
+        rec = (c.get("recurring") or {})
+        if rec.get("method") == "sepa" or c.get("paymentMethod") == "SEPA CORE":
+            return "sepa"
+        if rec.get("method") == "card" or rec.get("last4"):
+            return "card"
+        return None
+
+    def _status_of(inv):
+        if inv.get("status") == "paid":
+            return "paid"
+        cs = inv.get("chargeStatus")
+        if cs == "processing":
+            return "processing"
+        if cs == "failed":
+            return "failed"
+        return "pending"
+
+    invs = await db.invoices.find().sort("date", -1).to_list(20000)
+    out, seen = [], set()
+    for i in invs:
+        c = custs.get(i.get("fiscalId")) or {}
+        num = i.get("invoiceNumber")
+        seen.add(num)
+        out.append({
+            "id": str(i["_id"]), "invoiceNumber": num,
+            "customerName": c.get("name") or i.get("customerName") or "—",
+            "fiscalId": i.get("fiscalId"),
+            "amount": round(float(i.get("total") or 0), 2), "currency": "eur",
+            "kind": i.get("kind", "invoice"), "method": _method_of(i, c),
+            "status": _status_of(i), "concept": i.get("concept") or i.get("period") or "Cuota",
+            "paidAt": i.get("date"),
+        })
+    # transacciones de Stripe (pagos públicos "Pagar cuenta", SIM, etc.) sin factura asociada
     txns = await db.payment_transactions.find({"payment_status": "paid"}).sort("updated_at", -1).to_list(2000)
-    return [{"id": str(t["_id"]), "invoiceNumber": t.get("invoice_number"),
-             "customerName": t.get("customerName"), "fiscalId": t.get("fiscalId"),
-             "amount": round(float(t.get("amount") or 0), 2), "currency": t.get("currency", "eur"),
-             "sessionId": t.get("session_id"), "kind": t.get("kind", "invoice"),
-             "paidAt": t.get("updated_at") or t.get("created_at")} for t in txns]
+    for t in txns:
+        if t.get("invoice_number") in seen:
+            continue
+        out.append({
+            "id": str(t["_id"]), "invoiceNumber": t.get("invoice_number"),
+            "customerName": t.get("customerName") or "—", "fiscalId": t.get("fiscalId"),
+            "amount": round(float(t.get("amount") or 0), 2), "currency": t.get("currency", "eur"),
+            "kind": t.get("kind", "invoice"), "method": "card",
+            "status": "paid", "concept": t.get("concept") or t.get("kind") or "Pago",
+            "paidAt": t.get("updated_at") or t.get("created_at"),
+        })
+    out.sort(key=lambda x: str(x.get("paidAt") or ""), reverse=True)
+    return out
 
 
 @api.get("/payments/status/{session_id}")

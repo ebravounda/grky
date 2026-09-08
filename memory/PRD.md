@@ -678,3 +678,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 
 ### PENDIENTE (interrumpido)
 - **Recuperación de contraseña de clientes por email**: solicitado por el usuario; se investigó (auth.py bcrypt, _gen_password, _send_app_credentials(reset=True) ya existen; integration_expert consultado). Plan: endpoint público `POST /api/auth/forgot-password` (SOLO role=client, respuesta genérica anti-enumeración, throttle 90s, genera pw nueva + email via _send_app_credentials(reset=True) + sessionEpoch++) y enlace "¿Olvidaste tu contraseña?" en `pages/Login.js`. NO implementado aún.
+
+### Iteración 2026-06 (fork) — Recuperación de contraseña de CLIENTES por email
+- Endpoint público `POST /api/auth/forgot-password` en server.py (modelo ForgotPasswordBody). Solo role=client: _gen_password + hash_password + sessionEpoch++ + lastPwResetAt + _send_app_credentials(reset=True) vía Resend. Respuesta genérica anti-enumeración. Throttle 90s. Admin/staff nunca reseteables.
+- Frontend `pages/Login.js`: modo "forgot" con enlace "¿Has olvidado tu contraseña?" + formulario email + confirmación genérica + volver.
+- Verificado E2E: cliente semilla → forgot → contraseña antigua invalidada, epoch=1, lastPwResetAt set; admin NO reseteado (Goroky2026! sigue válido) pero respuesta genérica. Screenshots del flujo OK.
+- integration_expert consultado (auth). DESPLIEGUE VPS: git pull + build frontend + restart backend.

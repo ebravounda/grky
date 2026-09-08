@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { apiErr } from "@/lib/api";
+import api, { apiErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,10 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("login");   // "login" | "forgot"
+  const [fpEmail, setFpEmail] = useState("");
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpSent, setFpSent] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -30,6 +34,20 @@ export default function Login() {
       toast.error(apiErr(err, "No se pudo iniciar sesión"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitForgot = async (e) => {
+    e.preventDefault();
+    setFpLoading(true);
+    try {
+      const { data } = await api.post("/auth/forgot-password", { email: fpEmail });
+      setFpSent(true);
+      toast.success(data?.message || "Si el email es de un cliente, recibirás tu nueva contraseña por correo.");
+    } catch (err) {
+      toast.error(apiErr(err, "No se pudo procesar la solicitud"));
+    } finally {
+      setFpLoading(false);
     }
   };
 
@@ -56,6 +74,8 @@ export default function Login() {
       <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: "easeOut" }}
         className="bg-background rounded-t-[2rem] px-6 pt-9 pb-10 shadow-[0_-8px_40px_rgba(0,0,0,0.18)]">
         <div className="w-full max-w-sm mx-auto">
+          {mode === "login" ? (
+          <>
           <h2 className="font-heading text-xl font-700 tracking-tight text-foreground">Inicia sesión</h2>
           <p className="text-muted-foreground text-sm mt-1 mb-7">Introduce tus datos para acceder a tu cuenta.</p>
 
@@ -70,7 +90,12 @@ export default function Login() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Contraseña</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Contraseña</Label>
+                <button type="button" data-testid="forgot-password-link"
+                  onClick={() => { setFpEmail(email); setFpSent(false); setMode("forgot"); }}
+                  className="text-xs font-600 text-primary hover:underline">¿Has olvidado tu contraseña?</button>
+              </div>
               <div className="relative">
                 <Lock size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input id="password" data-testid="login-password" type={show ? "text" : "password"} value={password}
@@ -95,6 +120,40 @@ export default function Login() {
               <a href="/contratar" data-testid="signup-link" className="font-600 text-primary hover:underline">Contrata aquí</a>
             </p>
           </div>
+          </>
+          ) : (
+          <>
+          <h2 className="font-heading text-xl font-700 tracking-tight text-foreground">Recuperar contraseña</h2>
+          <p className="text-muted-foreground text-sm mt-1 mb-7">Introduce el email de tu cuenta de cliente y te enviaremos una contraseña nueva por correo.</p>
+
+          {fpSent ? (
+            <div data-testid="forgot-sent" className="rounded-xl bg-success/10 text-success text-sm p-4 leading-relaxed">
+              Si el email corresponde a una cuenta de cliente, recibirás tu <b>nueva contraseña</b> en unos minutos. Revisa también la carpeta de spam.
+            </div>
+          ) : (
+            <form onSubmit={submitForgot} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="fp-email">Email</Label>
+                <div className="relative">
+                  <Mail size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input id="fp-email" data-testid="forgot-email" type="email" value={fpEmail} autoComplete="email"
+                    onChange={(e) => setFpEmail(e.target.value)} placeholder="tu@email.com" required
+                    className="h-12 rounded-xl pl-10" />
+                </div>
+              </div>
+              <Button data-testid="forgot-submit" type="submit" disabled={fpLoading}
+                className="w-full rounded-xl h-12 gap-2 text-base font-600 active:scale-[0.98] transition-transform">
+                {fpLoading ? "Enviando…" : <>Enviar nueva contraseña <ArrowRight size={17} /></>}
+              </Button>
+            </form>
+          )}
+
+          <div className="mt-7 pt-6 border-t border-border text-center">
+            <button type="button" data-testid="back-to-login" onClick={() => setMode("login")}
+              className="text-sm font-600 text-primary hover:underline">← Volver a iniciar sesión</button>
+          </div>
+          </>
+          )}
         </div>
       </motion.div>
     </div>

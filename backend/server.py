@@ -462,6 +462,10 @@ class ChargePendingBody(BaseModel):
     method: Optional[str] = None        # "sepa" | "card"; por defecto usa el método guardado del cliente
 
 
+class ForgotPasswordBody(BaseModel):
+    email: str
+
+
 class CustomerBillingBody(BaseModel):
     iban: Optional[str] = None
     paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
@@ -968,6 +972,36 @@ async def _send_app_credentials(email, name, password, reset=False):
             f"• Contraseña: <b>{password}</b><br><br>"
             "Por tu seguridad, te recomendamos cambiar la contraseña tras el primer acceso.")
     await _send_mail_safe("email", email, f"{title} · GoRoky", emailer.base_template(title, body))
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordBody):
+    """Recuperación de contraseña SOLO para clientes: genera una nueva contraseña, la guarda
+    y se la envía por email. Respuesta genérica siempre (evita filtrar qué emails existen)."""
+    generic = {"ok": True,
+               "message": "Si el email corresponde a una cuenta de cliente, recibirás tu nueva contraseña en unos minutos."}
+    email = (body.email or "").lower().strip()
+    if not email:
+        return generic
+    user = await db.users.find_one({"email": email})
+    # Solo clientes (nunca admins/staff) y sin acceso bloqueado
+    if not user or user.get("role") != "client" or user.get("appBlocked"):
+        return generic
+    # Throttle: como máximo una recuperación cada 90 segundos
+    last = user.get("lastPwResetAt")
+    if last:
+        try:
+            if (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() < 90:
+                return generic
+        except Exception:  # noqa
+            pass
+    pw = _gen_password()
+    await db.users.update_one({"_id": user["_id"]},
+        {"$set": {"password_hash": hash_password(pw), "lastPwResetAt": now_iso()},
+         "$inc": {"sessionEpoch": 1}})
+    await _send_app_credentials(user["email"], user.get("name"), pw, reset=True)
+    await log_event("system", "info", f"Cliente solicitó recuperar contraseña · {email}")
+    return generic
 
 
 async def _ensure_client_access(cust):

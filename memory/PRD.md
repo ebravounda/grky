@@ -668,3 +668,13 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - **FIX frontend** (`Payments.js` reescrito): pestañas de filtro (Todos/Pagados/SEPA en proceso/Pendientes/Fallidos con contadores), 3 tarjetas de totales (Total cobrado, SEPA en proceso, Pendiente de cobro), columna Método (SEPA/Tarjeta) y estado con colores (verde/azul/ámbar/rojo).
 - Verificado: curl (/admin/payments → 23 filas: 5 paid, 18 pending, método sepa/card) + screenshot (vista completa OK).
 - DESPLIEGUE VPS (backend + frontend): git pull + yarn build + copiar build + restart backend.
+
+### Iteración 2026-06 (fork) — FIX cambio de titular: líneas no desaparecían del cliente antiguo
+- **CAUSA**: `likes_reconcile.reconcile_customer` solo UPSERTA (por lineNumber, set fiscalId=cliente) las líneas que Likes reporta; NUNCA elimina/desvincula las que Likes ya no devuelve para ese cliente. En un cambio de titular, Likes deja de listar la línea en el titular antiguo → la copia local queda pegada al antiguo con estado ACTIVE.
+- **FIX** (`likes_reconcile.py`): se rastrean los lineNumbers que Likes reporta AHORA para el cliente (`seen_lines`) y, si la lectura de suscripciones fue OK (`subs_ok`), las líneas locales con `fiscalId==cliente, source=likes, lineNumber \$nin seen` se DESVINCULAN: `{fiscalId:null, status:REMOVED, detachedFrom, detachedAt}`. Así desaparecen de la cuenta del cliente. El nuevo titular las reclama por lineNumber en su propia reconciliación (restaura fiscalId/estado ACTIVE). counts["removed"] y totals de reconcile_all incluidos.
+- **Exclusión REMOVED**: `GET /api/lines` (status \$ne REMOVED) y `dashboard/stats` (line_q += status \$ne REMOVED). Portal cliente / ficha / facturación ya filtran por fiscalId → las desvinculadas (fiscalId null) no aparecen ni se facturan.
+- Verificado: sintaxis OK; línea REMOVED de prueba NO aparece en /lines. El prune real no es E2E-testeable en preview (Likes simulado); se validará en VPS al Sincronizar.
+- DESPLIEGUE VPS (backend + frontend): git pull + restart backend (+ build frontend si aplica).
+
+### PENDIENTE (interrumpido)
+- **Recuperación de contraseña de clientes por email**: solicitado por el usuario; se investigó (auth.py bcrypt, _gen_password, _send_app_credentials(reset=True) ya existen; integration_expert consultado). Plan: endpoint público `POST /api/auth/forgot-password` (SOLO role=client, respuesta genérica anti-enumeración, throttle 90s, genera pw nueva + email via _send_app_credentials(reset=True) + sessionEpoch++) y enlace "¿Olvidaste tu contraseña?" en `pages/Login.js`. NO implementado aún.

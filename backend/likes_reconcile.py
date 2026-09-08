@@ -49,8 +49,10 @@ async def reconcile_customer(db, fiscal_id):
     if not await asyncio.to_thread(likes_client.get_token):
         return {"reconciled": False, "reason": "not_connected"}
     now = _now()
-    counts = {"orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
+    counts = {"orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0, "removed": 0}
     ship_info = {}  # lineNumber -> {status, tracking, likesOrderStatus} (envío de SIM/router)
+    seen_lines = set()   # lineNumbers que Likes reporta AHORA para este cliente
+    subs_ok = False      # True solo si la lectura de suscripciones fue correcta
 
     # 1) ÓRDENES (estados reales + envío de SIM)
     try:
@@ -120,6 +122,7 @@ async def reconcile_customer(db, fiscal_id):
                 ln = p.get("lineNumber")
                 if not ln or p.get("type") == "Optional":
                     continue
+                seen_lines.add(ln)
                 line_upd = {"fiscalId": fiscal_id, "family": p.get("family"), "status": p.get("status"),
                             "productId": p.get("productId"), "productName": p.get("productName"),
                             "price": p.get("finalPrice") or p.get("price"), "icc": p.get("icc"),
@@ -181,8 +184,28 @@ async def reconcile_customer(db, fiscal_id):
                 if res.matched_count == 0:
                     await db.lines.insert_one({"lineNumber": ln, "created": now, "spn": "GOROKY", **line_upd})
                 counts["lines"] += 1
+        subs_ok = True
     except Exception as e:  # noqa
         logger.warning("reconcile subs %s: %s", fiscal_id, e)
+
+    # 2b) DESVINCULAR LÍNEAS QUE YA NO PERTENECEN AL CLIENTE (cambio de titular / baja)
+    # Likes ya no las reporta en las suscripciones de este cliente → se desvinculan para que
+    # DESAPAREZCAN de su cuenta. Si cambiaron de titular, el nuevo titular las reclamará
+    # (por lineNumber) en su propia reconciliación, restaurando fiscalId/estado.
+    if subs_ok:
+        try:
+            stale = db.lines.find({"fiscalId": fiscal_id, "source": "likes",
+                                   "lineNumber": {"$nin": list(seen_lines)}})
+            async for l in stale:
+                await db.lines.update_one({"_id": l["_id"]}, {"$set": {
+                    "fiscalId": None, "status": "REMOVED", "detachedFrom": fiscal_id,
+                    "detachedAt": now, "likesSyncedAt": now}})
+                counts["removed"] += 1
+            if counts["removed"]:
+                logger.info("reconcile %s: %s líneas desvinculadas (ya no pertenecen al cliente)",
+                            fiscal_id, counts["removed"])
+        except Exception as e:  # noqa
+            logger.warning("reconcile prune %s: %s", fiscal_id, e)
 
     # 3) PORTABILIDADES del cliente
     try:
@@ -239,13 +262,13 @@ async def reconcile_all(db, limit=1000):
     if not await asyncio.to_thread(likes_client.get_token):
         return {"reconciled": False, "reason": "not_connected"}
     imp = await import_customers(db)
-    total = {"customers": 0, "orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0}
+    total = {"customers": 0, "orders": 0, "lines": 0, "subscriptions": 0, "portabilities": 0, "removed": 0}
     cursor = db.customers.find({"source": "likes"}).limit(limit)
     async for c in cursor:
         r = await reconcile_customer(db, c["fiscalId"])
         if r.get("reconciled"):
             total["customers"] += 1
-            for k in ("orders", "lines", "subscriptions", "portabilities"):
+            for k in ("orders", "lines", "subscriptions", "portabilities", "removed"):
                 total[k] += r["counts"].get(k, 0)
     return {"reconciled": True, "imported": imp.get("count", 0), "totals": total}
 

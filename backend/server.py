@@ -1159,6 +1159,7 @@ async def dashboard_stats(request: Request):
         order_q = {"ownerId": str(user["_id"])}
     else:
         cust_q, line_q, order_q = {}, {}, {}
+    line_q = {**line_q, "status": {"$ne": "REMOVED"}}  # excluye líneas desvinculadas
     customers = await db.customers.count_documents(cust_q)
     active_lines = await db.lines.count_documents({**line_q, "status": "ACTIVE"})
     total_lines = await db.lines.count_documents(line_q)
@@ -1304,10 +1305,10 @@ async def delete_customer(fiscalId: str, request: Request):
 @api.get("/lines")
 async def list_lines(request: Request):
     user = await require_perm(request, "lines.view")
-    query = {}
+    query = {"status": {"$ne": "REMOVED"}}  # oculta líneas desvinculadas (cambio de titular / baja)
     if user.get("role") == "reseller":
         owned = await db.customers.find({"ownerId": str(user["_id"])}).to_list(2000)
-        query = {"fiscalId": {"$in": [c["fiscalId"] for c in owned]}}
+        query["fiscalId"] = {"$in": [c["fiscalId"] for c in owned]}
     lines = await db.lines.find(query).sort("created", -1).to_list(1000)
     return [clean(l) for l in lines]
 

@@ -1,110 +1,107 @@
 {
-  "theme_and_identity": {
-    "archetype": "ARCHETYPE 7 (Electric & Neon) mixed with ARCHETYPE 4 (Swiss High Contrast)",
-    "description": "A bold, rebellious, yet professional B2C/B2B telecom storefront inspired by wom.cl and entel.cl. High energy, stark contrasts, massive typography, and distinct vibrant brand colors.",
-    "primary_mode": "Hybrid (Light theme for product conversion & readable tables, Dark theme for immersive Hero, Coverage, and Footer sections to create depth)."
-  },
-  "colors": {
-    "primary": {
-      "hex": "#015EEF",
-      "hsl": "216 99% 47%",
-      "usage": "Main CTA buttons, popular pricing card backgrounds, active tab text, critical highlights."
-    },
-    "accent": {
-      "hex": "#FF7A00",
-      "hsl": "29 100% 50%",
-      "usage": "Secondary CTAs, 'Más popular' badges, notification dots, dynamic hovers, 'promo' elements."
-    },
-    "backgrounds": {
-      "dark_obsidian": "#0A0A0A",
-      "light_base": "#F8FAFC",
-      "pure_white": "#FFFFFF"
-    },
-    "tailwind_config_overrides": {
-      "--primary": "216 99% 47%",
-      "--accent": "29 100% 50%",
-      "--background": "210 40% 98%",
-      "--foreground": "222 47% 11%"
-    }
+  "project_title": "GoRoky Telecom - Premium Modern Login Screen Redesign",
+  "app_type": "saas_app",
+  "design_archetype": "ORGANIC & PERFORMANCE PRO / SWISS HIGH-CONTRAST TECH",
+  "brand_colors": {
+    "primary": "hsl(216, 100%, 52%)",
+    "primary_hex": "#0033FF",
+    "primary_hover": "hsl(216, 100%, 45%)",
+    "primary_glow": "rgba(0, 51, 255, 0.35)",
+    "navy_dark": "hsl(222, 47%, 11%)",
+    "navy_dark_hex": "#0B132B",
+    "navy_card": "hsl(222, 42%, 15%)",
+    "surface_light": "#FFFFFF",
+    "surface_slate": "hsl(215, 28%, 97%)",
+    "text_dark": "hsl(222, 47%, 11%)",
+    "text_muted": "hsl(215, 16%, 47%)",
+    "border_subtle": "hsl(214, 32%, 91%)",
+    "border_focus": "hsl(216, 100%, 52%)"
   },
   "typography": {
-    "heading_font": "Outfit, sans-serif",
-    "body_font": "Manrope, sans-serif",
-    "rules": {
-      "h1": "text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.95]",
-      "h2": "text-4xl sm:text-5xl font-extrabold tracking-tight",
-      "h3": "text-2xl font-bold tracking-tight",
-      "body": "text-base sm:text-lg leading-relaxed text-slate-600 (or white/80 in dark sections)",
-      "overline": "text-xs tracking-[0.2em] font-bold uppercase"
+    "font_family_heading": "Outfit, sans-serif",
+    "font_family_body": "Inter, sans-serif",
+    "font_family_mono": "JetBrains Mono, monospace",
+    "font_weights": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    },
+    "font_sizes": {
+      "hero_headline_desktop": "text-4xl lg:text-5xl font-bold tracking-tight leading-tight",
+      "hero_headline_mobile": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "subtitle": "text-base sm:text-lg font-normal text-white/80 leading-relaxed",
+      "card_title": "text-2xl font-bold tracking-tight text-slate-900 dark:text-white",
+      "card_subtitle": "text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6",
+      "label": "text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider",
+      "input_text": "text-sm sm:text-base font-normal",
+      "button": "text-base font-semibold"
     }
   },
-  "layouts_and_grids": {
-    "hero_section": "Dark theme. Split layout (grid-cols-1 lg:grid-cols-2). Left side: Massive text, floating badges, multiple stacked CTAs. Right side: Bleeding-edge lifestyle image overlapping a neon glow. Add absolute positioned blur-3xl colored orbs (bg-[#015EEF]/20 and bg-[#FF7A00]/20) behind the content.",
-    "pricing_section": "Light theme (bg-slate-50). Bento-style horizontal density. grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6. Add high padding (p-8).",
-    "coverage_section": "Dark theme (bg-[#0A0A0A]). Split layout. Left: Typography + selling points. Right: The CoverageChecker component wrapped inside a 'Crystal Glass' container (bg-white/10 backdrop-blur-2xl border border-white/20). Add an abstract fiber optic background image at 30% opacity.",
-    "trust_section": "Light theme. grid-cols-1 sm:grid-cols-2 lg:grid-cols-4. Cardless approach or extremely subtle bordered cards with a light hover lift."
+  "layout_strategy": {
+    "responsive_architecture": "Desktop (lg breakpoint and above): 50/50 Split Screen. Left panel is a cinematic dark electric-blue brand visual with glowing mesh gradient, fiber optic abstract imagery, floating feature pills, live metric badge, and customer quote. Right panel is a clean, hyper-refined white/dark glassmorphic form card centered vertically. Mobile (< lg): Stacked mobile-first hero with compact top brand bar, glowing backdrop, and bottom rounded card with elevated depth.",
+    "outer_container": "min-h-screen w-full flex flex-col lg:flex-row bg-slate-950 font-sans text-slate-900 dark:text-slate-100 overflow-hidden",
+    "left_brand_panel": "hidden lg:flex lg:w-[52%] relative flex-col justify-between p-12 lg:p-16 bg-gradient-to-br from-[hsl(222,47%,9%)] via-[hsl(216,100%,18%)] to-[hsl(216,100%,52%)] text-white overflow-hidden",
+    "right_form_panel": "w-full lg:w-[48%] flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-slate-50 dark:bg-slate-900 relative z-10"
   },
-  "components": {
-    "header": {
-      "style": "Crystal Glassmorphism: bg-white/70 backdrop-blur-xl border-b border-black/5. Must have z-50 and sticky top-0.",
-      "links": "font-bold text-sm tracking-wide text-slate-800 hover:text-[#015EEF] transition-colors."
-    },
-    "tabs_selector": {
-      "style": "Pill-shaped container (bg-slate-200/50 p-1.5 rounded-full). Triggers are rounded-full px-6 py-2.5 text-sm font-bold.",
-      "active_state": "bg-white text-[#015EEF] shadow-sm",
-      "inactive_state": "text-slate-500 hover:text-slate-900"
-    },
-    "pricing_cards": {
-      "standard_card": "bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8. Hover: -translate-y-2 shadow-[0_20px_40px_rgba(0,0,0,0.08)].",
-      "popular_card": "bg-[#015EEF] text-white rounded-[2rem] shadow-[0_20px_40px_rgba(1,94,239,0.3)] p-8 scale-100 lg:scale-105 z-10 relative overflow-hidden. Add an orange (#FF7A00) badge for 'Más popular'.",
-      "price_display": "font-heading text-6xl font-black tracking-tighter."
-    },
-    "buttons": {
-      "primary": "rounded-full bg-[#015EEF] text-white font-bold px-8 py-4 transition-all hover:bg-[#004cc7] hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(1,94,239,0.3)]",
-      "accent": "rounded-full bg-[#FF7A00] text-white font-bold px-8 py-4 transition-all hover:bg-[#e66e00] hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(255,122,0,0.4)]"
-    },
-    "marquee": {
-      "style": "High energy kinetic typography. text-5xl font-black. Text is transparent with a 1.5px stroke of rgba(1,94,239,0.2) (WebkitTextStroke). Add solid #FF7A00 bullet separators."
-    }
+  "visual_enhancers": {
+    "background_texture": "Subtle noise overlay (opacity 0.03) + mesh gradient blobs floating with CSS animation keyframes.",
+    "hero_image_url": "https://images.unsplash.com/photo-1782149149559-4f6d8c8cb757?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwyfHx0ZWxlY29tJTIwZmliZXIlMjBuZXR3b3JrJTIwYmx1ZSUyMGJhY2tncm91bmQlMjBhYnN0cmFjdCUyMGRhcmt8ZW58MHx8fHwxNzg4ODkxNTM3fDA&ixlib=rb-4.1.0&q=85",
+    "secondary_image_url": "https://images.unsplash.com/photo-1779738193336-fbe62edfd4ee?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwzfHx0ZWxlY29tJTIwZmliZXIlMjBuZXR3b3JrJTIwYmx1ZSUyMGJhY2tncm91bmQlMjBhYnN0cmFjdCUyMGRhcmt8ZW58MHx8fHwxNzg4ODkxNTM3fDA&ixlib=rb-4.1.0&q=85",
+    "logo_url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png",
+    "glassmorphism_card": "backdrop-blur-2xl bg-white/80 dark:bg-slate-900/80 border border-white/40 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,51,255,0.08)] rounded-3xl p-8 sm:p-10",
+    "input_styling": "h-12 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-4 pl-11 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-[hsl(216,100%,52%)] focus:ring-4 focus:ring-[hsl(216,100%,52%)]/15 transition-all shadow-sm",
+    "primary_button_styling": "h-12 w-full bg-[hsl(216,100%,52%)] hover:bg-[hsl(216,100%,45%)] text-white font-semibold rounded-xl shadow-[0_8px_25px_-4px_rgba(0,51,255,0.45)] hover:shadow-[0_12px_30px_-4px_rgba(0,51,255,0.6)] active:scale-[0.98] transition-all flex items-center justify-center gap-2",
+    "feature_pills": [
+      {
+        "icon": "Zap",
+        "title": "Fibra Ultra-Rápida",
+        "desc": "Hasta 1 Gbps simétrico sin interrupciones"
+      },
+      {
+        "icon": "ShieldCheck",
+        "title": "Control Total de Facturación",
+        "desc": "Transparencia de consumo en tiempo real"
+      },
+      {
+        "icon": "Smartphone",
+        "title": "Gestión Multilínea 5G",
+        "desc": "Activa gigas extra y eSIM al instante"
+      }
+    ]
   },
-  "motion_and_interactions": {
-    "page_load": "Framer motion stagger children. Hero text slides up (y: 24 to 0, opacity 0 to 1, duration: 0.6s).",
-    "scroll_reveal": "Pricing cards and trust badges use `whileInView={{ opacity: 1, y: 0 }}` with `viewport={{ once: true }}`.",
-    "hover_effects": "All cards lift up (-translate-y-2). Buttons expand shadow and shift up. Avoid `transition-all` on root elements to prevent performance lag; specify `transition-transform, transition-shadow, transition-colors`."
+  "micro_interactions": {
+    "card_entrance": "Framer motion initial={opacity: 0, y: 20} animate={opacity: 1, y: 0} transition={duration: 0.4, ease: 'easeOut'}",
+    "password_toggle": "Smooth icon swap animation (Eye <-> EyeOff) with hover state glow",
+    "button_loading": "Spinner animation with disabled button opacity and glowing ring",
+    "forgot_mode_switch": "Smooth layout transition between 'login' and 'forgot' password modes without page reload"
   },
-  "image_urls": {
-    "hero_lifestyle": {
-      "url": "https://images.unsplash.com/photo-1761499413046-08ac70109128?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxsaWZlc3R5bGUlMjB5b3V0aCUyMHVzaW5nJTIwc21hcnRwaG9uZSUyMG91dGRvb3JzfGVufDB8fHx8MTc4NTE5NTM1NXww&ixlib=rb-4.1.0&q=85",
-      "description": "Young woman using phone with building in background. Represents urban lifestyle telecom usage."
-    },
-    "coverage_background": {
-      "url": "https://images.unsplash.com/photo-1597733336794-12d05021d510?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxmaWJlciUyMG9wdGljJTIwZ2xvd2luZyUyMHRlY2h8ZW58MHx8fHwxNzg1MTk1MzM1fDA&ixlib=rb-4.1.0&q=85",
-      "description": "Purple and blue glowing fiber optic light. Represents high-speed fiber coverage."
-    }
-  },
-  "accessibility": {
-    "contrast": "Ensure white text on #015EEF and #FF7A00 passes WCAG AA (minimum 4.5:1 for normal text). Both colors are dark/saturated enough.",
-    "focus": "All buttons and inputs MUST have `focus-visible:ring-2 focus-visible:ring-[#FF7A00] focus-visible:ring-offset-2`.",
-    "testing": "All interactive elements (buttons, tabs, inputs, dialog triggers) MUST retain their current `data-testid` attributes (e.g., `data-testid=\"public-tab-Mobile\"`)."
-  },
-  "instructions_to_main_agent": [
-    "Modify `/app/frontend/src/pages/public/PublicCatalog.js` directly to apply these styles.",
-    "Do NOT change the data fetching logic or state management.",
-    "Ensure `data-testid` attributes are strictly preserved as they are critical for automated testing.",
-    "Replace the existing generic `HERO_IMG` with the `hero_lifestyle` URL provided.",
-    "Add the `coverage_background` image as an absolute positioned, low-opacity background behind the coverage checker section.",
-    "Update standard tailwind classes: replace `bg-[#0033ff]` with `bg-[#015EEF]` and standardize `text-[#FF7A00]`.",
-    "Enhance the 'Planes' cards using the `pricing_cards` guidelines above (Bento-like, strong shadow on popular).",
-    "Change the Hero Section to a dark background (#0A0A0A) so the vibrant colors pop more aggressively (Entel/WOM style). Re-style text to be white/light in that section.",
-    "Ensure the Header is Crystal Glassmorphism."
+  "required_data_testids": [
+    "login-page",
+    "login-email",
+    "login-password",
+    "toggle-password",
+    "login-submit",
+    "forgot-password-link",
+    "forgot-email",
+    "forgot-submit",
+    "back-to-login",
+    "signup-link",
+    "forgot-sent"
   ],
-  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "Do not use default generic centered layouts or simplistic gradients.",
-    "Create depth through layered design elements with z-index hierarchy.",
-    "Use glass-morphism effects with backdrop filters (12-24px blur) for floating elements like navigation and modals.",
-    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements like button, input excluding transforms.",
-    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }` in the css file.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
-    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons. Use Lucide icons instead."
-  ]
+  "instructions_to_main_agent": [
+    "Redesign `/app/frontend/src/pages/Login.js` to implement the pro split-screen layout on desktop and elevated mobile card layout.",
+    "Keep all existing state hooks, API integrations (`useAuth`, `api.post('/auth/forgot-password')`, `toast.success`, `toast.error`), and router navigations completely intact.",
+    "MUST retain every single `data-testid` attribute exact string as specified in `required_data_testids` list.",
+    "Incorporate high visual fidelity with GoRoky's electric blue brand `#0033FF` / `hsl(216 100% 52%)`, glassmorphism, brand feature cards, customer trust badges, and glowing interactive elements.",
+    "Add responsive dark/light support or ultra-sleek dark navy & white contrast so the CRM portal looks like a top-tier telecom operator (e.g. Movistar, O2, Digimobil pro UI).",
+    "Provide clear back button and success state alert for the forgot password flow."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "do_not_center_app": "Do NOT add text-align center globally.",
+    "no_universal_transition": "Do NOT use `transition: all`. Use target transition properties.",
+    "no_emoji_icons": "Do NOT use emojis as UI icons; rely exclusively on lucide-react icons.",
+    "data_testids_mandatory": "All interactive elements must retain exact data-testid properties."
+  }
 }

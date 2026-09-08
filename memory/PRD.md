@@ -684,3 +684,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Frontend `pages/Login.js`: modo "forgot" con enlace "¿Has olvidado tu contraseña?" + formulario email + confirmación genérica + volver.
 - Verificado E2E: cliente semilla → forgot → contraseña antigua invalidada, epoch=1, lastPwResetAt set; admin NO reseteado (Goroky2026! sigue válido) pero respuesta genérica. Screenshots del flujo OK.
 - integration_expert consultado (auth). DESPLIEGUE VPS: git pull + build frontend + restart backend.
+
+### Iteración 2026-06 (fork) — Rediseño premium del Login
+- `pages/Login.js` reescrito (design_agent → /app/design_guidelines.json). Desktop: split-screen 52/48 — panel de marca con gradiente azul GoRoky + imagen de fibra (Unsplash) + badge, titular "Tu operador, bajo control total", 3 tarjetas de features (Zap/ShieldCheck/Smartphone) y pie de seguridad; panel derecho con tarjeta blanca redondeada y transición AnimatePresence entre modos login/forgot. Móvil: panel lateral oculto, cabecera de marca compacta + tarjeta.
+- Inputs con focus ring azul, botón primario con glow, framer-motion en entrada y features. Se conservan TODOS los data-testid (login-email, login-password, toggle-password, login-submit, forgot-password-link, forgot-email, forgot-submit, back-to-login, signup-link, forgot-sent) y la lógica (useAuth login, /auth/forgot-password).
+- Verificado por screenshots (desktop login, desktop forgot). Nota: el screenshot tool no respeta viewport móvil (renderiza desktop), pero el layout usa breakpoints lg: estándar.
+- DESPLIEGUE VPS (frontend): yarn build + copiar build.

@@ -1730,16 +1730,15 @@ def _arrears_line_amount(price, activation_value, now):
     p_start, p_end = _prev_month_bounds(now)
     dim = calendar.monthrange(p_start.year, p_start.month)[1]
     act = _parse_dt(activation_value)
-    if act is None or act <= p_start:
+    if act is None or act < p_start:
         return round(price, 2), dim, "full"
     if act > p_end:
         return 0.0, 0, "future"
-    # Prorrateo estilo Likes: tarifa diaria anual (cuota × 12 ÷ 366) × días de servicio,
-    # contando los días sobre base 30 (días = 30 − día de activación). Base 366 calibrada
-    # con factura real de Likes (15,67 €, alta 24/07 → 6 días → 3,08 €).
-    dias = max(1, 30 - act.day)
-    daily = price * 12 / 366
-    return round(daily * dias, 2), dias, "prorated"
+    # Prorrateo EXACTO de Likes: días desde la activación hasta fin de mes (INCLUSIVE)
+    # ÷ días reales del mes. Ej: alta día 25 de agosto (31d) → 7 días → precio × 7/31.
+    dias = dim - act.day + 1
+    amount = price * dias / dim
+    return round(amount, 2), dias, ("full" if dias >= dim else "prorated")
 
 
 

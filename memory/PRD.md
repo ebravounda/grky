@@ -690,3 +690,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Inputs con focus ring azul, botón primario con glow, framer-motion en entrada y features. Se conservan TODOS los data-testid (login-email, login-password, toggle-password, login-submit, forgot-password-link, forgot-email, forgot-submit, back-to-login, signup-link, forgot-sent) y la lógica (useAuth login, /auth/forgot-password).
 - Verificado por screenshots (desktop login, desktop forgot). Nota: el screenshot tool no respeta viewport móvil (renderiza desktop), pero el layout usa breakpoints lg: estándar.
 - DESPLIEGUE VPS (frontend): yarn build + copiar build.
+
+### Iteración 2026-06 (fork) — Conciliación SEPA con Stripe (fix cobros SEPA no marcados como pagados)
+- PROBLEMA: facturas SEPA (p.ej. GRK-2026-00053) quedaban en `chargeStatus:"processing"` ("SEPA en proceso/Pendiente") pese a estar cobradas en Stripe. Causa raíz: la única vía de marcarlas `paid` era el webhook `payment_intent.succeeded` (server.py ~3057); si el webhook no llega (SEPA liquida días después / evento no activado / firma), no había respaldo → factura colgada.
+- SOLUCIÓN (server.py): helper `_reconcile_sepa_processing()` consulta Stripe (`stripe.PaymentIntent.retrieve`) por cada factura con `chargeStatus:"processing"` + `stripePaymentIntentId`; succeeded→status:paid+chargeStatus:paid (+ email pago recibido best-effort); canceled/requires_payment_method→chargeStatus:failed; resto sigue en proceso. Endpoint admin `POST /api/billing/reconcile-sepa`. Job automático `reconcile_sepa_job` cada 6h (scheduler).
+- FRONTEND (pages/admin/Billing.js): botón "Actualizar pagos SEPA" (data-testid reconcile-sepa-btn) → llama a /billing/reconcile-sepa.
+- VERIFICADO en preview: query detecta processing (checked:1); ruta succeeded→paid (monkeypatch) marca invoice paid; error de retrieve gestionado sin crash (errors counted). Clave Stripe test del preview CADUCADA (normal). En prod usa la clave real del usuario.
+- DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend. Tras desplegar, pulsar "Actualizar pagos SEPA" (o esperar job 6h) para arreglar GRK-2026-00053 y demás atascadas.

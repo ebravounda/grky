@@ -4948,6 +4948,77 @@ async def run_retry_charges(request: Request):
     return {"ok": True, **res}
 
 
+async def _reconcile_sepa_processing():
+    """Concilia con Stripe las facturas SEPA que quedaron 'en proceso': consulta el estado real
+    del PaymentIntent y marca la factura como pagada/fallida. Es el respaldo al webhook
+    'payment_intent.succeeded' (por si no llega): así el SEPA nunca se queda colgado."""
+    await _stripe_apply()
+    result = {"checked": 0, "paid": 0, "failed": 0, "stillProcessing": 0, "errors": 0}
+    invs = await db.invoices.find({
+        "chargeStatus": "processing",
+        "status": {"$ne": "paid"},
+        "stripePaymentIntentId": {"$exists": True, "$nin": [None, ""]},
+    }).to_list(20000)
+    for inv in invs:
+        pi_id = inv.get("stripePaymentIntentId")
+        result["checked"] += 1
+        try:
+            pi = await asyncio.to_thread(stripe.PaymentIntent.retrieve, pi_id)
+        except Exception as e:  # noqa
+            result["errors"] += 1
+            logger.warning("reconcile SEPA retrieve %s: %s", pi_id, e)
+            continue
+        st = pi.get("status") if isinstance(pi, dict) else getattr(pi, "status", None)
+        if st == "succeeded":
+            await db.invoices.update_one({"_id": inv["_id"], "status": {"$ne": "paid"}},
+                {"$set": {"status": "paid", "chargeStatus": "paid"}})
+            result["paid"] += 1
+            await log_event("billing", "success",
+                            f"SEPA liquidado (conciliado con Stripe) · {inv.get('invoiceNumber')} · {inv.get('fiscalId')}",
+                            {"fiscalId": inv.get("fiscalId")})
+            # aviso de pago recibido al cliente (best-effort)
+            try:
+                cust = await db.customers.find_one({"fiscalId": inv.get("fiscalId")})
+                if cust and cust.get("email"):
+                    _spawn_bg(_send_mail_safe("email", cust["email"], "Pago recibido correctamente",
+                        _mail_payment_success(cust.get("name") or "", float(inv.get("total") or 0),
+                                              inv.get("invoiceNumber") or "", inv.get("period") or "")))
+            except Exception:  # noqa
+                pass
+        elif st in ("canceled", "requires_payment_method"):
+            err = (pi.get("last_payment_error") or {}) if isinstance(pi, dict) else (getattr(pi, "last_payment_error", None) or {})
+            msg = (err or {}).get("message") if isinstance(err, dict) else ""
+            await db.invoices.update_one({"_id": inv["_id"], "status": {"$ne": "paid"}},
+                {"$set": {"chargeStatus": "failed", "chargeError": (msg or f"SEPA {st}")[:150]}})
+            result["failed"] += 1
+            await log_event("billing", "error",
+                            f"SEPA rechazado/devuelto (conciliado con Stripe) · {inv.get('invoiceNumber')} · {inv.get('fiscalId')}",
+                            {"fiscalId": inv.get("fiscalId")})
+        else:
+            result["stillProcessing"] += 1
+    if result["paid"] or result["failed"]:
+        await log_event("billing", "info",
+                        f"Conciliación SEPA: {result['paid']} liquidadas · {result['failed']} rechazadas · "
+                        f"{result['stillProcessing']} aún en proceso")
+    return result
+
+
+async def reconcile_sepa_job():
+    try:
+        await _reconcile_sepa_processing()
+    except Exception as e:  # noqa
+        logger.warning("reconcile_sepa_job failed: %s", e)
+
+
+@api.post("/billing/reconcile-sepa")
+async def run_reconcile_sepa(request: Request):
+    """Actualiza el estado real de los cobros SEPA 'en proceso' consultando a Stripe
+    y marca como pagadas las que ya han liquidado."""
+    await require_admin(request)
+    res = await _reconcile_sepa_processing()
+    return {"ok": True, **res}
+
+
 @api.post("/billing/charge-all-pending")
 async def charge_all_pending(request: Request):
     """Cobra de una vez TODAS las facturas pendientes con el método guardado del cliente
@@ -6442,6 +6513,8 @@ async def startup():
         scheduler.add_job(card_reminder_job, CronTrigger(hour=9, minute=0), id="card_reminder", replace_existing=True)
         # Reintento de cobros fallidos: una vez al día
         scheduler.add_job(retry_failed_charges_job, CronTrigger(hour=7, minute=0), id="retry_charges", replace_existing=True)
+        # Conciliación SEPA con Stripe (respaldo del webhook): cada 6 horas
+        scheduler.add_job(reconcile_sepa_job, "interval", hours=6, id="reconcile_sepa", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

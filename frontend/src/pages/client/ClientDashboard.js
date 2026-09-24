@@ -12,7 +12,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight, FileSignature, Download, Landmark, ShieldCheck } from "lucide-react";
+import { Signal, Wifi, ArrowRight, Repeat, Plus, ReceiptText, X, ChevronRight, FileSignature, Download, Landmark, ShieldCheck, UserRound, Pencil } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 
@@ -35,6 +35,9 @@ export default function ClientDashboard() {
   const [sepaOpen, setSepaOpen] = useState(false);
   const [sepaIban, setSepaIban] = useState("");
   const [sepaBusy, setSepaBusy] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileForm, setProfileForm] = useState({ email: "", contactPhone: "", street: "", streetNumber: "", postalCode: "", cityName: "", provinceName: "" });
   const scrollRef = useRef();
 
   const load = () => api.get("/me/summary").then((r) => setData(r.data));
@@ -95,6 +98,35 @@ export default function ClientDashboard() {
   };
   const family = changing?.products?.[0]?.family;
   const options = products.filter((p) => p.family === family);
+
+  const openProfile = () => {
+    const c = data.customer || {};
+    const a = c.billingAddress || {};
+    setProfileForm({
+      email: c.email || "",
+      contactPhone: c.contactPhone || "",
+      street: a.street || "",
+      streetNumber: a.streetNumber || "",
+      postalCode: a.postalCode || "",
+      cityName: a.cityName || "",
+      provinceName: a.provinceName || "",
+    });
+    setProfileOpen(true);
+  };
+  const setPf = (k) => (e) => setProfileForm((f) => ({ ...f, [k]: e.target.value }));
+  const saveProfile = async () => {
+    setProfileBusy(true);
+    try {
+      const { data: res } = await api.post("/me/profile", profileForm);
+      toast.success(res.emailChanged ? "Datos guardados. Tu email de acceso se ha actualizado." : "Datos actualizados correctamente");
+      setProfileOpen(false); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setProfileBusy(false); }
+  };
+  const addrLine = (() => {
+    const a = data.customer?.billingAddress || {};
+    const parts = [[a.street, a.streetNumber].filter(Boolean).join(" "), a.postalCode, a.cityName].filter(Boolean);
+    return parts.join(", ");
+  })();
 
   return (
     <div data-testid="client-dashboard" className="pt-2">
@@ -219,6 +251,23 @@ export default function ClientDashboard() {
         </div>
       )}
 
+      {/* Mis datos */}
+      <div className="px-5 mb-6">
+        <div data-testid="my-profile-card" className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid place-items-center h-11 w-11 rounded-xl bg-primary/10 text-primary shrink-0"><UserRound size={22} /></span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-900 text-sm">Mis datos</p>
+              <p data-testid="my-profile-email" className="text-xs text-slate-500 truncate">{data.customer?.email || "Sin email"}{data.customer?.contactPhone ? ` · ${data.customer.contactPhone}` : ""}</p>
+              {addrLine && <p className="text-xs text-slate-400 truncate">{addrLine}</p>}
+            </div>
+            <Button data-testid="edit-profile-btn" size="sm" variant="outline" className="rounded-xl gap-1.5 shrink-0" onClick={openProfile}>
+              <Pencil size={14} /> Editar
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Domiciliación bancaria (SEPA) */}
       <div className="px-5 mb-6">
         <div data-testid="sepa-card" className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] p-4">
@@ -312,6 +361,66 @@ export default function ClientDashboard() {
           </div>
           <DialogFooter>
             <Button data-testid="confirm-tariff-btn" onClick={confirmChange} disabled={saving} className="rounded-full">{saving ? "Cambiando…" : "Confirmar cambio"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar mis datos */}
+      <Dialog open={profileOpen} onOpenChange={(o) => { if (!profileBusy) setProfileOpen(o); }}>
+        <DialogContent data-testid="profile-dialog">
+          <DialogHeader>
+            <DialogTitle>Editar mis datos</DialogTitle>
+            <DialogDescription>
+              Actualiza tu email de contacto, teléfono y dirección. El nombre y el NIF no se pueden modificar aquí (contacta con soporte).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Email (también es tu usuario de acceso)</Label>
+              <input data-testid="profile-email-input" type="email" value={profileForm.email} onChange={setPf("email")}
+                placeholder="tucorreo@ejemplo.com"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Teléfono de contacto</Label>
+              <input data-testid="profile-phone-input" value={profileForm.contactPhone} onChange={setPf("contactPhone")}
+                placeholder="600 000 000"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Calle</Label>
+                <input data-testid="profile-street-input" value={profileForm.street} onChange={setPf("street")}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Número</Label>
+                <input data-testid="profile-number-input" value={profileForm.streetNumber} onChange={setPf("streetNumber")}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1.5">
+                <Label>C.P.</Label>
+                <input data-testid="profile-cp-input" value={profileForm.postalCode} onChange={setPf("postalCode")}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Ciudad</Label>
+                <input data-testid="profile-city-input" value={profileForm.cityName} onChange={setPf("cityName")}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Provincia</Label>
+                <input data-testid="profile-province-input" value={profileForm.provinceName} onChange={setPf("provinceName")}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button data-testid="profile-save-btn" onClick={saveProfile} disabled={profileBusy} className="rounded-full gap-2">
+              {profileBusy ? "Guardando…" : "Guardar cambios"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

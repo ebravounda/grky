@@ -458,6 +458,16 @@ class MeSepaSetupBody(BaseModel):
     origin_url: Optional[str] = None
 
 
+class MeProfileBody(BaseModel):
+    email: Optional[str] = None
+    contactPhone: Optional[str] = None
+    street: Optional[str] = None
+    streetNumber: Optional[str] = None
+    postalCode: Optional[str] = None
+    cityName: Optional[str] = None
+    provinceName: Optional[str] = None
+
+
 class ChargePendingBody(BaseModel):
     method: Optional[str] = None        # "sepa" | "card"; por defecto usa el método guardado del cliente
 
@@ -2754,6 +2764,63 @@ async def me_summary(request: Request):
             "lines": [clean(_enrich_line(l)) for l in lines], "subscriptions": [clean(s) for s in subs],
             "invoices": [clean(i) for i in invs], "tickets": [clean(t) for t in tickets],
             "monthlyTotal": monthly, "pendingInvoices": pending, "contract": contract}
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@api.post("/me/profile")
+async def me_update_profile(body: MeProfileBody, request: Request):
+    """El propio CLIENTE edita sus datos de contacto desde el portal: email (que también es
+    su usuario de acceso), teléfono y dirección. El nombre y el NIF NO son editables (datos
+    fiscales del contrato)."""
+    user = await current_user(request)
+    fid = user.get("fiscalId")
+    if not fid:
+        raise HTTPException(status_code=400, detail="Cuenta sin cliente asociado")
+    cust = await db.customers.find_one({"fiscalId": fid})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    updates = {}
+    addr = dict(cust.get("billingAddress") or {})
+    addr_changed = False
+    for f in ["street", "streetNumber", "postalCode", "cityName", "provinceName"]:
+        v = getattr(body, f)
+        if v is not None:
+            addr[f] = v.strip()
+            addr_changed = True
+    if addr_changed:
+        updates["billingAddress"] = addr
+    if body.contactPhone is not None:
+        updates["contactPhone"] = body.contactPhone.strip()
+
+    new_email = None
+    if body.email is not None:
+        new_email = body.email.strip().lower()
+        if not EMAIL_RE.match(new_email):
+            raise HTTPException(status_code=400, detail="El email no es válido")
+        if new_email != (cust.get("email") or "").lower():
+            clash = await db.users.find_one({"email": new_email, "_id": {"$ne": user["_id"]}})
+            if clash:
+                raise HTTPException(status_code=400, detail="Ese email ya está en uso por otra cuenta")
+            updates["email"] = new_email
+        else:
+            new_email = None
+
+    if updates:
+        await db.customers.update_one({"fiscalId": fid}, {"$set": updates})
+    if new_email:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"email": new_email}})
+        await log_event("portal", "info",
+                        f"Cliente actualizó su email de acceso · {fid} · {new_email}",
+                        {"fiscalId": fid})
+    elif updates:
+        await log_event("portal", "info",
+                        f"Cliente actualizó sus datos de contacto · {fid}", {"fiscalId": fid})
+
+    cust = await db.customers.find_one({"fiscalId": fid})
+    return {"ok": True, "emailChanged": bool(new_email), "customer": clean(cust)}
 
 
 @api.post("/me/sepa-setup")

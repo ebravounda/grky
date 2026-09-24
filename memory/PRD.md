@@ -697,3 +697,10 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - FRONTEND (pages/admin/Billing.js): botón "Actualizar pagos SEPA" (data-testid reconcile-sepa-btn) → llama a /billing/reconcile-sepa.
 - VERIFICADO en preview: query detecta processing (checked:1); ruta succeeded→paid (monkeypatch) marca invoice paid; error de retrieve gestionado sin crash (errors counted). Clave Stripe test del preview CADUCADA (normal). En prod usa la clave real del usuario.
 - DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend. Tras desplegar, pulsar "Actualizar pagos SEPA" (o esperar job 6h) para arreglar GRK-2026-00053 y demás atascadas.
+
+### Iteración 2026-06 (fork) — Cliente edita sus datos en el portal
+- SOLICITUD: el cliente debe poder editar sus datos (email + dirección + teléfono) desde el portal. Nombre y NIF NO editables (datos fiscales). Email = usuario de acceso → al cambiarlo se sincroniza el login.
+- BACKEND (server.py): modelo `MeProfileBody` + endpoint `POST /api/me/profile` (role client, por fiscalId). Actualiza `customers` (email, contactPhone, billingAddress.{street,streetNumber,postalCode,cityName,provinceName}). Valida email (EMAIL_RE) y unicidad contra otros users; si cambia el email, actualiza también `db.users.email` (login) SIN tocar sessionEpoch (sesión sigue activa). Devuelve {ok, emailChanged, customer}. log_event portal.
+- FRONTEND (pages/client/ClientDashboard.js): tarjeta "Mis datos" (data-testid my-profile-card) con email/tel/dirección visible + botón "Editar" → diálogo profile-dialog con inputs (profile-email-input, profile-phone-input, profile-street-input, profile-number-input, profile-cp-input, profile-city-input, profile-province-input) y profile-save-btn.
+- VERIFICADO E2E (preview): update tel+dirección OK; email inválido→400; email en uso→400; cambio de email→emailChanged=true, login nuevo 200 y login antiguo 401 (sincronía correcta); revertido a cliente@goroky.com. Screenshot del diálogo prellenado OK.
+- DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.

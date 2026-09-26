@@ -481,6 +481,19 @@ class CustomerBillingBody(BaseModel):
     paymentMethod: Optional[str] = None  # "NO" | "SEPA CORE" | "CARD"
 
 
+class CustomerContactBody(BaseModel):
+    name: Optional[str] = None
+    firstSurname: Optional[str] = None
+    lastSurname: Optional[str] = None
+    email: Optional[str] = None
+    contactPhone: Optional[str] = None
+    street: Optional[str] = None
+    streetNumber: Optional[str] = None
+    postalCode: Optional[str] = None
+    cityName: Optional[str] = None
+    provinceName: Optional[str] = None
+
+
 class InvoiceItemBody(BaseModel):
     description: str
     detail: Optional[str] = ""
@@ -1315,6 +1328,60 @@ async def update_customer_billing(fiscalId: str, body: CustomerBillingBody, requ
     if updates:
         await db.customers.update_one({"fiscalId": fiscalId}, {"$set": updates})
         await log_event("billing", "info", f"Datos de cobro actualizados · {fiscalId}", {"fiscalId": fiscalId})
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    return clean(cust)
+
+
+@api.post("/customers/{fiscalId}/contact")
+async def update_customer_contact(fiscalId: str, body: CustomerContactBody, request: Request):
+    """Actualiza desde el CRM los datos de contacto del cliente: nombre, apellidos, email,
+    teléfono y dirección. Si cambia el email (que es su usuario de acceso al portal), se
+    sincroniza también su login de cliente. El NIF/NIE no es editable (es la clave del cliente)."""
+    await require_perm(request, "customers.edit")
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    updates = {}
+    for f in ["name", "firstSurname", "lastSurname"]:
+        v = getattr(body, f)
+        if v is not None:
+            updates[f] = v.strip()
+    if body.contactPhone is not None:
+        updates["contactPhone"] = body.contactPhone.strip()
+    addr = dict(cust.get("billingAddress") or {})
+    addr_changed = False
+    for f in ["street", "streetNumber", "postalCode", "cityName", "provinceName"]:
+        v = getattr(body, f)
+        if v is not None:
+            addr[f] = v.strip()
+            addr_changed = True
+    if addr_changed:
+        updates["billingAddress"] = addr
+
+    new_email = None
+    if body.email is not None:
+        new_email = body.email.strip().lower()
+        if not EMAIL_RE.match(new_email):
+            raise HTTPException(status_code=400, detail="El email no es válido")
+        if new_email != (cust.get("email") or "").lower():
+            clash = await db.users.find_one({"email": new_email, "fiscalId": {"$ne": fiscalId}})
+            if clash:
+                raise HTTPException(status_code=400, detail="Ese email ya está en uso por otra cuenta")
+            updates["email"] = new_email
+        else:
+            new_email = None
+
+    if updates:
+        await db.customers.update_one({"fiscalId": fiscalId}, {"$set": updates})
+        await log_event("customers", "info", f"Datos de contacto actualizados · {fiscalId}", {"fiscalId": fiscalId})
+    if new_email:
+        u = await db.users.find_one({"fiscalId": fiscalId, "role": "client"})
+        if u:
+            await db.users.update_one({"_id": u["_id"]}, {"$set": {"email": new_email}})
+            await log_event("customers", "info",
+                            f"Email de acceso del cliente actualizado · {fiscalId} · {new_email}",
+                            {"fiscalId": fiscalId})
     cust = await db.customers.find_one({"fiscalId": fiscalId})
     return clean(cust)
 

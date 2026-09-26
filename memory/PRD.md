@@ -704,3 +704,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - FRONTEND (pages/client/ClientDashboard.js): tarjeta "Mis datos" (data-testid my-profile-card) con email/tel/dirección visible + botón "Editar" → diálogo profile-dialog con inputs (profile-email-input, profile-phone-input, profile-street-input, profile-number-input, profile-cp-input, profile-city-input, profile-province-input) y profile-save-btn.
 - VERIFICADO E2E (preview): update tel+dirección OK; email inválido→400; email en uso→400; cambio de email→emailChanged=true, login nuevo 200 y login antiguo 401 (sincronía correcta); revertido a cliente@goroky.com. Screenshot del diálogo prellenado OK.
 - DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.
+
+### Iteración 2026-06 (fork) — Admin edita datos del cliente desde la ficha del CRM
+- SOLICITUD: el admin no tenía botón para editar los datos del cliente (email, dirección, teléfono, nombre) en la ficha /app/customers/{fiscalId}. Solo existía "Editar cobro" (IBAN/método).
+- BACKEND (server.py): modelo `CustomerContactBody` + endpoint `POST /api/customers/{fiscalId}/contact` gated por `require_perm(request,"customers.edit")`. Actualiza name/firstSurname/lastSurname/contactPhone + billingAddress.{street,streetNumber,postalCode,cityName,provinceName}. Si cambia email: valida formato+unicidad (excluye mismo fiscalId) y sincroniza el login del cliente (`db.users.find_one({fiscalId, role:"client"})` → update email). log_event customers.
+- FRONTEND (pages/admin/CustomerDetail.js): botón "Editar datos" (data-testid edit-contact-btn) junto a "Editar cobro" en la tarjeta "Datos de contacto", gated hasPerm("customers.edit"). Diálogo contact-dialog con inputs (contact-name, contact-surname1, contact-surname2, contact-email, contact-phone, contact-street, contact-number, contact-cp, contact-city, contact-province) y save-contact-btn.
+- VERIFICADO E2E (preview): admin edita nombre/tel/dirección OK; cambio de email→login cliente con nuevo 200; revertido a cliente@goroky.com; login original 200. Screenshot del diálogo prellenado OK.
+- NOTA: el NIF/NIE no es editable (clave del cliente). Existen ahora DOS vías de edición: cliente (POST /me/profile) y admin (POST /customers/{fiscalId}/contact).
+- DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.

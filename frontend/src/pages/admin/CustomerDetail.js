@@ -53,6 +53,10 @@ export default function CustomerDetail() {
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingForm, setBillingForm] = useState({ iban: "", paymentMethod: "NO" });
   const [savingBilling, setSavingBilling] = useState(false);
+  // datos de contacto (nombre, email, teléfono, dirección)
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactForm, setContactForm] = useState({ name: "", firstSurname: "", lastSurname: "", email: "", contactPhone: "", street: "", streetNumber: "", postalCode: "", cityName: "", provinceName: "" });
+  const [savingContact, setSavingContact] = useState(false);
   const [cardSending, setCardSending] = useState(false);
   const [sepaSending, setSepaSending] = useState(false);
   // cobrar ahora (tarjeta / SEPA con método guardado)
@@ -106,6 +110,26 @@ export default function CustomerDetail() {
       toast.success("Datos de cobro guardados");
       setBillingOpen(false); load();
     } catch (e) { toast.error(apiErr(e)); } finally { setSavingBilling(false); }
+  };
+
+  const openContact = () => {
+    const a = customer.billingAddress || {};
+    setContactForm({
+      name: customer.name || "", firstSurname: customer.firstSurname || "", lastSurname: customer.lastSurname || "",
+      email: customer.email || "", contactPhone: customer.contactPhone || "",
+      street: a.street || "", streetNumber: a.streetNumber || "", postalCode: a.postalCode || "",
+      cityName: a.cityName || "", provinceName: a.provinceName || "",
+    });
+    setContactOpen(true);
+  };
+  const setCf = (k) => (e) => setContactForm((f) => ({ ...f, [k]: e.target.value }));
+  const saveContact = async () => {
+    setSavingContact(true);
+    try {
+      await api.post(`/customers/${fiscalId}/contact`, contactForm);
+      toast.success("Datos de contacto actualizados");
+      setContactOpen(false); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setSavingContact(false); }
   };
 
   const sendCardLink = async () => {
@@ -362,11 +386,18 @@ export default function CustomerDetail() {
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-primary"><User size={18} /><h3 className="font-heading font-600 text-foreground">Datos de contacto</h3></div>
-            {hasPerm("billing.manage") && (
-              <Button data-testid="edit-billing-btn" variant="ghost" size="sm" className="rounded-full gap-1.5 h-8 text-xs" onClick={openBilling}>
-                <Landmark size={14} /> Editar cobro
-              </Button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {hasPerm("customers.edit") && (
+                <Button data-testid="edit-contact-btn" variant="ghost" size="sm" className="rounded-full gap-1.5 h-8 text-xs" onClick={openContact}>
+                  <Pencil size={14} /> Editar datos
+                </Button>
+              )}
+              {hasPerm("billing.manage") && (
+                <Button data-testid="edit-billing-btn" variant="ghost" size="sm" className="rounded-full gap-1.5 h-8 text-xs" onClick={openBilling}>
+                  <Landmark size={14} /> Editar cobro
+                </Button>
+              )}
+            </div>
           </div>
           <Row l="Email" v={customer.email} />
           <Row l="Teléfono" v={customer.contactPhone} />
@@ -669,6 +700,70 @@ export default function CustomerDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Editar datos de contacto */}
+      <Dialog open={contactOpen} onOpenChange={setContactOpen}>
+        <DialogContent data-testid="contact-dialog" className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar datos del cliente</DialogTitle>
+            <DialogDescription>Nombre, email, teléfono y dirección. El NIF/NIE no se puede cambiar. Si cambias el email, se actualiza también el acceso del cliente al portal.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1.5">
+                <Label>Nombre</Label>
+                <Input data-testid="contact-name" value={contactForm.name} onChange={setCf("name")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>1er apellido</Label>
+                <Input data-testid="contact-surname1" value={contactForm.firstSurname} onChange={setCf("firstSurname")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>2º apellido</Label>
+                <Input data-testid="contact-surname2" value={contactForm.lastSurname} onChange={setCf("lastSurname")} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>Email (acceso al portal)</Label>
+                <Input data-testid="contact-email" type="email" value={contactForm.email} onChange={setCf("email")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Teléfono</Label>
+                <Input data-testid="contact-phone" value={contactForm.contactPhone} onChange={setCf("contactPhone")} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Calle</Label>
+                <Input data-testid="contact-street" value={contactForm.street} onChange={setCf("street")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Número</Label>
+                <Input data-testid="contact-number" value={contactForm.streetNumber} onChange={setCf("streetNumber")} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1.5">
+                <Label>C.P.</Label>
+                <Input data-testid="contact-cp" value={contactForm.postalCode} onChange={setCf("postalCode")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Ciudad</Label>
+                <Input data-testid="contact-city" value={contactForm.cityName} onChange={setCf("cityName")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Provincia</Label>
+                <Input data-testid="contact-province" value={contactForm.provinceName} onChange={setCf("provinceName")} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button data-testid="save-contact-btn" onClick={saveContact} disabled={savingContact} className="rounded-full">{savingContact ? "Guardando…" : "Guardar cambios"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Crear / editar factura */}
       <Dialog open={invOpen} onOpenChange={setInvOpen}>

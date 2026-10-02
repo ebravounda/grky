@@ -494,6 +494,20 @@ class CustomerContactBody(BaseModel):
     provinceName: Optional[str] = None
 
 
+class ResellerSepaBody(BaseModel):
+    iban: Optional[str] = None
+    origin_url: Optional[str] = None
+
+
+class AssignResellerBody(BaseModel):
+    resellerId: Optional[str] = None
+
+
+class BulkResellerBody(BaseModel):
+    fiscalIds: List[str] = []
+    resellerId: Optional[str] = None
+
+
 class InvoiceItemBody(BaseModel):
     description: str
     detail: Optional[str] = ""
@@ -3157,7 +3171,9 @@ async def stripe_webhook(request: Request):
         mode = obj.get("mode")
         meta = obj.get("metadata", {}) or {}
         purpose = meta.get("purpose")
-        if mode == "subscription":
+        if purpose == "reseller_setup":
+            await _on_reseller_mandate_saved(obj)
+        elif mode == "subscription":
             await _on_subscription_checkout(obj)  # legacy (suscripciones antiguas)
         elif mode == "setup" or purpose in ("card_setup", "onboarding", "admin_billing") or meta.get("monthly"):
             await _on_card_saved(obj)
@@ -3189,13 +3205,14 @@ async def stripe_webhook(request: Request):
             if sub:
                 await _billing_failed(sub)
     elif t == "payment_intent.succeeded":
-        # cobro inmediato/SEPA que liquida más tarde → marcar la factura pagada
-        await db.invoices.update_one(
+        # cobro inmediato/SEPA que liquida más tarde → marcar la(s) factura(s) pagada(s).
+        # update_many porque un cobro agrupado de revendedor usa un único PaymentIntent para varias facturas.
+        await db.invoices.update_many(
             {"stripePaymentIntentId": obj["id"], "status": {"$ne": "paid"}},
             {"$set": {"status": "paid", "chargeStatus": "paid"}})
     elif t == "payment_intent.payment_failed":
         err = (obj.get("last_payment_error") or {}).get("message") or ""
-        await db.invoices.update_one(
+        await db.invoices.update_many(
             {"stripePaymentIntentId": obj["id"], "status": {"$ne": "paid"}},
             {"$set": {"chargeStatus": "failed", "chargeError": err[:150]}})
     return {"status": "ok"}
@@ -5151,6 +5168,214 @@ async def run_reconcile_sepa(request: Request):
     await require_admin(request)
     res = await _reconcile_sepa_processing()
     return {"ok": True, **res}
+
+
+# ------------------------- REVENDEDORES: cobro SEPA agrupado -------------------------
+async def _ensure_stripe_customer_user(u):
+    """Customer de Stripe para un REVENDEDOR (doc de db.users), por modo test/live."""
+    await _stripe_apply()
+    key = stripe.api_key or ""
+    mode = "live" if key.startswith("sk_live") else "test"
+    field = f"stripeCustomerId_{mode}"
+    cid = u.get(field) or (u.get("stripeCustomerId") if mode == "test" else None)
+    if cid:
+        try:
+            c = stripe.Customer.retrieve(cid)
+            if not getattr(c, "deleted", False):
+                return cid
+        except Exception:  # noqa
+            pass
+    sc = stripe.Customer.create(name=u.get("name", "") or "Revendedor", email=u.get("email"),
+                                metadata={"resellerId": str(u["_id"])})
+    await db.users.update_one({"_id": u["_id"]}, {"$set": {field: sc.id, "stripeCustomerId": sc.id}})
+    return sc.id
+
+
+async def _on_reseller_mandate_saved(obj):
+    """Al completar el revendedor su mandato SEPA (Checkout setup), guarda el método de pago
+    en su usuario para poder cobrarle off-session los cargos de sus clientes."""
+    meta = obj.get("metadata", {}) or {}
+    rid = meta.get("resellerId")
+    if not rid:
+        return
+    cid = obj.get("customer")
+    pm_id, last4 = None, None
+    try:
+        if obj.get("setup_intent"):
+            si = stripe.SetupIntent.retrieve(obj["setup_intent"])
+            pm_id = si.payment_method
+        elif obj.get("payment_intent"):
+            pi = stripe.PaymentIntent.retrieve(obj["payment_intent"])
+            pm_id = pi.payment_method
+        if pm_id:
+            pm = stripe.PaymentMethod.retrieve(pm_id)
+            if getattr(pm, "sepa_debit", None):
+                last4 = pm.sepa_debit.last4
+            if cid:
+                stripe.Customer.modify(cid, invoice_settings={"default_payment_method": pm_id})
+    except Exception as e:  # noqa
+        logger.warning("reseller_mandate retrieve failed: %s", e)
+    await db.payment_transactions.update_one({"session_id": obj["id"]},
+        {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
+    await db.users.update_one({"_id": _OID(rid)}, {"$set": {
+        "recurring": {"method": "sepa", "last4": last4, "savedPm": pm_id}, "mandateAt": now_iso()}})
+    await log_event("stripe", "success", f"Mandato SEPA de revendedor guardado · {rid}")
+
+
+@api.get("/resellers")
+async def list_resellers(request: Request):
+    """Lista de revendedores con nº de clientes asignados y total de facturas pendientes."""
+    await require_perm(request, "billing.manage")
+    users = await db.users.find({"role": "reseller"}).sort("name", 1).to_list(1000)
+    out = []
+    for u in users:
+        rid = str(u["_id"])
+        custs = await db.customers.find({"billingResellerId": rid}).to_list(5000)
+        fids = [c["fiscalId"] for c in custs]
+        pend = await db.invoices.find({"fiscalId": {"$in": fids}, "status": "pending"}).to_list(20000) if fids else []
+        total = round(sum(float(i.get("total", 0) or 0) for i in pend), 2)
+        rec = u.get("recurring") or {}
+        out.append({"id": rid, "name": u.get("name"), "email": u.get("email"),
+                    "iban": u.get("iban"), "mandate": bool(rec.get("savedPm") and rec.get("method") == "sepa"),
+                    "last4": rec.get("last4"), "clients": len(fids),
+                    "pendingCount": len(pend), "pendingTotal": total})
+    return out
+
+
+@api.get("/resellers/{reseller_id}")
+async def reseller_detail(reseller_id: str, request: Request):
+    """Detalle de un revendedor: sus clientes asignados y las facturas pendientes de cada uno."""
+    await require_perm(request, "billing.manage")
+    u = await db.users.find_one({"_id": _OID(reseller_id), "role": "reseller"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Revendedor no encontrado")
+    rid = str(u["_id"])
+    custs = await db.customers.find({"billingResellerId": rid}).to_list(5000)
+    clients, grand = [], 0.0
+    for c in custs:
+        invs = await db.invoices.find({"fiscalId": c["fiscalId"], "status": "pending"}).sort("date", -1).to_list(1000)
+        ptotal = round(sum(float(i.get("total", 0) or 0) for i in invs), 2)
+        grand += ptotal
+        clients.append({"fiscalId": c["fiscalId"],
+                        "name": f"{c.get('name', '')} {c.get('firstSurname', '')}".strip(),
+                        "email": c.get("email"), "pendingCount": len(invs), "pendingTotal": ptotal,
+                        "invoices": [clean(i) for i in invs]})
+    rec = u.get("recurring") or {}
+    return {"reseller": {"id": rid, "name": u.get("name"), "email": u.get("email"), "iban": u.get("iban"),
+                         "mandate": bool(rec.get("savedPm") and rec.get("method") == "sepa"), "last4": rec.get("last4")},
+            "clients": clients, "pendingTotal": round(grand, 2)}
+
+
+@api.post("/resellers/{reseller_id}/sepa-link")
+async def reseller_sepa_link(reseller_id: str, body: ResellerSepaBody, request: Request):
+    """Guarda el IBAN del revendedor y genera el enlace de Stripe donde firma su mandato SEPA (una vez)."""
+    await require_perm(request, "billing.manage")
+    u = await db.users.find_one({"_id": _OID(reseller_id), "role": "reseller"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Revendedor no encontrado")
+    if body.iban:
+        await db.users.update_one({"_id": u["_id"]},
+            {"$set": {"iban": body.iban.replace(" ", "").upper().strip()}})
+    cid = await _ensure_stripe_customer_user(u)
+    await _stripe_apply()
+    origin = body.origin_url or os.environ.get("FRONTEND_URL", "")
+    meta = {"resellerId": str(u["_id"]), "purpose": "reseller_setup"}
+    try:
+        session = stripe.checkout.Session.create(
+            mode="setup", customer=cid, payment_method_types=["sepa_debit"],
+            success_url=f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{origin}/payment/cancel", metadata=meta)
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        raise HTTPException(status_code=400, detail=f"Stripe: {msg[:150]}")
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "resellerId": str(u["_id"]), "kind": "reseller_setup",
+        "status": "initiated", "payment_status": "pending", "created_at": now_iso(), "updated_at": now_iso()})
+    await db.users.update_one({"_id": u["_id"]},
+        {"$set": {"sepaLink": {"sentAt": now_iso(), "lastSessionId": session.id}}})
+    await log_event("stripe", "info", f"Enlace SEPA de revendedor generado · {u.get('name')}")
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+@api.post("/resellers/{reseller_id}/charge-pending")
+async def reseller_charge_pending(reseller_id: str, request: Request):
+    """Cobra EN UN SOLO ADEUDO SEPA al revendedor la suma de TODAS las facturas pendientes
+    de sus clientes asignados. Marca esas facturas con el mismo PaymentIntent."""
+    await require_perm(request, "billing.manage")
+    u = await db.users.find_one({"_id": _OID(reseller_id), "role": "reseller"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Revendedor no encontrado")
+    await _stripe_apply()
+    rec = u.get("recurring") or {}
+    cid = u.get("stripeCustomerId")
+    pm = rec.get("savedPm")
+    if not (cid and pm and rec.get("method") == "sepa"):
+        raise HTTPException(status_code=400,
+            detail="El revendedor no tiene un mandato SEPA firmado. Genera y envíale el enlace SEPA primero.")
+    rid = str(u["_id"])
+    custs = await db.customers.find({"billingResellerId": rid}).to_list(5000)
+    fids = [c["fiscalId"] for c in custs]
+    invs = await db.invoices.find({"fiscalId": {"$in": fids}, "status": "pending",
+                                   "chargeStatus": {"$ne": "processing"}}).to_list(20000) if fids else []
+    invs = [i for i in invs if float(i.get("total", 0) or 0) > 0]
+    if not invs:
+        raise HTTPException(status_code=400, detail="No hay facturas pendientes que cobrar a este revendedor.")
+    total = round(sum(float(i.get("total", 0) or 0) for i in invs), 2)
+    charge_id = str(uuid.uuid4())
+    try:
+        pi = stripe.PaymentIntent.create(
+            amount=int(round(total * 100)), currency="eur", customer=cid,
+            payment_method=pm, off_session=True, confirm=True, payment_method_types=["sepa_debit"],
+            description=f"Cobro agrupado revendedor {u.get('name')} · {len(invs)} facturas",
+            metadata={"resellerId": rid, "kind": "reseller_charge", "invoiceCount": str(len(invs))})
+    except stripe.error.StripeError as e:  # noqa
+        msg = getattr(e, "user_message", None) or str(e)
+        await log_event("billing", "error", f"Cobro revendedor falló · {u.get('name')}: {msg[:120]}")
+        raise HTTPException(status_code=400, detail=f"No se pudo cobrar: {msg[:150]}")
+    inv_ids = [i["_id"] for i in invs]
+    paid = pi.status == "succeeded"
+    set_fields = {"chargeStatus": "paid" if paid else "processing",
+                  "stripePaymentIntentId": pi.id, "resellerId": rid, "resellerChargeId": charge_id}
+    if paid:
+        set_fields["status"] = "paid"
+    await db.invoices.update_many({"_id": {"$in": inv_ids}}, {"$set": set_fields})
+    await log_event("billing", "success" if paid else "info",
+        f"Cobro agrupado a revendedor {u.get('name')} · {len(invs)} facturas · {total:.2f} € · {pi.status}")
+    return {"ok": True, "status": pi.status, "invoices": len(invs), "total": total, "paymentIntentId": pi.id}
+
+
+@api.post("/customers/{fiscalId}/reseller")
+async def assign_customer_reseller(fiscalId: str, body: AssignResellerBody, request: Request):
+    """Asigna (o quita) el revendedor que paga las facturas de este cliente."""
+    await require_perm(request, "customers.edit")
+    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    if not cust:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    rid = body.resellerId or None
+    if rid and not await db.users.find_one({"_id": _OID(rid), "role": "reseller"}):
+        raise HTTPException(status_code=400, detail="Revendedor no válido")
+    await db.customers.update_one({"fiscalId": fiscalId}, {"$set": {"billingResellerId": rid}})
+    await log_event("customers", "info",
+                    f"Cliente {fiscalId} {'asignado a revendedor ' + rid if rid else 'desasignado de revendedor'}",
+                    {"fiscalId": fiscalId})
+    return {"ok": True, "billingResellerId": rid}
+
+
+@api.post("/customers/bulk-reseller")
+async def bulk_assign_reseller(body: BulkResellerBody, request: Request):
+    """Asigna masivamente varios clientes a un revendedor (o los desasigna si resellerId es nulo)."""
+    await require_perm(request, "customers.edit")
+    rid = body.resellerId or None
+    if rid and not await db.users.find_one({"_id": _OID(rid), "role": "reseller"}):
+        raise HTTPException(status_code=400, detail="Revendedor no válido")
+    if not body.fiscalIds:
+        raise HTTPException(status_code=400, detail="Selecciona al menos un cliente")
+    res = await db.customers.update_many({"fiscalId": {"$in": body.fiscalIds}},
+                                         {"$set": {"billingResellerId": rid}})
+    await log_event("customers", "info",
+                    f"{res.modified_count} clientes {'asignados a revendedor ' + rid if rid else 'desasignados'}")
+    return {"ok": True, "updated": res.modified_count, "billingResellerId": rid}
+
 
 
 @api.post("/billing/charge-all-pending")

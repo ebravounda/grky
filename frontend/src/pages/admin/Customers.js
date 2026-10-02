@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { apiErr } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { UserPlus, Search, ChevronRight } from "lucide-react";
+import { UserPlus, Search, ChevronRight, Store } from "lucide-react";
 import { toast } from "sonner";
 
 const empty = {
@@ -27,10 +28,30 @@ export default function Customers() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [resellers, setResellers] = useState([]);
+  const [bulkReseller, setBulkReseller] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const { hasPerm } = useAuth();
   const navigate = useNavigate();
 
   const load = () => api.get("/customers", { params: q ? { q } : {} }).then((r) => setCustomers(r.data));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [q]);
+  useEffect(() => { if (hasPerm("billing.manage")) api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); }, [hasPerm]);
+
+  const toggleSel = (fid) => setSelected((s) => s.includes(fid) ? s.filter((x) => x !== fid) : [...s, fid]);
+  const allSelected = customers.length > 0 && selected.length === customers.length;
+  const toggleAll = () => setSelected(allSelected ? [] : customers.map((c) => c.fiscalId));
+  const bulkAssign = async () => {
+    if (!bulkReseller || selected.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const { data } = await api.post("/customers/bulk-reseller", {
+        fiscalIds: selected, resellerId: bulkReseller === "none" ? null : bulkReseller });
+      toast.success(`${data.updated} cliente(s) ${bulkReseller === "none" ? "desasignados" : "asignados al revendedor"}`);
+      setSelected([]); setBulkReseller(""); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setBulkBusy(false); }
+  };
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -130,10 +151,30 @@ export default function Customers() {
         <Input data-testid="customer-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, NIF o email…" className="pl-9" />
       </div>
 
+      {hasPerm("billing.manage") && selected.length > 0 && (
+        <div data-testid="bulk-reseller-bar" className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <span className="flex items-center gap-2 text-sm font-medium text-primary"><Store size={16} /> {selected.length} seleccionado(s)</span>
+          <div className="flex-1 min-w-[220px] max-w-xs">
+            <Select value={bulkReseller} onValueChange={setBulkReseller}>
+              <SelectTrigger data-testid="bulk-reseller-select"><SelectValue placeholder="Asignar a revendedor…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Quitar revendedor (cobro al cliente)</SelectItem>
+                {resellers.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}{r.mandate ? " · SEPA ✓" : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button data-testid="bulk-assign-btn" className="rounded-full" onClick={bulkAssign} disabled={bulkBusy || !bulkReseller}>{bulkBusy ? "Aplicando…" : "Aplicar"}</Button>
+          <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setSelected([])}>Cancelar</button>
+        </div>
+      )}
+
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground">
             <tr className="text-left">
+              {hasPerm("billing.manage") && (
+                <th className="px-4 py-3 w-10"><input type="checkbox" data-testid="select-all-customers" checked={allSelected} onChange={toggleAll} /></th>
+              )}
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium hidden sm:table-cell">NIF/NIE</th>
               <th className="px-4 py-3 font-medium hidden md:table-cell">Email</th>
@@ -143,16 +184,21 @@ export default function Customers() {
           </thead>
           <tbody className="divide-y divide-border">
             {customers.map((c) => (
-              <tr key={c.id} data-testid={`customer-row-${c.fiscalId}`} onClick={() => navigate(`/app/customers/${c.fiscalId}`)}
-                className="cursor-pointer hover:bg-muted/40 transition-colors">
-                <td className="px-4 py-3 font-medium">{c.name} {c.firstSurname}</td>
-                <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{c.fiscalId}</td>
-                <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{c.email}</td>
-                <td className="px-4 py-3">{c.linesCount}</td>
-                <td className="px-4 py-3 text-right"><ChevronRight size={16} className="text-muted-foreground" /></td>
+              <tr key={c.id} data-testid={`customer-row-${c.fiscalId}`}
+                className="hover:bg-muted/40 transition-colors">
+                {hasPerm("billing.manage") && (
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" data-testid={`select-customer-${c.fiscalId}`} checked={selected.includes(c.fiscalId)} onChange={() => toggleSel(c.fiscalId)} />
+                  </td>
+                )}
+                <td className="px-4 py-3 font-medium cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.name} {c.firstSurname}</td>
+                <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.fiscalId}</td>
+                <td className="px-4 py-3 hidden md:table-cell text-muted-foreground cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.email}</td>
+                <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.linesCount}</td>
+                <td className="px-4 py-3 text-right cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}><ChevronRight size={16} className="text-muted-foreground" /></td>
               </tr>
             ))}
-            {customers.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">Sin clientes.</td></tr>}
+            {customers.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Sin clientes.</td></tr>}
           </tbody>
         </table>
       </div>

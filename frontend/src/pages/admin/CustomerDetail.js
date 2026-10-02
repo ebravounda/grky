@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Signal, Wifi, FileText, User, FolderUp, UserCog, Plus, CheckCircle2, Package,
-  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download, Pencil, Trash2, Mail, Send, Landmark, Zap,
+  ShieldCheck, FileSignature, CreditCard, RefreshCw, Download, Pencil, Trash2, Mail, Send, Landmark, Zap, Store,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,6 +38,8 @@ export default function CustomerDetail() {
   const [docType, setDocType] = useState("DNI_FRONT");
   const fileRef = useRef();
   const [titularOpen, setTitularOpen] = useState(false);
+  const [resellers, setResellers] = useState([]);
+  const [assigningReseller, setAssigningReseller] = useState(false);
   const [titularSub, setTitularSub] = useState(null);
   const [newTitular, setNewTitular] = useState("");
   const [optOpen, setOptOpen] = useState(false);
@@ -76,6 +78,7 @@ export default function CustomerDetail() {
   const load = () => api.get(`/customers/${fiscalId}`).then((r) => setData(r.data));
   const loadDocs = () => api.get(`/customers/${fiscalId}/documents`).then((r) => setDocs(r.data));
   useEffect(() => { load(); loadDocs(); api.get("/customers").then((r) => setCustomers(r.data)); api.get(`/customers/${fiscalId}/kyc`).then((r) => setKyc(r.data)).catch(() => {}); }, [fiscalId]);
+  useEffect(() => { if (hasPerm("billing.manage")) api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); }, [hasPerm]);
   if (!data) return <div className="text-muted-foreground">Cargando…</div>;
 
   const { customer, lines, subscriptions, invoices } = data;
@@ -130,6 +133,15 @@ export default function CustomerDetail() {
       toast.success("Datos de contacto actualizados");
       setContactOpen(false); load();
     } catch (e) { toast.error(apiErr(e)); } finally { setSavingContact(false); }
+  };
+
+  const assignReseller = async (val) => {
+    setAssigningReseller(true);
+    try {
+      await api.post(`/customers/${fiscalId}/reseller`, { resellerId: val === "none" ? null : val });
+      toast.success(val === "none" ? "Cliente desasignado del revendedor" : "Cliente asignado al revendedor");
+      load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setAssigningReseller(false); }
   };
 
   const sendCardLink = async () => {
@@ -406,6 +418,19 @@ export default function CustomerDetail() {
           {customer.recurring?.last4 && <Row l="Tarjeta" v={`•••• ${customer.recurring.last4} (${customer.recurring.method === "sepa" ? "SEPA" : "tarjeta"})`} />}
           <Row l="Dirección" v={`${customer.billingAddress?.street || ""} ${customer.billingAddress?.streetNumber || ""}`} />
           <Row l="Ciudad" v={`${customer.billingAddress?.postalCode || ""} ${customer.billingAddress?.cityName || ""}`} />
+          {hasPerm("billing.manage") && (
+            <div className="pt-3 mt-1 border-t border-border space-y-1.5" data-testid="reseller-assign-block">
+              <div className="flex items-center gap-2 text-primary"><Store size={15} /><p className="text-sm font-medium text-foreground">Cobrar a revendedor</p></div>
+              <Select value={customer.billingResellerId || "none"} onValueChange={assignReseller} disabled={assigningReseller}>
+                <SelectTrigger data-testid="reseller-select"><SelectValue placeholder="Sin revendedor (cobro al cliente)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin revendedor (cobro al cliente)</SelectItem>
+                  {resellers.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}{r.mandate ? " · SEPA ✓" : " · sin mandato"}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Si asignas un revendedor, sus facturas se cobrarán al IBAN del revendedor desde el panel "Revendedores".</p>
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 lg:col-span-2">

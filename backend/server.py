@@ -31,6 +31,7 @@ import db_monitor
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
 from reseller_receipt import generate_reseller_receipt_pdf
+from whatsapp import send_whatsapp
 from contracts import generate_contract_pdf, DEFAULT_TEMPLATE as DEFAULT_CONTRACT_TEMPLATE
 
 logging.basicConfig(level=logging.INFO)
@@ -5142,6 +5143,11 @@ async def _reconcile_sepa_processing():
                     _spawn_bg(_send_mail_safe("email", cust["email"], "Pago recibido correctamente",
                         _mail_payment_success(cust.get("name") or "", float(inv.get("total") or 0),
                                               inv.get("invoiceNumber") or "", inv.get("period") or "")))
+                if cust and cust.get("contactPhone"):
+                    _spawn_bg(send_whatsapp(cust["contactPhone"],
+                        f"Hola {cust.get('name') or ''}, hemos recibido tu pago de "
+                        f"{float(inv.get('total') or 0):.2f} € (factura {inv.get('invoiceNumber') or ''}). "
+                        f"¡Gracias por confiar en GoRoky!"))
             except Exception:  # noqa
                 pass
         elif st in ("canceled", "requires_payment_method"):
@@ -5497,6 +5503,22 @@ async def bulk_email_status(job_id: str, request: Request):
     if not j:
         raise HTTPException(status_code=404, detail="Envío no encontrado")
     return {"total": j["total"], "sent": j["sent"], "failed": j["failed"], "status": j["status"]}
+
+
+class WhatsappTestBody(BaseModel):
+    number: str
+    message: str = "Mensaje de prueba de GoRoky ✅"
+
+
+@api.post("/communications/whatsapp-test")
+async def whatsapp_test(body: WhatsappTestBody, request: Request):
+    """Envía un WhatsApp de prueba para verificar la integración."""
+    await require_admin(request)
+    ok = await send_whatsapp(body.number, body.message)
+    if not ok:
+        raise HTTPException(status_code=400,
+            detail="No se pudo enviar. Revisa WHATSAPP_API_KEY / WHATSAPP_INSTANCE_NAME y que el número sea válido.")
+    return {"ok": True}
 
 
 @api.get("/communications/history")

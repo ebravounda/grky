@@ -734,3 +734,12 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 4. FECHA DE ALTA CLIENTES: Customers.js añade columna "Fecha de alta" (c.created, formato es-ES). El doc customer ya tiene `created`.
 - VERIFICADO preview: history [] OK, customers.created presente, PDF genera (2664 bytes, %PDF-), toolbar inserta <b>..</b>, columna fecha visible. Clave Stripe test caducada → cobro real 400 (esperado).
 - DESPLIEGUE VPS: Save to Github + git pull + build + restart. (reseller_receipt.py es nuevo módulo → se incluye en el repo.)
+
+### Iteración 2026-06 (fork) — Integración WhatsApp (API externa whats-saas / mitiendapro)
+- Helper backend: /app/backend/whatsapp.py → async send_whatsapp(number, message, type="text", media_url=None). Lee WHATSAPP_API_KEY, WHATSAPP_INSTANCE_NAME, WHATSAPP_API_URL (default https://mitiendapro.com/api/v1/send) del entorno. POST con Authorization: Bearer + body {instanceName, number, type, message, mediaUrl?}. Normaliza número (prefijo 34 si 9 dígitos; quita 00). No lanza excepción (devuelve bool, loggea). Soporta text/image/video/document/audio.
+- SEGURIDAD: helper en BACKEND (no frontend .ts) para no exponer la API key. Key es LIVE.
+- Cableado: confirmación de pago recibido (en _reconcile_sepa_processing, junto al email "Pago recibido") → envía WhatsApp al cust.contactPhone (best-effort).
+- Endpoint prueba: POST /api/communications/whatsapp-test {number, message} (require_admin). Botón "Enviar WhatsApp de prueba" (whatsapp-test-btn) en Communications.js.
+- .env backend añadido: WHATSAPP_API_KEY (sk_live_... real), WHATSAPP_INSTANCE_NAME="t3_abc123_mitiendapro", WHATSAPP_API_URL. ⚠️ .env NO va en git → en el VPS hay que añadir estas 3 vars manualmente a /opt/goroky/backend/.env y reiniciar.
+- TESTING: en preview NO se puede probar envío real (requiere que mitiendapro.com reciba; evitamos mandar WA reales). Verificado: helper devuelve 400 controlado sin key, normalización de números correcta, endpoint responde, módulos importan. Envío real a validar por el usuario con el botón de prueba y su número.
+- PENDIENTE usuario: confirmar otros eventos para WhatsApp (lead "Te llamamos", alta de línea, recordatorio factura, bienvenida) — de momento solo confirmación de pago.

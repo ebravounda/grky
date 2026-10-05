@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Megaphone, Send, Users, CheckCircle2, AlertTriangle, Bold, Italic, Link2, Heading, List, History } from "lucide-react";
+import { Megaphone, Send, Users, CheckCircle2, AlertTriangle, Bold, Italic, Link2, Heading, List, History, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Communications() {
@@ -40,6 +40,15 @@ export default function Communications() {
     const url = window.prompt("URL del enlace (https://…)", "https://goroky.com");
     if (!url) return;
     wrap(`<a href="${url}" style="color:#0a63ff">`, "</a>");
+  };
+
+  const testWhatsapp = async () => {
+    const number = window.prompt("Número para la prueba de WhatsApp (con prefijo, ej. 34600123456)");
+    if (!number) return;
+    try {
+      await api.post("/communications/whatsapp-test", { number, message: "Mensaje de prueba de GoRoky ✅" });
+      toast.success("WhatsApp de prueba enviado correctamente");
+    } catch (e) { toast.error(apiErr(e)); }
   };
 
   useEffect(() => {
@@ -79,6 +88,12 @@ export default function Communications() {
     <div data-testid="communications-page" className="max-w-3xl">
       <PageHeader overline="Comunicaciones" title="Envío masivo"
         subtitle="Envía un correo a tus clientes con la plantilla de GoRoky." />
+
+      <div className="mb-4">
+        <Button data-testid="whatsapp-test-btn" variant="outline" className="rounded-full gap-2 text-green-600 border-green-300" onClick={testWhatsapp}>
+          <MessageCircle size={15} /> Enviar WhatsApp de prueba
+        </Button>
+      </div>
 
       <div className="rounded-lg border border-border bg-card p-6 space-y-5">
         <div className="grid sm:grid-cols-2 gap-4">

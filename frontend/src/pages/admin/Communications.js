@@ -21,11 +21,30 @@ export default function Communications() {
   const [sending, setSending] = useState(false);
   const [job, setJob] = useState(null);
   const [history, setHistory] = useState([]);
+  const [wa, setWa] = useState({ whatsappApiKey: "", whatsappInstance: "", whatsappApiUrl: "", whatsappAdminPhone: "" });
+  const [waMasked, setWaMasked] = useState("");
+  const [waSaving, setWaSaving] = useState(false);
   const pollRef = useRef();
   const msgRef = useRef();
 
   const loadHistory = () => api.get("/communications/history").then((r) => setHistory(r.data)).catch(() => {});
-  useEffect(() => { api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); loadHistory(); }, []);
+  const loadWa = () => api.get("/admin/settings").then((r) => {
+    const d = r.data;
+    setWa({ whatsappApiKey: "", whatsappInstance: d.whatsappInstance || "", whatsappApiUrl: d.whatsappApiUrl || "", whatsappAdminPhone: d.whatsappAdminPhone || "" });
+    setWaMasked(d.whatsappApiKeySet ? d.whatsappApiKeyMasked : "");
+  }).catch(() => {});
+  useEffect(() => { api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); loadHistory(); loadWa(); }, []);
+
+  const saveWa = async () => {
+    setWaSaving(true);
+    try {
+      const payload = { whatsappInstance: wa.whatsappInstance, whatsappApiUrl: wa.whatsappApiUrl, whatsappAdminPhone: wa.whatsappAdminPhone };
+      if (wa.whatsappApiKey.trim()) payload.whatsappApiKey = wa.whatsappApiKey.trim();
+      await api.put("/admin/settings", payload);
+      toast.success("Configuración de WhatsApp guardada");
+      loadWa();
+    } catch (e) { toast.error(apiErr(e)); } finally { setWaSaving(false); }
+  };
 
   const wrap = (before, after = before) => {
     const el = msgRef.current;
@@ -93,6 +112,33 @@ export default function Communications() {
         <Button data-testid="whatsapp-test-btn" variant="outline" className="rounded-full gap-2 text-green-600 border-green-300" onClick={testWhatsapp}>
           <MessageCircle size={15} /> Enviar WhatsApp de prueba
         </Button>
+      </div>
+
+      {/* Configuración de la API de WhatsApp */}
+      <div data-testid="whatsapp-config-card" className="rounded-lg border border-border bg-card p-6 space-y-4 mb-6">
+        <div className="flex items-center gap-2 text-green-600"><MessageCircle size={18} /><h3 className="font-heading font-600 text-foreground">Configuración de WhatsApp (API)</h3></div>
+        <p className="text-sm text-muted-foreground">Conecta tu API de WhatsApp (whats-saas). Las credenciales se guardan en el servidor, nunca se muestran completas.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>API Key {waMasked && <span className="text-xs text-muted-foreground">(actual: {waMasked})</span>}</Label>
+            <Input data-testid="wa-apikey" type="password" value={wa.whatsappApiKey}
+              onChange={(e) => setWa({ ...wa, whatsappApiKey: e.target.value })}
+              placeholder={waMasked ? "Déjalo vacío para mantener la actual" : "sk_live_…"} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nombre de instancia</Label>
+            <Input data-testid="wa-instance" value={wa.whatsappInstance} onChange={(e) => setWa({ ...wa, whatsappInstance: e.target.value })} placeholder="t3_abc123_mitiendapro" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>URL del endpoint</Label>
+            <Input data-testid="wa-url" value={wa.whatsappApiUrl} onChange={(e) => setWa({ ...wa, whatsappApiUrl: e.target.value })} placeholder="https://mitiendapro.com/api/v1/send" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tu WhatsApp (avisos de leads)</Label>
+            <Input data-testid="wa-adminphone" value={wa.whatsappAdminPhone} onChange={(e) => setWa({ ...wa, whatsappAdminPhone: e.target.value })} placeholder="34699111222" />
+          </div>
+        </div>
+        <Button data-testid="wa-save-btn" onClick={saveWa} disabled={waSaving} className="rounded-full">{waSaving ? "Guardando…" : "Guardar configuración"}</Button>
       </div>
 
       <div className="rounded-lg border border-border bg-card p-6 space-y-5">

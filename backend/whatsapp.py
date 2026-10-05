@@ -36,16 +36,18 @@ def _normalize_number(number: str) -> str | None:
     return digits
 
 
-async def send_whatsapp(number: str, message: str, type: str = "text", media_url: str | None = None) -> bool:
+async def send_whatsapp(number: str, message: str, type: str = "text", media_url: str | None = None, config: dict | None = None) -> bool:
     """Envía un WhatsApp. No lanza excepción: devuelve True/False y registra el error.
 
     opciones:
       - type: "text" | "image" | "video" | "document" | "audio"
       - media_url: URL del archivo (obligatorio si type != "text")
+      - config: dict opcional {api_key, instance, url} (del panel admin); si no, usa el .env
     """
-    api_key = os.environ.get("WHATSAPP_API_KEY")
-    instance = os.environ.get("WHATSAPP_INSTANCE_NAME")
-    url = os.environ.get("WHATSAPP_API_URL", DEFAULT_URL)
+    config = config or {}
+    api_key = config.get("api_key") or os.environ.get("WHATSAPP_API_KEY")
+    instance = config.get("instance") or os.environ.get("WHATSAPP_INSTANCE_NAME")
+    url = config.get("url") or os.environ.get("WHATSAPP_API_URL", DEFAULT_URL)
     if not api_key or not instance:
         logger.warning("WhatsApp no configurado (falta WHATSAPP_API_KEY/WHATSAPP_INSTANCE_NAME)")
         return False

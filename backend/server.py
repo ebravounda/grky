@@ -561,6 +561,11 @@ class AppSettingsBody(BaseModel):
     stripePublishableKey: Optional[str] = None
     stripeWebhookSecret: Optional[str] = None
     stripeMode: Optional[str] = None  # "test" | "live"
+    whatsappApiKey: Optional[str] = None
+    whatsappInstance: Optional[str] = None
+    whatsappApiUrl: Optional[str] = None
+    whatsappAdminPhone: Optional[str] = None
+    whatsappEnabled: Optional[bool] = None
 
 
 class RejectBody(BaseModel):
@@ -812,6 +817,18 @@ async def public_callback(body: CallbackBody):
     res = await db.callback_requests.insert_one(doc)
     await log_event("callback", "info",
                     f"Solicitud de llamada · {doc['name']} {doc['surname']} · {doc['productName']} · {doc['phone']}")
+    # aviso instantáneo al admin por WhatsApp para llamar cuanto antes
+    try:
+        cfg = await _get_whatsapp_cfg()
+        if cfg.get("admin_phone"):
+            _spawn_bg(send_whatsapp(cfg["admin_phone"],
+                f"📞 Nuevo lead «Te llamamos»\n"
+                f"Cliente: {doc['name']} {doc['surname']}\n"
+                f"Teléfono: {doc['phone']}\n"
+                f"Interés: {doc['productName']}\n"
+                f"¡Llámale cuanto antes!", config=cfg))
+    except Exception:  # noqa
+        pass
     return {"ok": True, "id": str(res.inserted_id)}
 
 
@@ -3242,6 +3259,18 @@ async def get_app_settings():
     return s
 
 
+async def _get_whatsapp_cfg():
+    """Config de WhatsApp: primero la BD (panel admin), luego .env como fallback."""
+    s = await get_app_settings()
+    return {
+        "api_key": (s.get("whatsappApiKey") or "").strip() or os.environ.get("WHATSAPP_API_KEY"),
+        "instance": (s.get("whatsappInstance") or "").strip() or os.environ.get("WHATSAPP_INSTANCE_NAME"),
+        "url": (s.get("whatsappApiUrl") or "").strip() or os.environ.get("WHATSAPP_API_URL"),
+        "admin_phone": (s.get("whatsappAdminPhone") or "").strip(),
+        "enabled": s.get("whatsappEnabled", True),
+    }
+
+
 async def _stripe_apply():
     """Aplica la clave de Stripe desde la BD (o .env como fallback) antes de cada operación."""
     s = await get_app_settings()
@@ -3268,6 +3297,12 @@ async def admin_settings_get(request: Request):
     s["stripeWebhookSecretSet"] = bool(s.get("stripeWebhookSecret"))
     s.pop("stripeSecretKey", None)
     s.pop("stripeWebhookSecret", None)
+    # WhatsApp: nunca exponer la key completa
+    s["whatsappApiKeyMasked"] = _mask_secret(s.get("whatsappApiKey") or os.environ.get("WHATSAPP_API_KEY"))
+    s["whatsappApiKeySet"] = bool(s.get("whatsappApiKey") or os.environ.get("WHATSAPP_API_KEY"))
+    s.setdefault("whatsappInstance", os.environ.get("WHATSAPP_INSTANCE_NAME", ""))
+    s.setdefault("whatsappApiUrl", os.environ.get("WHATSAPP_API_URL", "https://mitiendapro.com/api/v1/send"))
+    s.pop("whatsappApiKey", None)
     return s
 
 
@@ -3276,7 +3311,7 @@ async def admin_settings_put(body: AppSettingsBody, request: Request):
     await require_admin(request)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     # No sobrescribir secretos con cadena vacía o el placeholder enmascarado
-    for k in ("stripeSecretKey", "stripeWebhookSecret"):
+    for k in ("stripeSecretKey", "stripeWebhookSecret", "whatsappApiKey"):
         if k in updates and (not str(updates[k]).strip() or str(updates[k]).startswith("••••")):
             updates.pop(k)
     # Validar que las claves van en su campo correcto
@@ -3296,6 +3331,7 @@ async def admin_settings_put(body: AppSettingsBody, request: Request):
     s.pop("_id", None)
     s.pop("stripeSecretKey", None)
     s.pop("stripeWebhookSecret", None)
+    s.pop("whatsappApiKey", None)
     await log_event("system", "info", f"Configuración actualizada: {', '.join(updates.keys())}")
     return s
 
@@ -4734,6 +4770,13 @@ async def billing_daily_job():
                     f"Recordatorio de pago · GoRoky",
                     _mail_payment_reminder(customer.get("name", ""), amount, days,
                                            _period_label(datetime.now(timezone.utc))))
+                if customer.get("contactPhone"):
+                    cuando = "hoy" if days == 0 else ("mañana" if days == 1 else f"en {days} días")
+                    await send_whatsapp(customer["contactPhone"],
+                        f"Hola {customer.get('name', '')} 👋, te recordamos que el cargo de tu cuota GoRoky "
+                        f"de {float(amount or 0):.2f} € se realizará {cuando}. "
+                        f"Asegúrate de tener saldo/fondos disponibles. ¡Gracias!",
+                        config=await _get_whatsapp_cfg())
             await db.subscriptions.update_one({"subscriptionId": sub["subscriptionId"]},
                 {"$push": {"billing.remindersSent": days}})
             await log_event("billing", "info",
@@ -5147,7 +5190,7 @@ async def _reconcile_sepa_processing():
                     _spawn_bg(send_whatsapp(cust["contactPhone"],
                         f"Hola {cust.get('name') or ''}, hemos recibido tu pago de "
                         f"{float(inv.get('total') or 0):.2f} € (factura {inv.get('invoiceNumber') or ''}). "
-                        f"¡Gracias por confiar en GoRoky!"))
+                        f"¡Gracias por confiar en GoRoky!", config=await _get_whatsapp_cfg()))
             except Exception:  # noqa
                 pass
         elif st in ("canceled", "requires_payment_method"):
@@ -5364,6 +5407,28 @@ async def reseller_charge_pending(reseller_id: str, request: Request):
                       "total": float(i.get("total", 0) or 0)} for i in invs]})
     await log_event("billing", "success" if paid else "info",
         f"Cobro agrupado a revendedor {u.get('name')} · {len(invs)} facturas · {total:.2f} € · {pi.status}")
+    # Enviar al revendedor el desglose: email con el recibo PDF adjunto + aviso WhatsApp
+    try:
+        charge_doc = await db.reseller_charges.find_one({"chargeId": charge_id})
+        pdf_bytes = generate_reseller_receipt_pdf(charge_doc)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode()
+        estado_txt = "cobrado" if paid else "iniciado (SEPA, liquida en unos días)"
+        if u.get("email"):
+            body_html = emailer.base_template("Recibo de cobro · GoRoky",
+                f"Hola {u.get('name') or ''},<br><br>Te adjuntamos el recibo del adeudo agrupado "
+                f"<b>{estado_txt}</b> por un total de <b>{total:.2f} €</b> correspondiente a "
+                f"<b>{len(invs)} facturas</b> de tus clientes.<br><br>Gracias por tu colaboración.<br>GoRoky")
+            _spawn_bg(_send_mail_safe("email", u["email"], "Recibo de cobro · GoRoky", body_html,
+                attachments=[{"filename": f"recibo-{charge_id[:8]}.pdf", "content": pdf_b64}]))
+        cfg = await _get_whatsapp_cfg()
+        wa_to = u.get("phone") or u.get("contactPhone") or u.get("whatsapp")
+        if wa_to:
+            _spawn_bg(send_whatsapp(wa_to,
+                f"Hola {u.get('name') or ''}, hemos {estado_txt} el adeudo agrupado de "
+                f"{total:.2f} € ({len(invs)} facturas de tus clientes). Te hemos enviado el recibo PDF por email.",
+                config=cfg))
+    except Exception as e:  # noqa
+        logger.warning("reseller receipt notify failed: %s", e)
     return {"ok": True, "status": pi.status, "invoices": len(invs), "total": total,
             "paymentIntentId": pi.id, "chargeId": charge_id}
 
@@ -5514,7 +5579,7 @@ class WhatsappTestBody(BaseModel):
 async def whatsapp_test(body: WhatsappTestBody, request: Request):
     """Envía un WhatsApp de prueba para verificar la integración."""
     await require_admin(request)
-    ok = await send_whatsapp(body.number, body.message)
+    ok = await send_whatsapp(body.number, body.message, config=await _get_whatsapp_cfg())
     if not ok:
         raise HTTPException(status_code=400,
             detail="No se pudo enviar. Revisa WHATSAPP_API_KEY / WHATSAPP_INSTANCE_NAME y que el número sea válido.")

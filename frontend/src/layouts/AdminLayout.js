@@ -25,6 +25,7 @@ const nav = [
   { to: "/app/payments", label: "Pagos recibidos", icon: CreditCard, id: "pagos", perm: "billing.manage" },
   { to: "/app/commissions", label: "Comisiones", icon: Wallet, id: "comisiones", perm: "commissions.view" },
   { to: "/app/resellers", label: "Revendedores", icon: Store, id: "revendedores", perm: "billing.manage" },
+  { to: "/app/communications", label: "Envío masivo", icon: Megaphone, id: "comunicaciones", perm: "settings.manage" },
   { to: "/app/installations", label: "Instalaciones", icon: Wrench, id: "instalaciones", perm: "installations.manage" },
   { to: "/app/portabilities", label: "Portabilidades", icon: ArrowRightLeft, id: "portabilidades", perm: "portabilities.manage" },
   { to: "/app/shipments", label: "Envíos de SIM", icon: Truck, id: "envios", perm: "shipments.manage" },

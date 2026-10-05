@@ -712,3 +712,17 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - VERIFICADO E2E (preview): admin edita nombre/tel/dirección OK; cambio de email→login cliente con nuevo 200; revertido a cliente@goroky.com; login original 200. Screenshot del diálogo prellenado OK.
 - NOTA: el NIF/NIE no es editable (clave del cliente). Existen ahora DOS vías de edición: cliente (POST /me/profile) y admin (POST /customers/{fiscalId}/contact).
 - DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.
+
+### Iteración 2026-06 (fork) — Panel de Revendedores (cobro SEPA agrupado) + Envío masivo de correos
+**Revendedores (cobro SEPA agrupado):**
+- Modelo: revendedor = user role "reseller". Cliente→revendedor de facturación vía nuevo campo `customers.billingResellerId`. Mandato SEPA del revendedor guardado en `users.recurring{method:sepa,savedPm,last4}` + `users.iban` + `stripeCustomerId`.
+- Backend (server.py ~5172+): GET /api/resellers, GET /api/resellers/{id}, POST /api/resellers/{id}/sepa-link (IBAN + enlace mandato Stripe setup, metadata purpose=reseller_setup), POST /api/resellers/{id}/charge-pending (UN solo PaymentIntent SEPA = suma de TODAS las facturas pendientes de clientes asignados; marca todas con el mismo stripePaymentIntentId+resellerId+resellerChargeId), POST /api/customers/{fiscalId}/reseller, POST /api/customers/bulk-reseller. Helpers _ensure_stripe_customer_user, _on_reseller_mandate_saved. Webhook: rama purpose==reseller_setup → guarda mandato en user; payment_intent.succeeded/failed ahora update_MANY (para el cobro agrupado). Guard claro si no hay mandato (400).
+- Frontend: menú "Revendedores" → pages/admin/Resellers.js (lista) + ResellerDetail.js (IBAN/mandato dialog reseller-sepa-dialog, botón reseller-charge-btn deshabilitado sin mandato, tabla clientes+pendientes). Customers.js: selección múltiple (select-all-customers, select-customer-{fid}) + barra bulk-reseller-bar (bulk-reseller-select, bulk-assign-btn). CustomerDetail.js: selector reseller-select en tarjeta de contacto.
+- FIX aplicado tras testing (iter20): reseller_sepa_link devolvía 500 con clave Stripe caducada → ahora _ensure_stripe_customer_user dentro del try/except StripeError → 400. Verificado 400.
+- Testing agent iter20: 9/10 backend PASS (el 1 fallo era el 500 ya corregido). Clave Stripe test del preview CADUCADA → sepa-link/charge reales dan 400 (esperado); el resto de la lógica (asignación single/bulk, listados, totales, guards) OK.
+
+**Envío masivo de correos (Resend):**
+- Backend: GET /api/communications/audience-count?audience=&resellerId= (vista previa nº destinatarios), POST /api/communications/bulk-email {audience: all|customers|reseller, resellerId?, subject, message} (crea job en bulk_email_jobs + _spawn_bg _run_bulk_email que envía por lotes con emailer.base_template y _send_mail_safe, actualiza sent/failed), GET /api/communications/bulk-email/{jobId} (progreso). require_admin.
+- Frontend: menú "Envío masivo" → pages/admin/Communications.js (audience-select, comms-reseller-select, comms-subject, comms-message, contador en vivo, comms-send-btn, comms-progress con polling). Ruta gated settings.manage.
+- Verificado: count customers=67, all=70, validación vacía 400, UI renderiza y muestra contador. (Envío real sujeto a dominio Resend verificado para volumen alto.)
+- DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.

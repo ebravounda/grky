@@ -494,6 +494,13 @@ class CustomerContactBody(BaseModel):
     provinceName: Optional[str] = None
 
 
+class BulkEmailBody(BaseModel):
+    audience: str = "customers"  # all | customers | reseller
+    resellerId: Optional[str] = None
+    subject: str
+    message: str
+
+
 class ResellerSepaBody(BaseModel):
     iban: Optional[str] = None
     origin_url: Optional[str] = None
@@ -5276,11 +5283,11 @@ async def reseller_sepa_link(reseller_id: str, body: ResellerSepaBody, request: 
     if body.iban:
         await db.users.update_one({"_id": u["_id"]},
             {"$set": {"iban": body.iban.replace(" ", "").upper().strip()}})
-    cid = await _ensure_stripe_customer_user(u)
-    await _stripe_apply()
     origin = body.origin_url or os.environ.get("FRONTEND_URL", "")
     meta = {"resellerId": str(u["_id"]), "purpose": "reseller_setup"}
     try:
+        cid = await _ensure_stripe_customer_user(u)
+        await _stripe_apply()
         session = stripe.checkout.Session.create(
             mode="setup", customer=cid, payment_method_types=["sepa_debit"],
             success_url=f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
@@ -5375,6 +5382,91 @@ async def bulk_assign_reseller(body: BulkResellerBody, request: Request):
     await log_event("customers", "info",
                     f"{res.modified_count} clientes {'asignados a revendedor ' + rid if rid else 'desasignados'}")
     return {"ok": True, "updated": res.modified_count, "billingResellerId": rid}
+
+
+# ------------------------- ENVÍO MASIVO DE CORREOS -------------------------
+async def _bulk_email_recipients(audience, reseller_id):
+    """Construye el diccionario {email_lower: nombre} de destinatarios según el público."""
+    emails = {}
+
+    def add(email, name):
+        if email and "@" in str(email):
+            e = str(email).strip().lower()
+            if e and e not in emails:
+                emails[e] = name or ""
+
+    if audience == "reseller":
+        custs = await db.customers.find({"billingResellerId": reseller_id,
+                                         "email": {"$nin": [None, ""]}}).to_list(50000)
+        for c in custs:
+            add(c.get("email"), c.get("name"))
+    elif audience == "customers":
+        for c in await db.customers.find({"email": {"$nin": [None, ""]}}).to_list(50000):
+            add(c.get("email"), c.get("name"))
+    else:  # all: clientes del CRM + usuarios del portal + staff
+        for c in await db.customers.find({"email": {"$nin": [None, ""]}}).to_list(50000):
+            add(c.get("email"), c.get("name"))
+        for u in await db.users.find({"email": {"$nin": [None, ""]}}).to_list(50000):
+            add(u.get("email"), u.get("name"))
+    return emails
+
+
+async def _run_bulk_email(job_id, recipients, subject, message):
+    html_body = (message or "").replace("\n", "<br>")
+    html = emailer.base_template(subject, html_body)
+    sent, failed = 0, 0
+    items = list(recipients.items())
+    for i, (email, _name) in enumerate(items):
+        try:
+            ok = await _send_mail_safe("email", email, subject, html)
+            sent += 1 if ok else 0
+            failed += 0 if ok else 1
+        except Exception:  # noqa
+            failed += 1
+        if i % 20 == 0:
+            await db.bulk_email_jobs.update_one({"_id": job_id}, {"$set": {"sent": sent, "failed": failed}})
+        await asyncio.sleep(0.05)
+    await db.bulk_email_jobs.update_one({"_id": job_id},
+        {"$set": {"sent": sent, "failed": failed, "status": "done", "finishedAt": now_iso()}})
+    await log_event("comms", "info", f"Envío masivo completado · {sent} enviados · {failed} fallidos · asunto: {subject[:60]}")
+
+
+@api.get("/communications/audience-count")
+async def audience_count(request: Request, audience: str = "customers", resellerId: Optional[str] = None):
+    """Nº de destinatarios con email para el público elegido (vista previa antes de enviar)."""
+    await require_admin(request)
+    recips = await _bulk_email_recipients(audience, resellerId)
+    return {"count": len(recips)}
+
+
+@api.post("/communications/bulk-email")
+async def bulk_email(body: BulkEmailBody, request: Request):
+    """Envía un correo masivo (plantilla GoRoky) al público elegido. Envía en segundo plano
+    por lotes y deja un job con el progreso (enviados/fallidos)."""
+    await require_admin(request)
+    if not (body.subject or "").strip() or not (body.message or "").strip():
+        raise HTTPException(status_code=400, detail="Indica el asunto y el mensaje.")
+    recips = await _bulk_email_recipients(body.audience, body.resellerId)
+    if not recips:
+        raise HTTPException(status_code=400, detail="No hay destinatarios con email para ese público.")
+    job = {"_id": str(uuid.uuid4()), "total": len(recips), "sent": 0, "failed": 0,
+           "status": "sending", "subject": body.subject.strip(), "audience": body.audience,
+           "createdAt": now_iso()}
+    await db.bulk_email_jobs.insert_one(job)
+    _spawn_bg(_run_bulk_email(job["_id"], recips, body.subject.strip(), body.message))
+    await log_event("comms", "info", f"Envío masivo iniciado · {len(recips)} destinatarios · asunto: {body.subject[:60]}")
+    return {"ok": True, "jobId": job["_id"], "total": len(recips)}
+
+
+@api.get("/communications/bulk-email/{job_id}")
+async def bulk_email_status(job_id: str, request: Request):
+    """Progreso de un envío masivo."""
+    await require_admin(request)
+    j = await db.bulk_email_jobs.find_one({"_id": job_id})
+    if not j:
+        raise HTTPException(status_code=404, detail="Envío no encontrado")
+    return {"total": j["total"], "sent": j["sent"], "failed": j["failed"], "status": j["status"]}
+
 
 
 

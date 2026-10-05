@@ -10,6 +10,7 @@ import Customers from "@/pages/admin/Customers";
 import CustomerDetail from "@/pages/admin/CustomerDetail";
 import Resellers from "@/pages/admin/Resellers";
 import ResellerDetail from "@/pages/admin/ResellerDetail";
+import Communications from "@/pages/admin/Communications";
 import Lines from "@/pages/admin/Lines";
 import LineDetail from "@/pages/admin/LineDetail";
 import Catalog from "@/pages/admin/Catalog";
@@ -129,7 +130,8 @@ function App() {
             <Route path="app-users" element={<PermGuard perm="customers.view"><AppUsers /></PermGuard>} />
             <Route path="commissions" element={<PermGuard perm="commissions.view"><Commissions /></PermGuard>} />
             <Route path="resellers" element={<PermGuard perm="billing.manage"><Resellers /></PermGuard>} />
-            <Route path="resellers/:resellerId" element={<PermGuard perm="billing.manage"><ErrorBoundary><ResellerDetail /></ErrorBoundary></PermGuard>} />          </Route>
+            <Route path="resellers/:resellerId" element={<PermGuard perm="billing.manage"><ErrorBoundary><ResellerDetail /></ErrorBoundary></PermGuard>} />
+            <Route path="communications" element={<PermGuard perm="settings.manage"><Communications /></PermGuard>} />          </Route>
 
           <Route path="/portal" element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
             <Route index element={<ErrorBoundary><ClientDashboard /></ErrorBoundary>} />

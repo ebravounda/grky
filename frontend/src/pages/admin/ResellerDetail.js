@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import api, { apiErr } from "@/lib/api";
+import api, { apiErr, API } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Landmark, ShieldCheck, AlertTriangle, Banknote, ChevronRight } from "lucide-react";
+import { ArrowLeft, Landmark, ShieldCheck, AlertTriangle, Banknote, ChevronRight, FileText, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ResellerDetail() {
@@ -18,9 +18,11 @@ export default function ResellerDetail() {
   const [iban, setIban] = useState("");
   const [sepaBusy, setSepaBusy] = useState(false);
   const [charging, setCharging] = useState(false);
+  const [charges, setCharges] = useState([]);
 
   const load = () => api.get(`/resellers/${resellerId}`).then((r) => setData(r.data));
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [resellerId]);
+  const loadCharges = () => api.get(`/resellers/${resellerId}/charges`).then((r) => setCharges(r.data)).catch(() => {});
+  useEffect(() => { load(); loadCharges(); /* eslint-disable-next-line */ }, [resellerId]);
 
   if (!data) return <div className="text-muted-foreground">Cargando…</div>;
   const { reseller, clients, pendingTotal } = data;
@@ -47,7 +49,7 @@ export default function ResellerDetail() {
       toast.success(res.status === "succeeded"
         ? `Cobrado ${Number(res.total).toFixed(2)} € (${res.invoices} facturas)`
         : `Adeudo SEPA iniciado: ${Number(res.total).toFixed(2)} € (${res.invoices} facturas) · liquida en unos días`);
-      load();
+      load(); loadCharges();
     } catch (e) { toast.error(apiErr(e)); } finally { setCharging(false); }
   };
 
@@ -128,6 +130,42 @@ export default function ResellerDetail() {
           </tbody>
         </table>
       </div>
+
+      {/* Cobros realizados */}
+      {charges.length > 0 && (
+        <div className="mt-5" data-testid="reseller-charges">
+          <h3 className="flex items-center gap-2 font-heading font-600 mb-3"><FileText size={17} className="text-primary" /> Cobros agrupados realizados</h3>
+          <div className="rounded-lg border border-border bg-card overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr className="text-left">
+                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">Facturas</th>
+                  <th className="px-4 py-3 font-medium">Importe</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {charges.map((ch) => (
+                  <tr key={ch.chargeId} data-testid={`charge-row-${ch.chargeId}`}>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{ch.createdAt ? new Date(ch.createdAt).toLocaleString("es-ES") : "—"}</td>
+                    <td className="px-4 py-3">{ch.invoiceCount}</td>
+                    <td className="px-4 py-3 font-semibold">{Number(ch.total || 0).toFixed(2)} €</td>
+                    <td className="px-4 py-3">{ch.status === "succeeded" ? <span className="text-success">Cobrado</span> : ch.status === "processing" ? <span className="text-primary">En proceso</span> : ch.status}</td>
+                    <td className="px-4 py-3 text-right">
+                      <a href={`${API}/resellers/charges/${ch.chargeId}/receipt.pdf`} target="_blank" rel="noreferrer"
+                        data-testid={`receipt-${ch.chargeId}`} className="inline-flex items-center gap-1.5 text-primary text-xs font-semibold hover:underline">
+                        <Download size={14} /> Recibo PDF
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Dialogo IBAN / mandato */}
       <Dialog open={sepaOpen} onOpenChange={(o) => { if (!sepaBusy) setSepaOpen(o); }}>

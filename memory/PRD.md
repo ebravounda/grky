@@ -726,3 +726,11 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Frontend: menú "Envío masivo" → pages/admin/Communications.js (audience-select, comms-reseller-select, comms-subject, comms-message, contador en vivo, comms-send-btn, comms-progress con polling). Ruta gated settings.manage.
 - Verificado: count customers=67, all=70, validación vacía 400, UI renderiza y muestra contador. (Envío real sujeto a dominio Resend verificado para volumen alto.)
 - DESPLIEGUE VPS: Save to Github + git pull + build frontend + restart backend.
+
+### Iteración 2026-06 (fork) — Mejoras email + historial + recibo revendedor + fecha alta clientes
+1. PLANTILLA EMAIL: Communications.js tiene barra de formato (fmt-bold/italic/heading/list/link → insertan HTML <b>,<i>,<h2>,<li>,<a>) sobre el Textarea (ref). base_template YA incluye logo GoRoky + pie legal (emailer.py). El body se envía como HTML (message.replace \n→<br> + base_template).
+2. HISTORIAL ENVÍOS: GET /api/communications/history (lee bulk_email_jobs: fecha, asunto, público, sent/failed/status). Communications.js muestra tabla "Historial de envíos" (comms-history) y recarga al terminar un envío.
+3. RECIBO REVENDEDOR PDF: reseller_charge_pending ahora inserta doc en db.reseller_charges {chargeId, resellerId, resellerName, total, invoiceCount, status, paymentIntentId, invoices[], createdAt} y devuelve chargeId. Nuevo módulo reseller_receipt.py (generate_reseller_receipt_pdf, reportlab). Endpoints GET /api/resellers/{id}/charges y GET /api/resellers/charges/{chargeId}/receipt.pdf. ResellerDetail.js muestra "Cobros agrupados realizados" (reseller-charges) con enlace "Recibo PDF" (abre con cookie auth).
+4. FECHA DE ALTA CLIENTES: Customers.js añade columna "Fecha de alta" (c.created, formato es-ES). El doc customer ya tiene `created`.
+- VERIFICADO preview: history [] OK, customers.created presente, PDF genera (2664 bytes, %PDF-), toolbar inserta <b>..</b>, columna fecha visible. Clave Stripe test caducada → cobro real 400 (esperado).
+- DESPLIEGUE VPS: Save to Github + git pull + build + restart. (reseller_receipt.py es nuevo módulo → se incluye en el repo.)

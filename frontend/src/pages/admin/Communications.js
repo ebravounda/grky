@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Megaphone, Send, Users, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Megaphone, Send, Users, CheckCircle2, AlertTriangle, Bold, Italic, Link2, Heading, List, History } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Communications() {
@@ -20,9 +20,27 @@ export default function Communications() {
   const [count, setCount] = useState(null);
   const [sending, setSending] = useState(false);
   const [job, setJob] = useState(null);
+  const [history, setHistory] = useState([]);
   const pollRef = useRef();
+  const msgRef = useRef();
 
-  useEffect(() => { api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); }, []);
+  const loadHistory = () => api.get("/communications/history").then((r) => setHistory(r.data)).catch(() => {});
+  useEffect(() => { api.get("/resellers").then((r) => setResellers(r.data)).catch(() => {}); loadHistory(); }, []);
+
+  const wrap = (before, after = before) => {
+    const el = msgRef.current;
+    if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const sel = message.slice(s, e) || "texto";
+    const next = message.slice(0, s) + before + sel + after + message.slice(e);
+    setMessage(next);
+    setTimeout(() => { el.focus(); el.selectionStart = s + before.length; el.selectionEnd = s + before.length + sel.length; }, 0);
+  };
+  const insertLink = () => {
+    const url = window.prompt("URL del enlace (https://…)", "https://goroky.com");
+    if (!url) return;
+    wrap(`<a href="${url}" style="color:#0a63ff">`, "</a>");
+  };
 
   useEffect(() => {
     if (audience === "reseller" && !resellerId) { setCount(null); return; }
@@ -38,7 +56,7 @@ export default function Communications() {
       try {
         const { data } = await api.get(`/communications/bulk-email/${jobId}`);
         setJob(data);
-        if (data.status === "done") { clearInterval(pollRef.current); setSending(false); toast.success(`Envío completado: ${data.sent} enviados · ${data.failed} fallidos`); }
+        if (data.status === "done") { clearInterval(pollRef.current); setSending(false); loadHistory(); toast.success(`Envío completado: ${data.sent} enviados · ${data.failed} fallidos`); }
       } catch (e) { clearInterval(pollRef.current); setSending(false); }
     }, 1500);
   };
@@ -98,9 +116,16 @@ export default function Communications() {
         </div>
         <div className="space-y-1.5">
           <Label>Mensaje</Label>
-          <Textarea data-testid="comms-message" value={message} onChange={(e) => setMessage(e.target.value)} rows={8}
-            placeholder="Escribe aquí el mensaje. Se enviará con la cabecera y el estilo de GoRoky. Los saltos de línea se respetan." />
-          <p className="text-xs text-muted-foreground">Texto plano; los saltos de línea se convierten en párrafos. Se añade automáticamente la cabecera de marca.</p>
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-1" data-testid="comms-toolbar">
+            <button type="button" data-testid="fmt-bold" title="Negrita" onClick={() => wrap("<b>", "</b>")} className="h-8 w-8 grid place-items-center rounded hover:bg-background"><Bold size={15} /></button>
+            <button type="button" data-testid="fmt-italic" title="Cursiva" onClick={() => wrap("<i>", "</i>")} className="h-8 w-8 grid place-items-center rounded hover:bg-background"><Italic size={15} /></button>
+            <button type="button" data-testid="fmt-heading" title="Título" onClick={() => wrap('<h2 style="font-size:17px;color:#0b1020;margin:8px 0">', "</h2>")} className="h-8 w-8 grid place-items-center rounded hover:bg-background"><Heading size={15} /></button>
+            <button type="button" data-testid="fmt-list" title="Viñeta" onClick={() => wrap("<li>", "</li>")} className="h-8 w-8 grid place-items-center rounded hover:bg-background"><List size={15} /></button>
+            <button type="button" data-testid="fmt-link" title="Enlace" onClick={insertLink} className="h-8 w-8 grid place-items-center rounded hover:bg-background"><Link2 size={15} /></button>
+          </div>
+          <Textarea ref={msgRef} data-testid="comms-message" value={message} onChange={(e) => setMessage(e.target.value)} rows={8}
+            placeholder="Escribe aquí el mensaje. Se enviará con la cabecera y el logo de GoRoky. Usa los botones de formato o pega HTML." />
+          <p className="text-xs text-muted-foreground">Se añade automáticamente la cabecera con el logo de GoRoky y el pie legal. Puedes dar formato con los botones (negrita, cursiva, título, enlace).</p>
         </div>
 
         {job && (
@@ -118,6 +143,38 @@ export default function Communications() {
           <Megaphone size={16} /> {sending ? "Enviando…" : "Enviar correo masivo"}
         </Button>
       </div>
+
+      {history.length > 0 && (
+        <div className="mt-6" data-testid="comms-history">
+          <h3 className="flex items-center gap-2 font-heading font-600 mb-3"><History size={17} className="text-primary" /> Historial de envíos</h3>
+          <div className="rounded-lg border border-border bg-card overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr className="text-left">
+                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">Asunto</th>
+                  <th className="px-4 py-3 font-medium">Público</th>
+                  <th className="px-4 py-3 font-medium">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {history.map((h) => (
+                  <tr key={h.id} data-testid={`history-row-${h.id}`}>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{h.createdAt ? new Date(h.createdAt).toLocaleString("es-ES") : "—"}</td>
+                    <td className="px-4 py-3 font-medium">{h.subject}</td>
+                    <td className="px-4 py-3">{h.audience}</td>
+                    <td className="px-4 py-3">
+                      {h.status === "done"
+                        ? <span className="text-success">{h.sent} enviados{h.failed > 0 ? ` · ${h.failed} fallidos` : ""}</span>
+                        : <span className="text-primary">Enviando… ({h.sent}/{h.total})</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

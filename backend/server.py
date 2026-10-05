@@ -30,6 +30,7 @@ import server_monitor
 import db_monitor
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
+from reseller_receipt import generate_reseller_receipt_pdf
 from contracts import generate_contract_pdf, DEFAULT_TEMPLATE as DEFAULT_CONTRACT_TEMPLATE
 
 logging.basicConfig(level=logging.INFO)
@@ -5346,9 +5347,39 @@ async def reseller_charge_pending(reseller_id: str, request: Request):
     if paid:
         set_fields["status"] = "paid"
     await db.invoices.update_many({"_id": {"$in": inv_ids}}, {"$set": set_fields})
+    # guardar el adeudo agrupado (para historial y recibo PDF)
+    await db.reseller_charges.insert_one({
+        "chargeId": charge_id, "resellerId": rid, "resellerName": u.get("name"),
+        "total": total, "invoiceCount": len(invs), "status": pi.status,
+        "paymentIntentId": pi.id, "createdAt": now_iso(),
+        "invoices": [{"invoiceNumber": i.get("invoiceNumber"),
+                      "customerName": i.get("customerName") or i.get("fiscalId"),
+                      "fiscalId": i.get("fiscalId"), "period": i.get("period"),
+                      "total": float(i.get("total", 0) or 0)} for i in invs]})
     await log_event("billing", "success" if paid else "info",
         f"Cobro agrupado a revendedor {u.get('name')} · {len(invs)} facturas · {total:.2f} € · {pi.status}")
-    return {"ok": True, "status": pi.status, "invoices": len(invs), "total": total, "paymentIntentId": pi.id}
+    return {"ok": True, "status": pi.status, "invoices": len(invs), "total": total,
+            "paymentIntentId": pi.id, "chargeId": charge_id}
+
+
+@api.get("/resellers/{reseller_id}/charges")
+async def reseller_charges(reseller_id: str, request: Request):
+    """Historial de adeudos agrupados realizados a un revendedor."""
+    await require_perm(request, "billing.manage")
+    rows = await db.reseller_charges.find({"resellerId": reseller_id}).sort("createdAt", -1).to_list(500)
+    return [clean(r) for r in rows]
+
+
+@api.get("/resellers/charges/{charge_id}/receipt.pdf")
+async def reseller_charge_receipt(charge_id: str, request: Request):
+    """Recibo PDF-resumen de un adeudo agrupado a un revendedor."""
+    await require_perm(request, "billing.manage")
+    chg = await db.reseller_charges.find_one({"chargeId": charge_id})
+    if not chg:
+        raise HTTPException(status_code=404, detail="Cobro no encontrado")
+    pdf_bytes = generate_reseller_receipt_pdf(chg)
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename=recibo-{charge_id[:8]}.pdf"})
 
 
 @api.post("/customers/{fiscalId}/reseller")
@@ -5466,6 +5497,17 @@ async def bulk_email_status(job_id: str, request: Request):
     if not j:
         raise HTTPException(status_code=404, detail="Envío no encontrado")
     return {"total": j["total"], "sent": j["sent"], "failed": j["failed"], "status": j["status"]}
+
+
+@api.get("/communications/history")
+async def bulk_email_history(request: Request):
+    """Historial de envíos masivos: fecha, asunto, público y resultados."""
+    await require_admin(request)
+    rows = await db.bulk_email_jobs.find().sort("createdAt", -1).to_list(200)
+    labels = {"all": "Todos", "customers": "Clientes", "reseller": "Clientes de revendedor"}
+    return [{"id": r["_id"], "subject": r.get("subject"), "audience": labels.get(r.get("audience"), r.get("audience")),
+             "total": r.get("total", 0), "sent": r.get("sent", 0), "failed": r.get("failed", 0),
+             "status": r.get("status"), "createdAt": r.get("createdAt")} for r in rows]
 
 
 

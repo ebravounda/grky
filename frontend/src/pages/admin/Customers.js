@@ -178,6 +178,7 @@ export default function Customers() {
               <th className="px-4 py-3 font-medium">Cliente</th>
               <th className="px-4 py-3 font-medium hidden sm:table-cell">NIF/NIE</th>
               <th className="px-4 py-3 font-medium hidden md:table-cell">Email</th>
+              <th className="px-4 py-3 font-medium hidden lg:table-cell">Fecha de alta</th>
               <th className="px-4 py-3 font-medium">Líneas</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -194,11 +195,12 @@ export default function Customers() {
                 <td className="px-4 py-3 font-medium cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.name} {c.firstSurname}</td>
                 <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.fiscalId}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.email}</td>
+                <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.created ? new Date(c.created).toLocaleDateString("es-ES") : "—"}</td>
                 <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}>{c.linesCount}</td>
                 <td className="px-4 py-3 text-right cursor-pointer" onClick={() => navigate(`/app/customers/${c.fiscalId}`)}><ChevronRight size={16} className="text-muted-foreground" /></td>
               </tr>
             ))}
-            {customers.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Sin clientes.</td></tr>}
+            {customers.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">Sin clientes.</td></tr>}
           </tbody>
         </table>
       </div>

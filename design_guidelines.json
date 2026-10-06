@@ -1,107 +1,182 @@
 {
-  "project_title": "GoRoky Telecom - Premium Modern Login Screen Redesign",
-  "app_type": "saas_app",
-  "design_archetype": "ORGANIC & PERFORMANCE PRO / SWISS HIGH-CONTRAST TECH",
-  "brand_colors": {
-    "primary": "hsl(216, 100%, 52%)",
-    "primary_hex": "#0033FF",
-    "primary_hover": "hsl(216, 100%, 45%)",
-    "primary_glow": "rgba(0, 51, 255, 0.35)",
-    "navy_dark": "hsl(222, 47%, 11%)",
-    "navy_dark_hex": "#0B132B",
-    "navy_card": "hsl(222, 42%, 15%)",
-    "surface_light": "#FFFFFF",
-    "surface_slate": "hsl(215, 28%, 97%)",
-    "text_dark": "hsl(222, 47%, 11%)",
-    "text_muted": "hsl(215, 16%, 47%)",
-    "border_subtle": "hsl(214, 32%, 91%)",
-    "border_focus": "hsl(216, 100%, 52%)"
-  },
+  "project_name": "Roky Móvil + OpenFactura.es Integration",
+  "app_type": "marketing_site / telecom & SaaS landing page",
   "typography": {
-    "font_family_heading": "Outfit, sans-serif",
-    "font_family_body": "Inter, sans-serif",
-    "font_family_mono": "JetBrains Mono, monospace",
-    "font_weights": {
-      "light": 300,
-      "regular": 400,
-      "medium": 500,
-      "semibold": 600,
-      "bold": 700
-    },
-    "font_sizes": {
-      "hero_headline_desktop": "text-4xl lg:text-5xl font-bold tracking-tight leading-tight",
-      "hero_headline_mobile": "text-2xl sm:text-3xl font-bold tracking-tight",
-      "subtitle": "text-base sm:text-lg font-normal text-white/80 leading-relaxed",
-      "card_title": "text-2xl font-bold tracking-tight text-slate-900 dark:text-white",
-      "card_subtitle": "text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6",
-      "label": "text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider",
-      "input_text": "text-sm sm:text-base font-normal",
-      "button": "text-base font-semibold"
+    "heading": "Outfit, sans-serif",
+    "body": "Manrope, sans-serif",
+    "rules": {
+      "H1": "text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter leading-[0.98]",
+      "H2": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "H3": "text-xl sm:text-2xl font-bold",
+      "Overline": "text-xs font-bold uppercase tracking-[0.2em]"
     }
   },
-  "layout_strategy": {
-    "responsive_architecture": "Desktop (lg breakpoint and above): 50/50 Split Screen. Left panel is a cinematic dark electric-blue brand visual with glowing mesh gradient, fiber optic abstract imagery, floating feature pills, live metric badge, and customer quote. Right panel is a clean, hyper-refined white/dark glassmorphic form card centered vertically. Mobile (< lg): Stacked mobile-first hero with compact top brand bar, glowing backdrop, and bottom rounded card with elevated depth.",
-    "outer_container": "min-h-screen w-full flex flex-col lg:flex-row bg-slate-950 font-sans text-slate-900 dark:text-slate-100 overflow-hidden",
-    "left_brand_panel": "hidden lg:flex lg:w-[52%] relative flex-col justify-between p-12 lg:p-16 bg-gradient-to-br from-[hsl(222,47%,9%)] via-[hsl(216,100%,18%)] to-[hsl(216,100%,52%)] text-white overflow-hidden",
-    "right_form_panel": "w-full lg:w-[48%] flex flex-col justify-between p-6 sm:p-10 lg:p-16 bg-slate-50 dark:bg-slate-900 relative z-10"
+  "colors": {
+    "brand_blue": "#015EEF",
+    "brand_orange": "#FF7A00",
+    "dark_background": "#05070D",
+    "light_background": "#FFFFFF",
+    "soft_slate": "#F8FAFC",
+    "emerald_accent": "#10B981",
+    "gradient_accent": "from-[#015EEF] via-[#3B82F6] to-[#FF7A00]"
   },
   "visual_enhancers": {
-    "background_texture": "Subtle noise overlay (opacity 0.03) + mesh gradient blobs floating with CSS animation keyframes.",
-    "hero_image_url": "https://images.unsplash.com/photo-1782149149559-4f6d8c8cb757?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwyfHx0ZWxlY29tJTIwZmliZXIlMjBuZXR3b3JrJTIwYmx1ZSUyMGJhY2tncm91bmQlMjBhYnN0cmFjdCUyMGRhcmt8ZW58MHx8fHwxNzg4ODkxNTM3fDA&ixlib=rb-4.1.0&q=85",
-    "secondary_image_url": "https://images.unsplash.com/photo-1779738193336-fbe62edfd4ee?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwzfHx0ZWxlY29tJTIwZmliZXIlMjBuZXR3b3JrJTIwYmx1ZSUyMGJhY2tncm91bmQlMjBhYnN0cmFjdCUyMGRhcmt8ZW58MHx8fHwxNzg4ODkxNTM3fDA&ixlib=rb-4.1.0&q=85",
-    "logo_url": "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png",
-    "glassmorphism_card": "backdrop-blur-2xl bg-white/80 dark:bg-slate-900/80 border border-white/40 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,51,255,0.08)] rounded-3xl p-8 sm:p-10",
-    "input_styling": "h-12 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-4 pl-11 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-[hsl(216,100%,52%)] focus:ring-4 focus:ring-[hsl(216,100%,52%)]/15 transition-all shadow-sm",
-    "primary_button_styling": "h-12 w-full bg-[hsl(216,100%,52%)] hover:bg-[hsl(216,100%,45%)] text-white font-semibold rounded-xl shadow-[0_8px_25px_-4px_rgba(0,51,255,0.45)] hover:shadow-[0_12px_30px_-4px_rgba(0,51,255,0.6)] active:scale-[0.98] transition-all flex items-center justify-center gap-2",
-    "feature_pills": [
+    "hero": "Asymmetric bento/carousel with glow accents, soft blue/orange subtle background blurs",
+    "glassmorphism": "backdrop-blur-xl bg-white/80 border border-slate-200/60 shadow-sm",
+    "bento_grid": "Tetris style gap-6 lg:gap-8 with key highlight cards receiving brand gradient glows",
+    "micro_interactions": "Framer motion scale hover, spring bounce on CTAs, animated feature badges"
+  },
+  "openfactura_section_landing": {
+    "title": "OpenFactura.es · Software de Facturación Cloud e Inteligencia Fiscal",
+    "badge": "Partner Oficial GoRoky",
+    "tagline": "Facturación electrónica VeriFactu, TPV y gestión de impuestos automáticos para autónomos y pymes",
+    "key_services": [
       {
-        "icon": "Zap",
-        "title": "Fibra Ultra-Rápida",
-        "desc": "Hasta 1 Gbps simétrico sin interrupciones"
+        "id": "facturas-rapidas",
+        "title": "Facturas en Segundos",
+        "desc": "Generación y envío instantáneo con plantillas profesionales y descarga PDF/Excel."
       },
       {
-        "icon": "ShieldCheck",
-        "title": "Control Total de Facturación",
-        "desc": "Transparencia de consumo en tiempo real"
+        "id": "tpv-hosteleria",
+        "title": "TPV Hostelería y Retail",
+        "desc": "Terminal de punto de venta táctil sincronizado en tiempo real con el stock."
       },
       {
-        "icon": "Smartphone",
-        "title": "Gestión Multilínea 5G",
-        "desc": "Activa gigas extra y eSIM al instante"
+        "id": "stripe-cobros",
+        "title": "Cobros con Stripe",
+        "desc": "Acepta pagos por tarjeta y Bizum directamente en tus facturas digitales."
+      },
+      {
+        "id": "modelos-impuestos",
+        "title": "Modelos IVA/IRPF Automáticos",
+        "desc": "Cálculo en tiempo real de los modelos 303, 130 y 390 listos para la AEAT."
+      },
+      {
+        "id": "verifactu",
+        "title": "Normativa VeriFactu AEAT",
+        "desc": "Cumplimiento 100% legal obligatorio con huella digital y envío seguro a Hacienda."
+      },
+      {
+        "id": "escaner-ia",
+        "title": "Escaneo de Gastos con IA",
+        "desc": "Sube tus tiques y facturas de compra; la IA extrae datos e importes sin fallos."
+      },
+      {
+        "id": "fiscalbot-ia",
+        "title": "Asistente FiscalBot IA",
+        "desc": "Resuelve dudas fiscales y tributarias al instante con tu copiloto de inteligencia artificial."
+      },
+      {
+        "id": "marca-blanca",
+        "title": "Marca Blanca para Gestorías",
+        "desc": "Personalización completa con tu logo y dominio para ofrecer a todos tus clientes."
+      }
+    ],
+    "cta_primary": {
+      "label": "Prueba gratis 14 días",
+      "url": "https://openfactura.es/registro",
+      "data_testid": "openfactura-landing-cta-register"
+    },
+    "cta_secondary": {
+      "label": "Ver todos los servicios y planes",
+      "url": "/openfactura",
+      "data_testid": "openfactura-landing-cta-more"
+    }
+  },
+  "openfactura_dedicated_page": {
+    "route": "/openfactura",
+    "component_file": "/app/frontend/src/pages/public/OpenFacturaPage.js",
+    "sections": [
+      "Header con Navegación GoRoky + OpenFactura",
+      "Hero B2B Invoicing con badges y CTA 'Prueba gratis 14 días'",
+      "Bento Grid de Servicios Principales (VeriFactu, TPV, Escáner IA, FiscalBot, Stripe, Modelos AEAT, Marca Blanca)",
+      "Demostración Interactiva / Calculadora de Ahorro de Tiempo",
+      "Tabla Comparativa de Planes y Precios",
+      "F.A.Q. Preguntas Frecuentes sobre VeriFactu y Facturación",
+      "Footer Oficial Roky Móvil + OpenFactura"
+    ],
+    "plans": [
+      {
+        "id": "basico",
+        "name": "Básico",
+        "price": "0€",
+        "period": "para siempre",
+        "popular": false,
+        "features": [
+          "10 facturas / mes",
+          "Emisión y plantillas PDF básicas",
+          "Exportación de datos",
+          "Soporte por email"
+        ],
+        "cta": "Prueba gratis 14 días",
+        "cta_url": "https://openfactura.es/registro"
+      },
+      {
+        "id": "medio",
+        "name": "Medio",
+        "price": "9,99€",
+        "period": "/mes",
+        "popular": false,
+        "features": [
+          "100 facturas / mes",
+          "Envío por email automático",
+          "Escáner de tiques con IA (50/mes)",
+          "Modelos IVA/IRPF 303 y 130",
+          "Soporte prioritario"
+        ],
+        "cta": "Prueba gratis 14 días",
+        "cta_url": "https://openfactura.es/registro"
+      },
+      {
+        "id": "platino",
+        "name": "Platino",
+        "price": "24,99€",
+        "period": "/mes",
+        "popular": true,
+        "badge": "MÁS POPULAR",
+        "features": [
+          "Facturas ILIMITADAS",
+          "Cumplimiento 100% VeriFactu AEAT",
+          "Cobros integrados con Stripe / Bizum",
+          "TPV Hostelería y Retail incluido",
+          "Escáner de gastos IA Ilimitado",
+          "Asistente FiscalBot IA 24/7"
+        ],
+        "cta": "Prueba gratis 14 días",
+        "cta_url": "https://openfactura.es/registro"
+      },
+      {
+        "id": "multiempresas",
+        "name": "Multiempresas",
+        "price": "49,99€",
+        "period": "/mes",
+        "popular": false,
+        "features": [
+          "Hasta 20 empresas o CIFs",
+          "Marca Blanca para Gestorías y Asesorías",
+          "Acceso multiusuario con roles",
+          "Conexión API directa & Webhooks",
+          "Asesor Fiscal dedicado & Soporte VIP"
+        ],
+        "cta": "Prueba gratis 14 días",
+        "cta_url": "https://openfactura.es/registro"
       }
     ]
   },
-  "micro_interactions": {
-    "card_entrance": "Framer motion initial={opacity: 0, y: 20} animate={opacity: 1, y: 0} transition={duration: 0.4, ease: 'easeOut'}",
-    "password_toggle": "Smooth icon swap animation (Eye <-> EyeOff) with hover state glow",
-    "button_loading": "Spinner animation with disabled button opacity and glowing ring",
-    "forgot_mode_switch": "Smooth layout transition between 'login' and 'forgot' password modes without page reload"
+  "data_testids": {
+    "header_nav_openfactura": "header-openfactura-link",
+    "openfactura_section": "openfactura-landing-section",
+    "openfactura_card": "openfactura-service-card-",
+    "openfactura_page": "openfactura-page",
+    "openfactura_plan_card": "openfactura-plan-",
+    "openfactura_register_cta": "openfactura-register-btn"
   },
-  "required_data_testids": [
-    "login-page",
-    "login-email",
-    "login-password",
-    "toggle-password",
-    "login-submit",
-    "forgot-password-link",
-    "forgot-email",
-    "forgot-submit",
-    "back-to-login",
-    "signup-link",
-    "forgot-sent"
-  ],
   "instructions_to_main_agent": [
-    "Redesign `/app/frontend/src/pages/Login.js` to implement the pro split-screen layout on desktop and elevated mobile card layout.",
-    "Keep all existing state hooks, API integrations (`useAuth`, `api.post('/auth/forgot-password')`, `toast.success`, `toast.error`), and router navigations completely intact.",
-    "MUST retain every single `data-testid` attribute exact string as specified in `required_data_testids` list.",
-    "Incorporate high visual fidelity with GoRoky's electric blue brand `#0033FF` / `hsl(216 100% 52%)`, glassmorphism, brand feature cards, customer trust badges, and glowing interactive elements.",
-    "Add responsive dark/light support or ultra-sleek dark navy & white contrast so the CRM portal looks like a top-tier telecom operator (e.g. Movistar, O2, Digimobil pro UI).",
-    "Provide clear back button and success state alert for the forgot password flow."
-  ],
-  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
-    "do_not_center_app": "Do NOT add text-align center globally.",
-    "no_universal_transition": "Do NOT use `transition: all`. Use target transition properties.",
-    "no_emoji_icons": "Do NOT use emojis as UI icons; rely exclusively on lucide-react icons.",
-    "data_testids_mandatory": "All interactive elements must retain exact data-testid properties."
-  }
+    "1. Keep all existing test IDs in PublicCatalog.js intact (e.g. public-catalog, header-logo, hero-cta-planes, public-tab-*, public-product-*, etc.).",
+    "2. Add the OpenFactura highlighted section into PublicCatalog.js after the App Mobile section or before the Marquee section, with clean Bento cards showcasing all 8 key features.",
+    "3. Add 'OpenFactura' link in the main navigation header in PublicCatalog.js linking to '/openfactura'.",
+    "4. Create the dedicated OpenFactura page at /app/frontend/src/pages/public/OpenFacturaPage.js and register the route /openfactura in App.js.",
+    "5. Ensure all CTA buttons for 'Prueba gratis 14 días' point to https://openfactura.es/registro.",
+    "6. Maintain brand design consistency: Outfit headings, Manrope body, #015EEF primary blue, #FF7A00 accent orange, and #05070D dark sections."
+  ]
 }

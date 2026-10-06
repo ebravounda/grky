@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
 import CoverageChecker from "@/components/CoverageChecker";
+import OpenFacturaSection from "@/components/OpenFacturaSection";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
   Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info, PhoneCall, CreditCard,
@@ -125,12 +126,16 @@ export default function PublicCatalog() {
   return (
     <div className="min-h-screen bg-white text-[#0A0A0A] font-body selection:bg-[#FF7A00] selection:text-white" data-testid="public-catalog">
       {/* Header — crystal glass */}
-      <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-white/70 border-b border-black/5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      <header className="fixed top-3 inset-x-3 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 rounded-full backdrop-blur-xl bg-white/75 ring-1 ring-black/5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] flex items-center justify-between">
           <a href="#top" className="flex items-center" data-testid="header-logo"><img src={LOGO} alt="GoRoky · roky móvil" className="h-9 w-auto" /></a>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-bold">
+          <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm font-bold">
             <a href="#planes" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Tarifas</a>
             <a href="#cobertura" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Cobertura fibra</a>
+            <button onClick={() => navigate("/openfactura")} data-testid="header-openfactura-link"
+              className="inline-flex items-center gap-1.5 text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">
+              Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
+            </button>
             <button onClick={() => openCallback()} data-testid="header-callback-btn"
               className="inline-flex items-center gap-2 text-slate-800 hover:text-[#FF7A00] transition-colors tracking-wide">
               <PhoneCall size={16} /> Te llamamos
@@ -152,6 +157,10 @@ export default function PublicCatalog() {
                 <img src={LOGO} alt="GoRoky" className="h-9 w-auto" />
                 <a href="#planes" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Tarifas</a>
                 <a href="#cobertura" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Cobertura fibra</a>
+                <button onClick={() => { setMenuOpen(false); navigate("/openfactura"); }} data-testid="mobile-openfactura-link"
+                  className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
+                  Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
+                </button>
                 <button onClick={() => { setMenuOpen(false); openCallback(); }} data-testid="mobile-callback-btn"
                   className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
                   <PhoneCall size={18} className="text-[#FF7A00]" /> Te llamamos
@@ -172,6 +181,7 @@ export default function PublicCatalog() {
       <section id="top" className="relative overflow-hidden bg-white">
         <div className="pointer-events-none absolute -top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#015EEF]/5 blur-3xl" />
         <div className="pointer-events-none absolute top-40 -left-40 h-[420px] w-[420px] rounded-full bg-[#FF7A00]/10 blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.35] [mask-image:radial-gradient(ellipse_at_top,black,transparent_70%)]" style={{ backgroundImage: "linear-gradient(rgba(1,94,239,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(1,94,239,0.07) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center pt-32 lg:pt-36 pb-16 lg:pb-24">
           <motion.div initial="hidden" animate="show"
             variants={{ hidden: {}, show: { transition: { staggerChildren: 0.12 } } }}
@@ -182,7 +192,7 @@ export default function PublicCatalog() {
             </motion.span>
             <motion.h1 variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
               className="font-heading text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.95]">
-              {hero.title} <span className="text-[#015EEF]">{hero.titleHighlight}</span>
+              {hero.title} <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#015EEF] via-[#3B82F6] to-[#FF7A00]">{hero.titleHighlight}</span>
             </motion.h1>
             <motion.p variants={{ hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0 } }}
               className="text-slate-600 mt-6 text-lg sm:text-xl leading-relaxed max-w-xl">{hero.subtitle}</motion.p>
@@ -230,6 +240,12 @@ export default function PublicCatalog() {
               <span className="grid place-items-center h-11 w-11 rounded-xl bg-[#015EEF]/10 text-[#015EEF]"><Repeat size={20} /></span>
               <div><p className="font-heading font-bold leading-tight">Portabilidad gratis</p><p className="text-sm text-slate-500">Conserva tu número</p></div>
             </motion.div>
+            <motion.button initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
+              onClick={() => navigate("/openfactura")} data-testid="hero-openfactura-badge"
+              className="max-sm:!hidden flex absolute -top-4 right-4 lg:-right-4 backdrop-blur-xl bg-white/85 rounded-2xl shadow-xl px-4 py-3 items-center gap-3 ring-1 ring-black/5 hover:-translate-y-1 transition-transform">
+              <span className="grid place-items-center h-10 w-10 rounded-xl bg-[#FF7A00]/15 text-[#FF7A00]"><Sparkles size={18} /></span>
+              <div className="text-left"><p className="font-heading font-bold text-sm leading-tight">Nuevo: OpenFactura</p><p className="text-xs text-slate-500">Facturación para tu negocio</p></div>
+            </motion.button>
           </motion.div>
         </div>
       </section>
@@ -408,6 +424,8 @@ export default function PublicCatalog() {
         </div>
       </section>
 
+      <OpenFacturaSection />
+
       {/* App móvil — sección moderna */}
       <section className="relative overflow-hidden bg-[#05070D] text-white py-24 lg:py-32" data-testid="app-section" id="app">
         <div className="pointer-events-none absolute -top-32 -left-32 h-[520px] w-[520px] rounded-full bg-[#015EEF]/30 blur-[120px]" />
@@ -502,6 +520,7 @@ export default function PublicCatalog() {
               <span>© {new Date().getFullYear()} {footer.company}</span>
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <a href="/openfactura" className="hover:text-white transition-colors" data-testid="footer-openfactura-link">OpenFactura</a>
               <a href="/privacidad" className="hover:text-white transition-colors" data-testid="footer-privacy-link">Política de privacidad</a>
               <a href="/terminos" className="hover:text-white transition-colors" data-testid="footer-terms-link">Términos y condiciones</a>
               <button onClick={() => navigate("/login")} className="hover:text-white transition-colors text-left" data-testid="footer-login-btn">Acceso clientes</button>

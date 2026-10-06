@@ -46,6 +46,7 @@ import ContractSign from "@/pages/public/ContractSign";
 import ResubmitDocs from "@/pages/public/ResubmitDocs";
 import PayBill from "@/pages/public/PayBill";
 import LegalPage from "@/pages/public/LegalPage";
+import OpenFacturaPage from "@/pages/public/OpenFacturaPage";
 
 function Loading() {
   return (
@@ -92,6 +93,7 @@ function App() {
         <Routes>
           <Route path="/" element={<PublicCatalog />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/openfactura" element={<OpenFacturaPage />} />
           <Route path="/payment/:result" element={<PaymentResult />} />
           <Route path="/contratar" element={<PublicCatalog />} />
           <Route path="/pagar-cuenta" element={<PayBill />} />

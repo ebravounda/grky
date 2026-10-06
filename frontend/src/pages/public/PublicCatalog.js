@@ -242,7 +242,7 @@ export default function PublicCatalog() {
             </motion.div>
             <motion.button initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
               onClick={() => navigate("/openfactura")} data-testid="hero-openfactura-badge"
-              className="max-sm:!hidden flex absolute -top-4 right-4 lg:-right-4 backdrop-blur-xl bg-white/85 rounded-2xl shadow-xl px-4 py-3 items-center gap-3 ring-1 ring-black/5 hover:-translate-y-1 transition-transform">
+              className="max-sm:!hidden flex absolute -top-5 left-6 backdrop-blur-xl bg-white/85 rounded-2xl shadow-xl px-4 py-3 items-center gap-3 ring-1 ring-black/5 hover:-translate-y-1 transition-transform">
               <span className="grid place-items-center h-10 w-10 rounded-xl bg-[#FF7A00]/15 text-[#FF7A00]"><Sparkles size={18} /></span>
               <div className="text-left"><p className="font-heading font-bold text-sm leading-tight">Nuevo: OpenFactura</p><p className="text-xs text-slate-500">Facturación para tu negocio</p></div>
             </motion.button>
@@ -297,7 +297,7 @@ export default function PublicCatalog() {
                                 <Info size={16} />
                               </button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-md">
+                            <DialogContent className="max-w-md" aria-describedby={undefined}>
                               <DialogHeader><DialogTitle>Detalle · {p.productName}</DialogTitle></DialogHeader>
                               <ul className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
                                 {(p.marketingText || []).map((m, j) => (
@@ -335,7 +335,7 @@ export default function PublicCatalog() {
                                   <Info size={15} /> Ver todo el detalle
                                 </button>
                               </DialogTrigger>
-                              <DialogContent className="max-w-md">
+                              <DialogContent className="max-w-md" aria-describedby={undefined}>
                                 <DialogHeader><DialogTitle>Detalle · {p.productName}</DialogTitle></DialogHeader>
                                 <ul className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
                                   {(p.marketingText || []).map((m, j) => (
@@ -357,7 +357,7 @@ export default function PublicCatalog() {
                               <Tv2 size={15} /> Ver {p.channels.length} canales
                             </button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-md">
+                          <DialogContent className="max-w-md" aria-describedby={undefined}>
                             <DialogHeader><DialogTitle>Canales · {p.productName}</DialogTitle></DialogHeader>
                             <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto">
                               {p.channels.map((ch, k) => <span key={k} className="flex items-center gap-1.5 text-sm py-1"><Tv size={13} className="text-[#015EEF] shrink-0" /> {ch}</span>)}

@@ -757,3 +757,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 2. ZIP FACTURAS GESTORÍA: import zipfile. Endpoint GET /api/invoices/export.zip?status=&period=&dateFrom=&dateTo= (require_perm invoices.view) → genera PDFs (generate_invoice_pdf en thread), inyecta customerIban, zip en memoria, nombres {invoiceNumber}.pdf (dedupe). Invoices.js: barra "Exportar para gestoría" (invoice-export-bar) con export-status (paid/pending/all), export-period, contador y export-zip-btn → abre ${API}/invoices/export.zip (auth por cookie).
 - VERIFICADO preview: clients.pdf 200 application/pdf (1 página); export.zip?status=paid → zip con 5 PDFs; barra y botón renderizan. Descarga por <a>/window.open usa cookie de sesión.
 - DEPLOY: reseller_receipt.py (func nueva) + server.py + 2 páginas frontend. Save to Github + despliegue habitual.
+
+## 2026-06 — Landing modernizado + OpenFactura.es
+- Landing (/) modernizado: cabecera flotante tipo píldora, rejilla de fondo, titular con degradado, badge "Nuevo: OpenFactura" en el hero, enlace "Facturación NUEVO" en menú (desktop/móvil) y footer.
+- Nueva sección bento OpenFactura en el landing (8 servicios, tira de planes, CTA "Prueba gratis 14 días" -> openfactura.es/registro).
+- Nueva página /openfactura (OpenFacturaPage.js): hero, servicios, 4 planes (0/9,99/24,99/49,99€), FAQ, CTA final + WhatsApp. Contenido fijo en openfacturaData.js.
+- Testado: iteration_20.json (100% frontend).

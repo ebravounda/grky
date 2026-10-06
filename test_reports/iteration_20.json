@@ -1,0 +1,21 @@
+{
+  "summary": "Frontend-only testing of OpenFactura landing integration and dedicated /openfactura page. All required data-testids present and functional. Navigation, external links (href=https://openfactura.es/registro, target=_blank), plans with correct prices (0€, 9,99€, 24,99€, 49,99€), 8 service cards on both landing and page, FAQ accordion (4 items), mobile menu link, footer link, and responsive layout at 390px all verified. Regression checks (public-tab-* x8, header-callback-btn opening callback-dialog) passed. No horizontal overflow on desktop or mobile for either route.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Callback dialog (and possibly others)", "issues": ["Radix DialogContent missing DialogTitle and Description/aria-describedby — accessibility warning in console. Wrap title in VisuallyHidden if intended to be hidden."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": ["(Optional) Fix Radix DialogContent accessibility: add DialogTitle and aria-describedby/Description to callback-dialog to clear console a11y errors."],
+  "critical_code_review_comments": ["Accessibility: Radix Dialog components used in app are missing required DialogTitle; add VisuallyHidden title to comply with Radix a11y spec."],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All OpenFactura integration testids verified on landing (/) and /openfactura. Only minor Radix Dialog a11y console warnings observed, unrelated to this feature.",
+  "rca of the issue": "n/a — no functional issues found"
+}

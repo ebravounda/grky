@@ -58,7 +58,13 @@ export default function ResellerDetail() {
   return (
     <div data-testid="reseller-detail-page">
       <Link to="/app/resellers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-3"><ArrowLeft size={15} /> Revendedores</Link>
-      <PageHeader overline="Revendedor" title={reseller.name} subtitle={reseller.email} />
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <PageHeader overline="Revendedor" title={reseller.name} subtitle={reseller.email} />
+        <a href={`${API}/resellers/${resellerId}/clients.pdf`} target="_blank" rel="noreferrer" data-testid="export-clients-pdf"
+          className="inline-flex items-center gap-2 rounded-full border border-primary/30 text-primary px-4 py-2 text-sm font-semibold hover:bg-primary/5 mt-1">
+          <Download size={15} /> Exportar clientes (PDF)
+        </a>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Datos de cobro del revendedor */}

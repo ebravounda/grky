@@ -751,3 +751,9 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - DESGLOSE REVENDEDOR: reseller_charge_pending ahora genera el recibo PDF y lo ENVÍA al revendedor por email (adjunto, Resend attachments base64) + aviso WhatsApp. _send_mail_safe ya soporta attachments.
 - VERIFICADO preview: GET/PUT settings whatsapp OK (key enmascarada, placeholder ignorado, adminPhone persiste), card renderiza con valores, whatsapp-test 400 controlado. Envío real no probado en preview (requiere que mitiendapro.com reciba) — validar con botón de prueba y key real.
 - DEPLOY: ahora la key puede ir por panel; el .env del VPS deja de ser imprescindible para WhatsApp (pero si está, sirve de fallback).
+
+### Iteración 2026-06 (fork) — PDF clientes del revendedor + ZIP de facturas (gestoría)
+1. PDF CLIENTES REVENDEDOR: reseller_receipt.py → generate_reseller_clients_pdf(reseller, clients) (A4 horizontal: Nombre, Email, Teléfono, NIF, Línea(s), Fecha de alta). Endpoint GET /api/resellers/{id}/clients.pdf (require_perm billing.manage; junta customers con billingResellerId + sus líneas de db.lines + created). Botón "Exportar clientes (PDF)" (export-clients-pdf) en ResellerDetail.js.
+2. ZIP FACTURAS GESTORÍA: import zipfile. Endpoint GET /api/invoices/export.zip?status=&period=&dateFrom=&dateTo= (require_perm invoices.view) → genera PDFs (generate_invoice_pdf en thread), inyecta customerIban, zip en memoria, nombres {invoiceNumber}.pdf (dedupe). Invoices.js: barra "Exportar para gestoría" (invoice-export-bar) con export-status (paid/pending/all), export-period, contador y export-zip-btn → abre ${API}/invoices/export.zip (auth por cookie).
+- VERIFICADO preview: clients.pdf 200 application/pdf (1 página); export.zip?status=paid → zip con 5 PDFs; barra y botón renderizan. Descarga por <a>/window.open usa cookie de sesión.
+- DEPLOY: reseller_receipt.py (func nueva) + server.py + 2 páginas frontend. Save to Github + despliegue habitual.

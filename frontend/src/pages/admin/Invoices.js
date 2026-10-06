@@ -1,17 +1,35 @@
 import { useEffect, useState } from "react";
-import api, { apiErr, openInvoicePdf } from "@/lib/api";
+import api, { apiErr, openInvoicePdf, API } from "@/lib/api";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { FileText, CreditCard, Mail } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { FileText, CreditCard, Mail, FileArchive } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [paying, setPaying] = useState(null);
   const [emailing, setEmailing] = useState(null);
+  const [expStatus, setExpStatus] = useState("paid");
+  const [expPeriod, setExpPeriod] = useState("all");
 
   const load = () => api.get("/invoices").then((r) => setInvoices(r.data));
   useEffect(() => { load(); }, []);
+
+  const periods = Array.from(new Set(invoices.map((i) => i.period).filter(Boolean)));
+  const matchCount = invoices.filter((i) =>
+    (expStatus === "all" || i.status === expStatus) && (expPeriod === "all" || i.period === expPeriod)).length;
+
+  const downloadZip = () => {
+    if (matchCount === 0) return toast.error("No hay facturas para esos filtros");
+    const params = new URLSearchParams();
+    if (expStatus !== "all") params.set("status", expStatus);
+    if (expPeriod !== "all") params.set("period", expPeriod);
+    window.open(`${API}/invoices/export.zip?${params.toString()}`, "_blank");
+    toast.success(`Descargando ${matchCount} factura(s) en ZIP…`);
+  };
 
   const pay = async (inv) => {
     setPaying(inv.id);
@@ -32,6 +50,35 @@ export default function Invoices() {
   return (
     <div data-testid="invoices-page">
       <PageHeader overline="Facturación" title="Facturas" subtitle="Facturas generadas y cobros con Stripe." />
+
+      {/* Exportar para gestoría */}
+      <div data-testid="invoice-export-bar" className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-border bg-card p-3">
+        <span className="flex items-center gap-2 text-sm font-medium"><FileArchive size={16} className="text-primary" /> Exportar para gestoría</span>
+        <div className="w-40">
+          <Select value={expStatus} onValueChange={setExpStatus}>
+            <SelectTrigger data-testid="export-status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="paid">Solo pagadas</SelectItem>
+              <SelectItem value="pending">Solo pendientes</SelectItem>
+              <SelectItem value="all">Todas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-48">
+          <Select value={expPeriod} onValueChange={setExpPeriod}>
+            <SelectTrigger data-testid="export-period"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los periodos</SelectItem>
+              {periods.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <span className="text-xs text-muted-foreground">{matchCount} factura(s)</span>
+        <Button data-testid="export-zip-btn" className="rounded-full gap-2" onClick={downloadZip} disabled={matchCount === 0}>
+          <FileArchive size={15} /> Descargar ZIP
+        </Button>
+      </div>
+
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">

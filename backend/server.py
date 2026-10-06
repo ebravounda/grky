@@ -30,8 +30,9 @@ import server_monitor
 import db_monitor
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
-from reseller_receipt import generate_reseller_receipt_pdf
+from reseller_receipt import generate_reseller_receipt_pdf, generate_reseller_clients_pdf
 from whatsapp import send_whatsapp
+import zipfile
 from contracts import generate_contract_pdf, DEFAULT_TEMPLATE as DEFAULT_CONTRACT_TEMPLATE
 
 logging.basicConfig(level=logging.INFO)
@@ -2793,6 +2794,61 @@ async def list_invoices(request: Request, fiscalId: Optional[str] = None):
     return [clean(i) for i in invs]
 
 
+@api.get("/invoices/export.zip")
+async def export_invoices_zip(request: Request, status: Optional[str] = None,
+                             period: Optional[str] = None, dateFrom: Optional[str] = None,
+                             dateTo: Optional[str] = None):
+    """Descarga en un ZIP los PDFs de las facturas (p.ej. todas las PAGADAS) para la gestoría."""
+    await require_perm(request, "invoices.view")
+    query = {}
+    if status and status != "all":
+        query["status"] = status
+    if period:
+        query["period"] = period
+    invs = await db.invoices.find(query).sort("date", 1).to_list(100000)
+    if dateFrom or dateTo:
+        def _in_range(i):
+            d = (i.get("date") or "")[:10]
+            if dateFrom and d < dateFrom:
+                return False
+            if dateTo and d > dateTo:
+                return False
+            return True
+        invs = [i for i in invs if _in_range(i)]
+    if not invs:
+        raise HTTPException(status_code=404, detail="No hay facturas para los filtros elegidos.")
+    iban_cache, used = {}, {}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for inv in invs:
+            if not inv.get("customerIban"):
+                fid = inv.get("fiscalId")
+                if fid not in iban_cache:
+                    cust = await db.customers.find_one({"fiscalId": fid})
+                    iban_cache[fid] = (cust or {}).get("iban")
+                if iban_cache.get(fid):
+                    inv["customerIban"] = iban_cache[fid]
+            try:
+                pdf = await asyncio.to_thread(generate_invoice_pdf, inv)
+            except Exception as e:  # noqa
+                logger.warning("zip pdf %s failed: %s", inv.get("invoiceNumber"), e)
+                continue
+            name = f"{inv.get('invoiceNumber') or str(inv.get('_id'))}.pdf"
+            if name in used:
+                used[name] += 1
+                name = f"{name[:-4]}_{used[name]}.pdf"
+            else:
+                used[name] = 0
+            zf.writestr(name, pdf)
+    buf.seek(0)
+    tag = status or "todas"
+    suffix = ("-" + period.replace(" ", "_")) if period else ""
+    fname = f"facturas-{tag}{suffix}.zip"
+    await log_event("billing", "info", f"Exportación ZIP de {len(invs)} facturas ({tag})")
+    return StreamingResponse(buf, media_type="application/zip",
+                             headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
 @api.get("/invoices/{invoice_id}/pdf")
 async def invoice_pdf(invoice_id: str, request: Request):
     from bson import ObjectId
@@ -5439,6 +5495,29 @@ async def reseller_charges(reseller_id: str, request: Request):
     await require_perm(request, "billing.manage")
     rows = await db.reseller_charges.find({"resellerId": reseller_id}).sort("createdAt", -1).to_list(500)
     return [clean(r) for r in rows]
+
+
+@api.get("/resellers/{reseller_id}/clients.pdf")
+async def reseller_clients_pdf(reseller_id: str, request: Request):
+    """PDF con el listado completo de clientes del revendedor (nombre, email, teléfono, NIF, líneas, fecha de alta)."""
+    await require_perm(request, "billing.manage")
+    u = await db.users.find_one({"_id": _OID(reseller_id), "role": "reseller"})
+    if not u:
+        raise HTTPException(status_code=404, detail="Revendedor no encontrado")
+    custs = await db.customers.find({"billingResellerId": str(u["_id"])}).sort("created", 1).to_list(10000)
+    clients = []
+    for c in custs:
+        lines = await db.lines.find({"fiscalId": c["fiscalId"]}).to_list(1000)
+        line_nums = [str(ln.get("lineNumber") or ln.get("msisdn") or "") for ln in lines if (ln.get("lineNumber") or ln.get("msisdn"))]
+        clients.append({
+            "name": f"{c.get('name', '')} {c.get('firstSurname', '')} {c.get('lastSurname', '')}".strip(),
+            "email": c.get("email"), "phone": c.get("contactPhone"), "fiscalId": c.get("fiscalId"),
+            "lines": line_nums, "created": c.get("created")})
+    pdf_bytes = generate_reseller_clients_pdf(
+        {"name": u.get("name"), "email": u.get("email")}, clients)
+    fname = f"clientes-{(u.get('name') or 'revendedor').replace(' ', '_')}.pdf"
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename={fname}"})
 
 
 @api.get("/resellers/charges/{charge_id}/receipt.pdf")

@@ -76,3 +76,50 @@ def generate_reseller_receipt_pdf(charge: dict) -> bytes:
                            "No sustituye a las facturas individuales de cada cliente.", foot))
     doc.build(story)
     return buf.getvalue()
+
+
+def generate_reseller_clients_pdf(reseller: dict, clients: list) -> bytes:
+    """Listado PDF (horizontal) de todos los clientes de un revendedor con sus datos."""
+    from reportlab.lib.pagesizes import landscape
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=14 * mm, rightMargin=14 * mm,
+                            topMargin=14 * mm, bottomMargin=12 * mm, title="Clientes del revendedor")
+    h1 = ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=16, textColor=DARK, spaceAfter=2)
+    sub = ParagraphStyle("sub", fontName="Helvetica", fontSize=9, textColor=GREY, spaceAfter=10)
+    cell = ParagraphStyle("cell", fontName="Helvetica", fontSize=8, textColor=DARK, leading=10)
+    hd = ParagraphStyle("hd", fontName="Helvetica-Bold", fontSize=8, textColor=colors.white, leading=10)
+    foot = ParagraphStyle("foot", fontName="Helvetica", fontSize=7.5, textColor=GREY)
+
+    story = []
+    story.append(Paragraph(f"Clientes del revendedor · {reseller.get('name') or ''}", h1))
+    now = datetime.now().strftime("%d/%m/%Y %H:%M")
+    story.append(Paragraph(f"{ISSUER_LEGAL} · {reseller.get('email') or ''} · {len(clients)} clientes · Generado {now}", sub))
+
+    rows = [[Paragraph("Nombre", hd), Paragraph("Email", hd), Paragraph("Teléfono", hd),
+             Paragraph("NIF/NIE", hd), Paragraph("Línea(s)", hd), Paragraph("Fecha de alta", hd)]]
+    for c in clients:
+        fecha = c.get("created") or ""
+        if fecha:
+            fecha = str(fecha)[:10]
+        rows.append([
+            Paragraph(c.get("name") or "", cell),
+            Paragraph(c.get("email") or "", cell),
+            Paragraph(c.get("phone") or "", cell),
+            Paragraph(c.get("fiscalId") or "", cell),
+            Paragraph(", ".join(c.get("lines") or []) or "—", cell),
+            Paragraph(fecha or "—", cell),
+        ])
+    tbl = Table(rows, colWidths=[52 * mm, 62 * mm, 32 * mm, 30 * mm, 48 * mm, 26 * mm], repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BLUE),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, SOFT]),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("Documento interno de GoRoky · listado de clientes asociados al revendedor.", foot))
+    doc.build(story)
+    return buf.getvalue()

@@ -1,0 +1,29 @@
+{
+  "summary": "Full backend + frontend verification of reseller scope restrictions (iter 21). 17/17 pytest cases passed in /app/backend/tests/test_iter21_reseller_scope.py covering: /api/access/me returns exactly {customers.view, customers.edit, invoices.view}; GET /api/customers scoped to ownerId/billingResellerId; GET /api/customers/{other_fid} -> 404; GET /api/customers/{own} returns reduced payload (customer, invoices, reduced=True, no lines/subscriptions, only non-paid invoices); GET /api/invoices returns only non-paid of own customers; 403 on /dashboard/stats, /lines, /orders, /commissions, /invoices/export.zip, /tickets, /lines/{n}; PDF of PAID invoice -> 403; PDF of own pending -> 200; POST /api/customers still allowed. UI (Playwright, desktop 1920x1080): reseller lands on /app/customers; sidebar shows ONLY nav-clientes + nav-facturas (no panel/solicitudes/callbacks/app-users/lineas/catalogo/contratacion/comisiones/usuarios/revendedores/tarifas/cobros); new-customer-btn visible; row click -> /app/customers/55667788R opens reseller-customer-view with rc-name/rc-email/rc-phone/rc-address + 1 unpaid invoice with rc-invoice-pdf-* and rc-invoice-email-* (PDF request fires to /api/invoices/.../pdf); direct nav to /app/lines, /app/catalog, /app/app-users, /app/orders redirects to /app/customers; /app/invoices title 'Facturas impagadas', no invoice-export-bar, 2 PDF + 2 Email buttons. Admin regression: 27 nav items incl. nav-panel, export bar visible on /app/invoices. Agent regression: sees nav-app-users among 8 nav items.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_reseller_scope.py",
+    "/app/test_reports/pytest/iter21.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py reached 7420 lines — strongly recommend splitting into modules (auth, invoices, customers, billing, resellers, etc.) for maintainability.",
+    "RESELLER_ALLOWED whitelist is clean, but the 403 handler returns Spanish-only detail; consider i18n consistency with REST error schema.",
+    "Reseller invoices query uses `fid if fid in fids else {'$in': fids}` — if a reseller passes an unauthorized fiscalId as ?fiscalId=, it silently falls back to all his fids instead of 403. Low-risk, but a `fid not in fids` -> 403 would be more explicit."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter21_reseller_scope.py"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100%"},
+  "test_credentials": "admin@goroky.com/Goroky2026!, revendedor@goroky.com/Revende2026!, soporte@goroky.com/Soporte2026!",
+  "seed_data_creation": "test_reseller_can_create_customer created customer with fiscalId TESTRS01X owned by reseller. Visible in reseller list (3 customers total: TESTRS01X, 55667788R, 12345678A). Admin should delete if cleanup desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reseller RBAC is fully in place in both backend and frontend. Reseller sees only his customers (ownerId or billingResellerId) and only unpaid invoices. Reduced customer view in /app/customers/{fid} rendered by ResellerCustomerView component. All forbidden /app routes correctly redirect via PermGuard. Seed data: TESTRS01X exists owned by reseller 'Revendedor Uno'.",
+  "rca of the issue": "n/a — no functional issues found; implementation matches the user request end-to-end."
+}

@@ -767,3 +767,7 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 ## 2026-06 — Fix: revendedor no veía clientes asignados
 - Causa: el admin asigna con `billingResellerId`, pero las vistas del revendedor filtraban solo por `ownerId`.
 - Fix: helper `_cust_scope()` (ownerId OR billingResellerId) en /customers (+búsqueda), /customers/{fid} (403/404 si no es suyo), /lines y /dashboard/stats. Login redirige reseller/agent directo a /app.
+
+## 2026-06 — Revendedor restringido (solo clientes + facturas impagadas)
+- Backend: whitelist `RESELLER_ALLOWED` en current_user (auth, access/me, customers, customers/{fid} GET, invoices GET, invoices/{id}/pdf, invoices/{id}/email). Perms fijos `RESELLER_PERMS` (customers.view/edit, invoices.view). /invoices y ficha reducida solo muestran facturas no pagadas de sus clientes.
+- Frontend: reseller entra a /app/customers, menú solo Clientes + Facturas, ficha reducida `ResellerCustomerView`, sin export ZIP ni Cobrar. Testado iteration_21 (100%).

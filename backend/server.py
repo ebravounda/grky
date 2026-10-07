@@ -2828,7 +2828,9 @@ async def list_invoices(request: Request, fiscalId: Optional[str] = None):
     query = {"fiscalId": fid} if fid else {}
     if user.get("role") == "reseller":
         fids = await reseller_fids(user)
-        query = {"fiscalId": fid if fid in fids else {"$in": fids}, "status": {"$ne": "paid"}}
+        if fid and fid not in fids:
+            raise HTTPException(status_code=403, detail="No autorizado")
+        query = {"fiscalId": fid or {"$in": fids}, "status": {"$ne": "paid"}}
     invs = await db.invoices.find(query).sort("date", -1).to_list(500)
     return [clean(i) for i in invs]
 

@@ -7,8 +7,11 @@ import {
 } from "@/components/ui/select";
 import { FileText, CreditCard, Mail, FileArchive } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Invoices() {
+  const { user } = useAuth();
+  const isReseller = user?.role === "reseller";
   const [invoices, setInvoices] = useState([]);
   const [paying, setPaying] = useState(null);
   const [emailing, setEmailing] = useState(null);
@@ -49,10 +52,11 @@ export default function Invoices() {
 
   return (
     <div data-testid="invoices-page">
-      <PageHeader overline="Facturación" title="Facturas" subtitle="Facturas generadas y cobros con Stripe." />
+      <PageHeader overline="Facturación" title={isReseller ? "Facturas impagadas" : "Facturas"}
+        subtitle={isReseller ? "Facturas pendientes de pago de tus clientes." : "Facturas generadas y cobros con Stripe."} />
 
       {/* Exportar para gestoría */}
-      <div data-testid="invoice-export-bar" className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-border bg-card p-3">
+      {!isReseller && <div data-testid="invoice-export-bar" className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-border bg-card p-3">
         <span className="flex items-center gap-2 text-sm font-medium"><FileArchive size={16} className="text-primary" /> Exportar para gestoría</span>
         <div className="w-40">
           <Select value={expStatus} onValueChange={setExpStatus}>
@@ -77,7 +81,7 @@ export default function Invoices() {
         <Button data-testid="export-zip-btn" className="rounded-full gap-2" onClick={downloadZip} disabled={matchCount === 0}>
           <FileArchive size={15} /> Descargar ZIP
         </Button>
-      </div>
+      </div>}
 
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
@@ -107,7 +111,7 @@ export default function Invoices() {
                     <Button data-testid={`invoice-email-${i.invoiceNumber}`} variant="outline" size="sm" className="rounded-full gap-1.5" disabled={emailing === i.id} onClick={() => sendEmail(i)}>
                       <Mail size={14} /> {emailing === i.id ? "…" : "Email"}
                     </Button>
-                    {i.status === "pending" && (
+                    {i.status === "pending" && !isReseller && (
                       <Button data-testid={`invoice-pay-${i.invoiceNumber}`} size="sm" className="rounded-full gap-1.5" disabled={paying === i.id} onClick={() => pay(i)}>
                         <CreditCard size={14} /> {paying === i.id ? "…" : "Cobrar"}
                       </Button>

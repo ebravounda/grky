@@ -58,9 +58,15 @@ function Loading() {
 
 const STAFF = ["admin", "agent", "reseller"];
 
-function PermGuard({ perm, children }) {
-  const { hasPerm } = useAuth();
-  if (!hasPerm(perm)) return <Navigate to="/app" replace />;
+function AppIndex() {
+  const { user } = useAuth();
+  if (user?.role === "reseller") return <Navigate to="/app/customers" replace />;
+  return <Dashboard />;
+}
+
+function PermGuard({ perm, noReseller, children }) {
+  const { hasPerm, user } = useAuth();
+  if (!hasPerm(perm) || (noReseller && user?.role === "reseller")) return <Navigate to="/app" replace />;
   return children;
 }
 
@@ -105,7 +111,7 @@ function App() {
           <Route path="/terminos" element={<LegalPage type="terms" />} />
 
           <Route path="/app" element={<RequireRole role="staff"><AdminLayout /></RequireRole>}>
-            <Route index element={<Dashboard />} />
+            <Route index element={<AppIndex />} />
             <Route path="alerts" element={<PermGuard perm="alerts.view"><Alerts /></PermGuard>} />
             <Route path="solicitudes" element={<PermGuard perm="solicitudes.manage"><Solicitudes /></PermGuard>} />
             <Route path="callbacks" element={<PermGuard perm="solicitudes.manage"><Callbacks /></PermGuard>} />
@@ -129,7 +135,7 @@ function App() {
             <Route path="invoices" element={<PermGuard perm="invoices.view"><Invoices /></PermGuard>} />
             <Route path="tickets" element={<PermGuard perm="tickets.manage"><Tickets /></PermGuard>} />
             <Route path="users" element={<PermGuard perm="users.manage"><Users /></PermGuard>} />
-            <Route path="app-users" element={<PermGuard perm="customers.view"><AppUsers /></PermGuard>} />
+            <Route path="app-users" element={<PermGuard perm="customers.view" noReseller><AppUsers /></PermGuard>} />
             <Route path="commissions" element={<PermGuard perm="commissions.view"><Commissions /></PermGuard>} />
             <Route path="resellers" element={<PermGuard perm="billing.manage"><Resellers /></PermGuard>} />
             <Route path="resellers/:resellerId" element={<PermGuard perm="billing.manage"><ErrorBoundary><ResellerDetail /></ErrorBoundary></PermGuard>} />

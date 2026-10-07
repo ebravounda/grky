@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api, { apiErr, openInvoicePdf, openContractPdf, openCustomerDoc } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import ResellerCustomerView from "@/components/ResellerCustomerView";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,12 @@ const DOC_TYPES = [
   { v: "OTHER", l: "Otro" },
 ];
 
-export default function CustomerDetail() {
+export default function CustomerDetailRoute() {
+  const { user } = useAuth();
+  return user?.role === "reseller" ? <ResellerCustomerView /> : <CustomerDetail />;
+}
+
+function CustomerDetail() {
   const { fiscalId } = useParams();
   const navigate = useNavigate();
   const { hasPerm } = useAuth();

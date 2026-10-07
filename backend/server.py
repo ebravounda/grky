@@ -59,8 +59,24 @@ def _norm_fiscal(v):
 
 
 
+RESELLER_ALLOWED = [
+    ("*", re.compile(r"^/api/auth/")),
+    ("GET", re.compile(r"^/api/access/me$")),
+    ("*", re.compile(r"^/api/customers/?$")),
+    ("GET", re.compile(r"^/api/customers/[^/]+$")),
+    ("GET", re.compile(r"^/api/invoices/?$")),
+    ("GET", re.compile(r"^/api/invoices/[^/]+/pdf$")),
+    ("POST", re.compile(r"^/api/invoices/[^/]+/email$")),
+]
+
+
 async def current_user(request: Request) -> dict:
-    return await get_current_user(request, db)
+    user = await get_current_user(request, db)
+    if user.get("role") == "reseller":
+        path, method = request.url.path, request.method
+        if not any((m == "*" or m == method) and rx.match(path) for m, rx in RESELLER_ALLOWED):
+            raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
+    return user
 
 
 async def require_admin(request: Request) -> dict:
@@ -192,6 +208,19 @@ async def _refresh_line_live(line: dict) -> dict:
         await db.lines.update_one({"lineNumber": ln}, {"$set": upd})
         line.update(upd)
     return line
+
+
+async def reseller_fids(user: dict) -> list:
+    uid = str(user["_id"])
+    docs = await db.customers.find({"$or": [{"ownerId": uid}, {"billingResellerId": uid}]}, {"fiscalId": 1}).to_list(5000)
+    return [d["fiscalId"] for d in docs]
+
+
+async def assert_invoice_access(user: dict, inv: dict):
+    if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if user.get("role") == "reseller" and (inv.get("status") == "paid" or inv["fiscalId"] not in await reseller_fids(user)):
+        raise HTTPException(status_code=403, detail="No autorizado")
 
 
 async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
@@ -1348,6 +1377,12 @@ async def get_customer(fiscalId: str, request: Request):
     cust = await db.customers.find_one({"fiscalId": fiscalId, **_cust_scope(user)})
     if not cust:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if user.get("role") == "reseller":
+        keys = ["fiscalId", "customerType", "name", "firstSurname", "lastSurname", "email", "contactPhone",
+                "street", "streetNumber", "postalCode", "cityName", "provinceName", "created"]
+        c = clean(cust)
+        invs = await db.invoices.find({"fiscalId": fiscalId, "status": {"$ne": "paid"}}).sort("date", -1).to_list(200)
+        return {"customer": {k: c.get(k) for k in keys if c.get(k) is not None}, "invoices": [clean(i) for i in invs], "reduced": True}
     lines = await db.lines.find({"fiscalId": fiscalId}).to_list(200)
     subs = await db.subscriptions.find({"fiscalId": fiscalId}).to_list(200)
     invs = await db.invoices.find({"fiscalId": fiscalId}).sort("date", -1).to_list(200)
@@ -2791,6 +2826,9 @@ async def list_invoices(request: Request, fiscalId: Optional[str] = None):
     user = await current_user(request)
     fid = await scope_fiscal(user, fiscalId)
     query = {"fiscalId": fid} if fid else {}
+    if user.get("role") == "reseller":
+        fids = await reseller_fids(user)
+        query = {"fiscalId": fid if fid in fids else {"$in": fids}, "status": {"$ne": "paid"}}
     invs = await db.invoices.find(query).sort("date", -1).to_list(500)
     return [clean(i) for i in invs]
 
@@ -2860,8 +2898,7 @@ async def invoice_pdf(invoice_id: str, request: Request):
         inv = None
     if not inv:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
-        raise HTTPException(status_code=403, detail="No autorizado")
+    await assert_invoice_access(user, inv)
     if not inv.get("customerIban"):
         cust = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
         if cust and cust.get("iban"):
@@ -5957,9 +5994,7 @@ DEFAULT_ROLE_PERMS = {
     "admin": list(ALL_PERMISSIONS),
     "agent": ["dashboard.view", "alerts.view", "customers.view", "customers.edit", "lines.view",
               "lines.support", "tickets.manage", "invoices.view", "catalog.view"],
-    "reseller": ["dashboard.view", "solicitudes.manage", "customers.view", "customers.edit",
-                 "lines.view", "lines.activate", "docs.upload", "orders.manage", "catalog.view",
-                 "invoices.view", "commissions.view"],
+    "reseller": ["customers.view", "customers.edit", "invoices.view"],
     "client": [],
 }
 
@@ -5970,7 +6005,12 @@ async def seed_roles(db):
             await db.role_permissions.insert_one({"_id": role, "permissions": perms})
 
 
+RESELLER_PERMS = {"customers.view", "customers.edit", "invoices.view"}
+
+
 async def get_role_perms(role):
+    if role == "reseller":
+        return set(RESELLER_PERMS)
     doc = await db.role_permissions.find_one({"_id": role})
     return set(doc["permissions"]) if doc else set(DEFAULT_ROLE_PERMS.get(role, []))
 
@@ -6146,8 +6186,7 @@ async def email_invoice(invoice_id: str, request: Request):
         inv = None
     if not inv:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if user.get("role") == "client" and inv["fiscalId"] != user.get("fiscalId"):
-        raise HTTPException(status_code=403, detail="No autorizado")
+    await assert_invoice_access(user, inv)
     to = inv.get("customerEmail")
     if not to:
         raise HTTPException(status_code=400, detail="El cliente no tiene email")

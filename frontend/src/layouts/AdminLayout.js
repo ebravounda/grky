@@ -16,7 +16,7 @@ const nav = [
   { to: "/app/solicitudes", label: "Solicitudes", icon: ClipboardCheck, id: "solicitudes", perm: "solicitudes.manage" },
   { to: "/app/callbacks", label: "Llamadas", icon: PhoneCall, id: "callbacks", perm: "solicitudes.manage" },
   { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes", perm: "customers.view" },
-  { to: "/app/app-users", label: "Usuarios de la app", icon: Smartphone, id: "app-users", perm: "customers.view" },
+  { to: "/app/app-users", label: "Usuarios de la app", icon: Smartphone, id: "app-users", perm: "customers.view", noReseller: true },
   { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas", perm: "lines.view" },
   { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas", perm: "tariffs.manage" },
   { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo", perm: "catalog.view" },
@@ -42,9 +42,10 @@ const nav = [
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
 
 function NavItems({ onNavigate, unread, hasPerm, monitorAllowed }) {
+  const { user } = useAuth();
   return (
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-      {nav.filter((n) => (n.superadmin ? monitorAllowed : hasPerm(n.perm))).map((n) => (
+      {nav.filter((n) => !(n.noReseller && user?.role === "reseller") && (n.superadmin ? monitorAllowed : hasPerm(n.perm))).map((n) => (
         <NavLink
           key={n.to}
           to={n.to}

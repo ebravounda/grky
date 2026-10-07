@@ -763,3 +763,7 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 - Nueva sección bento OpenFactura en el landing (8 servicios, tira de planes, CTA "Prueba gratis 14 días" -> openfactura.es/registro).
 - Nueva página /openfactura (OpenFacturaPage.js): hero, servicios, 4 planes (0/9,99/24,99/49,99€), FAQ, CTA final + WhatsApp. Contenido fijo en openfacturaData.js.
 - Testado: iteration_20.json (100% frontend).
+
+## 2026-06 — Fix: revendedor no veía clientes asignados
+- Causa: el admin asigna con `billingResellerId`, pero las vistas del revendedor filtraban solo por `ownerId`.
+- Fix: helper `_cust_scope()` (ownerId OR billingResellerId) en /customers (+búsqueda), /customers/{fid} (403/404 si no es suyo), /lines y /dashboard/stats. Login redirige reseller/agent directo a /app.

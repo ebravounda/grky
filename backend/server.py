@@ -1250,9 +1250,9 @@ async def dashboard_stats(request: Request):
     user = await require_perm(request, "dashboard.view")
     is_reseller = user.get("role") == "reseller"
     if is_reseller:
-        owned = await db.customers.find({"ownerId": str(user["_id"])}).to_list(3000)
+        owned = await db.customers.find(_cust_scope(user)).to_list(3000)
         fids = [c["fiscalId"] for c in owned]
-        cust_q = {"ownerId": str(user["_id"])}
+        cust_q = _cust_scope(user)
         line_q = {"fiscalId": {"$in": fids}}
         order_q = {"ownerId": str(user["_id"])}
     else:
@@ -1294,11 +1294,12 @@ async def dashboard_stats(request: Request):
 @api.get("/customers")
 async def list_customers(request: Request, q: Optional[str] = None):
     user = await require_perm(request, "customers.view")
-    query = dict(_scope(user))
+    query = dict(_cust_scope(user))
     if q:
-        query["$or"] = [{"name": {"$regex": q, "$options": "i"}},
-                        {"fiscalId": {"$regex": q, "$options": "i"}},
-                        {"email": {"$regex": q, "$options": "i"}}]
+        search = {"$or": [{"name": {"$regex": q, "$options": "i"}},
+                          {"fiscalId": {"$regex": q, "$options": "i"}},
+                          {"email": {"$regex": q, "$options": "i"}}]}
+        query = {"$and": [query, search]} if query else search
     customers = await db.customers.find(query).sort("created", -1).to_list(500)
     out = []
     for c in customers:
@@ -1344,7 +1345,7 @@ async def get_customer(fiscalId: str, request: Request):
     fid = await scope_fiscal(user, fiscalId)
     if user.get("role") == "client" and fid != fiscalId:
         raise HTTPException(status_code=403, detail="No autorizado")
-    cust = await db.customers.find_one({"fiscalId": fiscalId})
+    cust = await db.customers.find_one({"fiscalId": fiscalId, **_cust_scope(user)})
     if not cust:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     lines = await db.lines.find({"fiscalId": fiscalId}).to_list(200)
@@ -1459,7 +1460,7 @@ async def list_lines(request: Request):
     user = await require_perm(request, "lines.view")
     query = {"status": {"$ne": "REMOVED"}}  # oculta líneas desvinculadas (cambio de titular / baja)
     if user.get("role") == "reseller":
-        owned = await db.customers.find({"ownerId": str(user["_id"])}).to_list(2000)
+        owned = await db.customers.find(_cust_scope(user)).to_list(2000)
         query["fiscalId"] = {"$in": [c["fiscalId"] for c in owned]}
     lines = await db.lines.find(query).sort("created", -1).to_list(1000)
     return [clean(l) for l in lines]
@@ -5988,6 +5989,14 @@ def _scope(user):
     """Filtro de datos: revendedor solo ve lo suyo."""
     if user.get("role") == "reseller":
         return {"ownerId": str(user["_id"])}
+    return {}
+
+
+def _cust_scope(user):
+    """Clientes del revendedor: creados por él o asignados por el admin."""
+    if user.get("role") == "reseller":
+        uid = str(user["_id"])
+        return {"$or": [{"ownerId": uid}, {"billingResellerId": uid}]}
     return {}
 
 

@@ -39,7 +39,7 @@ export default function Login() {
     try {
       const u = await login(email, password);
       toast.success(`Bienvenido, ${u.name}`);
-      navigate(u.role === "admin" ? "/app" : "/portal");
+      navigate(["admin", "agent", "reseller"].includes(u.role) ? "/app" : "/portal");
     } catch (err) {
       toast.error(apiErr(err, "No se pudo iniciar sesión"));
     } finally {

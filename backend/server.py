@@ -223,6 +223,95 @@ async def assert_invoice_access(user: dict, inv: dict):
         raise HTTPException(status_code=403, detail="No autorizado")
 
 
+CHARGE_LOCKED = ["processing", "paid", "charging"]
+
+
+async def _claim_invoice(inv_id):
+    """Bloqueo atómico: solo un proceso puede cobrar la factura; nunca si ya está en proceso/pagada."""
+    from pymongo import ReturnDocument
+    return await db.invoices.find_one_and_update(
+        {"_id": inv_id, "status": {"$ne": "paid"}, "chargeStatus": {"$nin": CHARGE_LOCKED}},
+        {"$set": {"chargeStatus": "charging", "chargingAt": now_iso()}, "$inc": {"chargeSeq": 1}},
+        return_document=ReturnDocument.AFTER)
+
+
+async def _charge_invoice_once(inv, cid, pm, pm_types, description, metadata, extra_set=None):
+    """Cobra una factura UNA sola vez (bloqueo + idempotency_key de Stripe).
+    Devuelve 'locked' | 'paid' | 'processing' | 'failed'. Lanza la excepción de Stripe si falla."""
+    claimed = await _claim_invoice(inv["_id"])
+    if not claimed:
+        return "locked"
+    extra = dict(extra_set or {})
+    prev = await _existing_active_pi(inv, cid)
+    if prev:
+        st = "paid" if prev.status == "succeeded" else "processing"
+        upd = {"status": "paid", "chargeStatus": "paid"} if st == "paid" else {"chargeStatus": "processing"}
+        await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {**upd, "stripePaymentIntentId": prev.id}})
+        await log_event("billing", "warning", f"Cobro evitado: la factura {inv.get('invoiceNumber')} ya tenía un cobro en Stripe ({prev.id})",
+                        {"fiscalId": inv.get("fiscalId")})
+        return st
+    try:
+        pi = await asyncio.to_thread(lambda: stripe.PaymentIntent.create(
+            amount=int(round(float(inv["total"]) * 100)), currency="eur", customer=cid,
+            payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
+            description=description, metadata={**metadata, "invoiceId": str(inv["_id"]),
+                                                "invoiceNumber": inv.get("invoiceNumber") or ""},
+            idempotency_key=f"inv-{inv['_id']}-{claimed.get('chargeSeq', 1)}"))
+    except Exception as e:
+        await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
+            **extra, "chargeStatus": "failed", "chargeError": str(e)[:150]}})
+        raise
+    if pi.status == "succeeded":
+        st = "paid"
+        upd = {"status": "paid", "chargeStatus": "paid"}
+    elif pi.status in ("processing", "requires_action"):
+        st = "processing"
+        upd = {"chargeStatus": "processing"}
+    else:
+        st = "failed"
+        upd = {"chargeStatus": "failed", "chargeError": f"estado {pi.status}"}
+    await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {**extra, **upd, "stripePaymentIntentId": pi.id}})
+    return st
+
+
+async def _existing_active_pi(inv, cid):
+    """Busca en Stripe (últimos 45 días) un cobro activo o cobrado de ESTA factura, para no repetirlo."""
+    since = int((datetime.now(timezone.utc) - timedelta(days=45)).timestamp())
+    amount = int(round(float(inv.get("total") or 0) * 100))
+    period, number = inv.get("period") or "", inv.get("invoiceNumber") or ""
+    try:
+        res = await asyncio.to_thread(lambda: list(stripe.PaymentIntent.list(
+            customer=cid, created={"gte": since}, limit=100).auto_paging_iter()))
+    except Exception as e:  # noqa
+        logger.warning("existing pi check %s: %s", number, e)
+        return None
+    for p in res:
+        if p.status not in ("succeeded", "processing", "requires_action") or p.amount != amount:
+            continue
+        md = dict(p.metadata or {})
+        if (md.get("invoiceId") == str(inv["_id"]) or (number and md.get("invoiceNumber") == number)
+                or (period and (md.get("period") == period or period in (p.description or "")))):
+            return p
+    return None
+
+
+async def _pm_types_of(pm):
+    try:
+        pm_obj = await asyncio.to_thread(stripe.PaymentMethod.retrieve, pm)
+        return ["sepa_debit"] if getattr(pm_obj, "type", "card") == "sepa_debit" else ["card"]
+    except Exception:  # noqa
+        return ["card"]
+
+
+async def _job_once(name: str, key: str) -> bool:
+    """Evita que un job se ejecute varias veces (p.ej. varios workers de uvicorn)."""
+    try:
+        await db.job_runs.insert_one({"_id": f"{name}:{key}", "at": now_iso()})
+        return True
+    except DuplicateKeyError:
+        return False
+
+
 async def scope_fiscal(user: dict, fiscalId: Optional[str]) -> Optional[str]:
     """Clients can only access their own fiscalId."""
     if user.get("role") == "client":
@@ -4472,29 +4561,16 @@ async def charge_pending(fiscalId: str, body: ChargePendingBody, request: Reques
     result = {"total": len(invs), "charged": 0, "processing": 0, "failed": 0, "skipped": 0}
     for inv in invs:
         total = float(inv.get("total", 0) or 0)
-        if total <= 0 or inv.get("chargeStatus") == "processing":
+        if total <= 0 or inv.get("chargeStatus") in CHARGE_LOCKED:
             result["skipped"] += 1
             continue
         attempts = int(inv.get("chargeAttempts", 0)) + 1
         try:
-            pi = stripe.PaymentIntent.create(
-                amount=int(round(total * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
-                description=f"Cobro pendiente · {inv.get('period', '')} · {inv['invoiceNumber']}",
-                metadata={"fiscalId": fiscalId, "kind": "charge_pending", "invoiceNumber": inv["invoiceNumber"]})
-            if pi.status == "succeeded":
-                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                    "status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts, "stripePaymentIntentId": pi.id}})
-                result["charged"] += 1
-            elif pi.status in ("processing", "requires_action"):
-                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                    "chargeStatus": "processing", "chargeAttempts": attempts, "stripePaymentIntentId": pi.id}})
-                result["processing"] += 1
-            else:
-                raise Exception(f"estado {pi.status}")
-        except Exception as e:  # noqa
-            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                "chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
+            st = await _charge_invoice_once(inv, cid, pm, pm_types,
+                f"Cobro pendiente · {inv.get('period', '')} · {inv['invoiceNumber']}",
+                {"fiscalId": fiscalId, "kind": "charge_pending"}, {"chargeAttempts": attempts})
+            result[{"paid": "charged", "processing": "processing", "locked": "skipped"}.get(st, "failed")] += 1
+        except Exception:  # noqa
             result["failed"] += 1
     await log_event("billing", "info",
                     f"Cobro de pendientes ({method}) · {fiscalId}: {result['charged']} cobradas · "
@@ -5030,6 +5106,8 @@ async def monthly_billing_job(force=False):
     now = datetime.now(timezone.utc)
     if not force and now.day != billing_day:
         return {"skipped": True, "reason": f"hoy no es día {billing_day}"}
+    if not force and not await _job_once("monthly_billing", now.strftime("%Y-%m-%d")):
+        return {"skipped": True, "reason": "ya ejecutado hoy"}
     await _stripe_apply()
     p_start, p_end = _prev_month_bounds(now)
     billed_period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
@@ -5060,7 +5138,7 @@ async def monthly_billing_job(force=False):
                 await _email_invoice(inv)
             except Exception:  # noqa
                 pass
-        if inv.get("status") == "paid" or inv.get("chargeStatus") == "paid":
+        if inv.get("status") == "paid" or inv.get("chargeStatus") in CHARGE_LOCKED:
             result["skipped"] += 1
             continue
         total = float(inv.get("total", 0) or 0)
@@ -5075,29 +5153,21 @@ async def monthly_billing_job(force=False):
             result["skipped"] += 1
             continue
         pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+        retry_set = {"chargeAttempts": 1, "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}
         try:
-            pi = stripe.PaymentIntent.create(
-                amount=int(round(total * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
-                description=f"Cuota mensual {billed_period}",
-                metadata={"fiscalId": fid, "kind": "recurring", "period": billed_period})
-            if pi.status == "succeeded":
-                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"status": "paid", "chargeStatus": "paid"}})
+            st = await _charge_invoice_once(inv, cid, pm, pm_types, f"Cuota mensual {billed_period}",
+                                            {"fiscalId": fid, "kind": "recurring", "period": billed_period})
+            if st == "locked":
+                result["skipped"] += 1
+            elif st == "paid":
                 result["charged"] += 1
-            elif pi.status in ("processing", "requires_action"):
-                # SEPA: el adeudo liquida en unos días → se cierra por webhook payment_intent.succeeded
-                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                    "chargeStatus": "processing", "stripePaymentIntentId": pi.id}})
+            elif st == "processing":
                 result["processing"] += 1
             else:
-                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                    "chargeStatus": "failed", "chargeAttempts": 1,
-                    "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
+                await db.invoices.update_one({"_id": inv["_id"]}, {"$set": retry_set})
                 result["failed"] += 1
         except Exception as e:  # noqa
-            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {
-                "chargeStatus": "failed", "chargeAttempts": 1, "chargeError": str(e)[:150],
-                "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": retry_set})
             result["failed"] += 1
             await log_event("billing", "warning", f"Cobro mensual falló · {fid}: {str(e)[:100]}", {"fiscalId": fid})
     await log_event("billing", "info",
@@ -5180,11 +5250,13 @@ async def send_invoices_endpoint(request: Request):
     return {"ok": True, "sent": sent, "total": len(invs), "runKey": run_key}
 
 
-async def retry_failed_charges_job():
+async def retry_failed_charges_job(force=False):
     """Reintenta el cobro con tarjeta de las facturas recurrentes cuyo cobro del día 5 falló."""
     now = datetime.now(timezone.utc)
+    if not force and not await _job_once("retry_charges", now.strftime("%Y-%m-%d")):
+        return {"retried": 0, "charged": 0, "gaveup": 0, "skipped": "ya ejecutado hoy"}
     await _stripe_apply()
-    result = {"retried": 0, "charged": 0, "gaveup": 0}
+    result = {"retried": 0, "charged": 0, "gaveup": 0, "processing": 0}
     q = {"status": "pending", "kind": "recurring", "chargeStatus": "failed",
          "chargeAttempts": {"$lt": CHARGE_RETRY_MAX}}
     invs = await db.invoices.find(q).to_list(20000)
@@ -5206,21 +5278,25 @@ async def retry_failed_charges_job():
                 {"$set": {"chargeAttempts": attempts,
                           "nextRetryAt": (now + timedelta(days=CHARGE_RETRY_DAYS)).isoformat()}})
             continue
+        pm_types = await _pm_types_of(pm)
         try:
-            pi = stripe.PaymentIntent.create(
-                amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True,
-                description=f"Reintento cuota {inv.get('period','')}",
-                metadata={"fiscalId": inv["fiscalId"], "kind": "recurring_retry"})
-            if pi.status == "succeeded":
-                await db.invoices.update_one({"_id": inv["_id"]},
-                    {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts}})
+            st = await _charge_invoice_once(inv, cid, pm, pm_types, f"Reintento cuota {inv.get('period','')}",
+                                            {"fiscalId": inv["fiscalId"], "kind": "recurring_retry"},
+                                            {"chargeAttempts": attempts})
+            if st == "locked":
+                result["retried"] -= 1
+                continue
+            if st == "processing":
+                # SEPA en proceso NO es un fallo: se cierra por webhook/conciliación
+                result["processing"] += 1
+                continue
+            if st == "paid":
                 result["charged"] += 1
                 await log_event("billing", "success",
                                 f"Reintento de cobro correcto · {inv['invoiceNumber']} · {inv['fiscalId']}",
                                 {"fiscalId": inv["fiscalId"]})
                 continue
-            raise Exception(f"estado {pi.status}")
+            raise Exception("cobro rechazado")
         except Exception as e:  # noqa
             gave = attempts >= CHARGE_RETRY_MAX
             upd = {"chargeAttempts": attempts, "chargeError": str(e)[:150]}
@@ -5243,7 +5319,7 @@ async def retry_failed_charges_job():
 async def run_retry_charges(request: Request):
     """Reintenta manualmente los cobros con tarjeta fallidos."""
     await require_admin(request)
-    res = await retry_failed_charges_job()
+    res = await retry_failed_charges_job(force=True)
     return {"ok": True, **res}
 
 
@@ -5252,7 +5328,22 @@ async def _reconcile_sepa_processing():
     del PaymentIntent y marca la factura como pagada/fallida. Es el respaldo al webhook
     'payment_intent.succeeded' (por si no llega): así el SEPA nunca se queda colgado."""
     await _stripe_apply()
-    result = {"checked": 0, "paid": 0, "failed": 0, "stillProcessing": 0, "errors": 0}
+    result = {"checked": 0, "paid": 0, "failed": 0, "stillProcessing": 0, "errors": 0, "unlocked": 0}
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    for inv in await db.invoices.find({"chargeStatus": "charging", "chargingAt": {"$lt": stale}}).to_list(5000):
+        try:
+            found = await asyncio.to_thread(stripe.PaymentIntent.search, query=f"metadata['invoiceId']:'{inv['_id']}'")
+            pis = [p for p in found.data if p.status in ("succeeded", "processing", "requires_action")]
+        except Exception as e:  # noqa
+            logger.warning("reconcile charging %s: %s", inv["_id"], e)
+            continue
+        if pis:
+            p = pis[0]
+            upd = {"chargeStatus": "paid", "status": "paid"} if p.status == "succeeded" else {"chargeStatus": "processing"}
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {**upd, "stripePaymentIntentId": p.id}})
+        else:
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"chargeStatus": "failed", "chargeError": "cobro interrumpido"}})
+        result["unlocked"] += 1
     invs = await db.invoices.find({
         "chargeStatus": "processing",
         "status": {"$ne": "paid"},
@@ -5312,6 +5403,79 @@ async def reconcile_sepa_job():
         await _reconcile_sepa_processing()
     except Exception as e:  # noqa
         logger.warning("reconcile_sepa_job failed: %s", e)
+
+
+@api.get("/billing/duplicate-charges")
+async def duplicate_charges(request: Request, days: int = 120):
+    """Detecta en Stripe clientes cobrados varias veces por el mismo importe en pocos días
+    (cobros duplicados). Solo lectura: las devoluciones se hacen desde Stripe."""
+    await require_perm(request, "billing.manage")
+    await _stripe_apply()
+    since = int((datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 400)))).timestamp())
+    test_mode = (stripe.api_key or "").startswith("sk_test") or (stripe.api_key or "").startswith("rk_test")
+    base = "https://dashboard.stripe.com/" + ("test/" if test_mode else "")
+
+    def fetch():
+        out = []
+        for pi in stripe.PaymentIntent.list(created={"gte": since}, limit=100,
+                                            expand=["data.latest_charge"]).auto_paging_iter():
+            if pi.status not in ("succeeded", "processing") or not pi.customer:
+                continue
+            ch = pi.latest_charge if pi.latest_charge and not isinstance(pi.latest_charge, str) else None
+            refunded = int(getattr(ch, "amount_refunded", 0) or 0) if ch else 0
+            if refunded >= pi.amount:
+                continue
+            md = dict(pi.metadata or {})
+            out.append({"id": pi.id, "customer": pi.customer, "amount": pi.amount, "created": pi.created,
+                        "status": pi.status, "description": pi.description or "", "kind": md.get("kind", ""),
+                        "fiscalId": md.get("fiscalId"), "invoiceNumber": md.get("invoiceNumber"),
+                        "refunded": refunded / 100, "method": (pi.payment_method_types or [""])[0],
+                        "url": f"{base}payments/{pi.id}"})
+        return out
+
+    try:
+        pis = await asyncio.to_thread(fetch)
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=400, detail=f"No se pudo consultar Stripe: {str(e)[:150]}")
+    by_key = {}
+    for p in pis:
+        by_key.setdefault((p["customer"], p["amount"]), []).append(p)
+    groups = []
+    for (cus, amount), items in by_key.items():
+        items.sort(key=lambda x: x["created"])
+        cluster = [items[0]]
+        for it in items[1:] + [None]:
+            if it and it["created"] - cluster[-1]["created"] <= 20 * 86400:
+                cluster.append(it)
+                continue
+            if len(cluster) > 1:
+                groups.append({"customer": cus, "amount": amount / 100, "charges": cluster})
+            cluster = [it] if it else []
+    cust_ids = list({g["customer"] for g in groups})
+    custs = await db.customers.find({"$or": [{"stripeCustomerId": {"$in": cust_ids}},
+                                             {"stripeCustomerId_live": {"$in": cust_ids}},
+                                             {"stripeCustomerId_test": {"$in": cust_ids}},
+                                             {"recurring.stripeCustomerId": {"$in": cust_ids}}]}).to_list(5000)
+    resellers = await db.users.find({"stripeCustomerId": {"$in": cust_ids}, "role": "reseller"}).to_list(500)
+    names = {}
+    for c in custs:
+        for k in (c.get("stripeCustomerId"), c.get("stripeCustomerId_live"), c.get("stripeCustomerId_test"),
+                  (c.get("recurring") or {}).get("stripeCustomerId")):
+            if k:
+                names[k] = (" ".join(filter(None, [c.get("name"), c.get("firstSurname"), c.get("lastSurname")])), c.get("fiscalId"))
+    for r in resellers:
+        names[r["stripeCustomerId"]] = (f"Revendedor · {r.get('name') or r.get('email')}", None)
+    for g in groups:
+        nm, fid = names.get(g["customer"], (None, None))
+        g["fiscalId"] = fid or next((c["fiscalId"] for c in g["charges"] if c.get("fiscalId")), None)
+        g["customerName"] = nm or g["fiscalId"] or g["customer"]
+        g["count"] = len(g["charges"])
+        g["extraAmount"] = round(g["amount"] * (g["count"] - 1), 2)
+        for c in g["charges"]:
+            c["created"] = datetime.fromtimestamp(c["created"], tz=timezone.utc).isoformat()
+    groups.sort(key=lambda g: (-g["count"], -g["extraAmount"]))
+    return {"groups": groups, "totalExtra": round(sum(g["extraAmount"] for g in groups), 2),
+            "affectedCustomers": len(groups), "scanned": len(pis), "days": days}
 
 
 @api.post("/billing/reconcile-sepa")
@@ -5468,20 +5632,26 @@ async def reseller_charge_pending(reseller_id: str, request: Request):
     rid = str(u["_id"])
     custs = await db.customers.find({"billingResellerId": rid}).to_list(5000)
     fids = [c["fiscalId"] for c in custs]
-    invs = await db.invoices.find({"fiscalId": {"$in": fids}, "status": "pending",
-                                   "chargeStatus": {"$ne": "processing"}}).to_list(20000) if fids else []
-    invs = [i for i in invs if float(i.get("total", 0) or 0) > 0]
+    cands = await db.invoices.find({"fiscalId": {"$in": fids}, "status": "pending",
+                                    "chargeStatus": {"$nin": CHARGE_LOCKED}}).to_list(20000) if fids else []
+    invs = []
+    for i in cands:
+        if float(i.get("total", 0) or 0) > 0 and await _claim_invoice(i["_id"]):
+            invs.append(i)
     if not invs:
         raise HTTPException(status_code=400, detail="No hay facturas pendientes que cobrar a este revendedor.")
     total = round(sum(float(i.get("total", 0) or 0) for i in invs), 2)
     charge_id = str(uuid.uuid4())
     try:
-        pi = stripe.PaymentIntent.create(
+        pi = await asyncio.to_thread(lambda: stripe.PaymentIntent.create(
             amount=int(round(total * 100)), currency="eur", customer=cid,
             payment_method=pm, off_session=True, confirm=True, payment_method_types=["sepa_debit"],
             description=f"Cobro agrupado revendedor {u.get('name')} · {len(invs)} facturas",
-            metadata={"resellerId": rid, "kind": "reseller_charge", "invoiceCount": str(len(invs))})
+            metadata={"resellerId": rid, "kind": "reseller_charge", "invoiceCount": str(len(invs)), "chargeId": charge_id},
+            idempotency_key=f"reseller-{charge_id}"))
     except stripe.error.StripeError as e:  # noqa
+        await db.invoices.update_many({"_id": {"$in": [i["_id"] for i in invs]}},
+                                      {"$set": {"chargeStatus": "failed", "chargeError": str(e)[:150]}})
         msg = getattr(e, "user_message", None) or str(e)
         await log_event("billing", "error", f"Cobro revendedor falló · {u.get('name')}: {msg[:120]}")
         raise HTTPException(status_code=400, detail=f"No se pudo cobrar: {msg[:150]}")
@@ -5725,7 +5895,7 @@ async def charge_all_pending(request: Request):
     await require_admin(request)
     await _stripe_apply()
     result = {"total": 0, "charged": 0, "processing": 0, "failed": 0, "skipped": 0}
-    invs = await db.invoices.find({"status": "pending"}).to_list(20000)
+    invs = await db.invoices.find({"status": "pending", "chargeStatus": {"$nin": CHARGE_LOCKED}}).to_list(20000)
     pm_cache = {}
     for inv in invs:
         result["total"] += 1
@@ -5750,27 +5920,15 @@ async def charge_all_pending(request: Request):
             continue
         attempts = int(inv.get("chargeAttempts", 0)) + 1
         pm_types = ["sepa_debit"] if method == "sepa" else ["card"]
+        if float(inv.get("total", 0) or 0) <= 0:
+            result["skipped"] += 1
+            continue
         try:
-            pi = stripe.PaymentIntent.create(
-                amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
-                payment_method=pm, off_session=True, confirm=True, payment_method_types=pm_types,
-                description=f"Cobro masivo · {inv.get('period', '')} · {inv['invoiceNumber']}",
-                metadata={"fiscalId": fid, "kind": "bulk_charge", "invoiceNumber": inv["invoiceNumber"]})
-            if pi.status == "succeeded":
-                await db.invoices.update_one({"_id": inv["_id"]},
-                    {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts,
-                              "stripePaymentIntentId": pi.id}})
-                result["charged"] += 1
-            elif pi.status in ("processing", "requires_action"):
-                await db.invoices.update_one({"_id": inv["_id"]},
-                    {"$set": {"chargeStatus": "processing", "chargeAttempts": attempts,
-                              "stripePaymentIntentId": pi.id}})
-                result["processing"] += 1
-            else:
-                raise Exception(f"estado {pi.status}")
-        except Exception as e:  # noqa
-            await db.invoices.update_one({"_id": inv["_id"]},
-                {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
+            st = await _charge_invoice_once(inv, cid, pm, pm_types,
+                f"Cobro masivo · {inv.get('period', '')} · {inv['invoiceNumber']}",
+                {"fiscalId": fid, "kind": "bulk_charge"}, {"chargeAttempts": attempts})
+            result[{"paid": "charged", "processing": "processing", "locked": "skipped"}.get(st, "failed")] += 1
+        except Exception:  # noqa
             result["failed"] += 1
     await log_event("billing", "info",
                     f"Cobro masivo: {result['charged']} cobradas · {result['processing']} en proceso (SEPA) · "
@@ -6355,6 +6513,8 @@ async def charge_invoice_now(invoice_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Factura no encontrada")
     if inv.get("status") == "paid":
         raise HTTPException(status_code=400, detail="La factura ya está pagada")
+    if inv.get("chargeStatus") in ("processing", "charging"):
+        raise HTTPException(status_code=400, detail="Esta factura ya tiene un cobro en curso (SEPA en proceso). No se vuelve a cobrar.")
     customer = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -6364,30 +6524,28 @@ async def charge_invoice_now(invoice_id: str, request: Request):
         raise HTTPException(status_code=400,
             detail="El cliente no tiene una tarjeta guardada. Envíale el enlace de tarjeta primero.")
     attempts = int(inv.get("chargeAttempts", 0)) + 1
+    pm_types = await _pm_types_of(pm)
     try:
-        pi = stripe.PaymentIntent.create(
-            amount=int(round(inv["total"] * 100)), currency="eur", customer=cid,
-            payment_method=pm, off_session=True, confirm=True,
-            description=f"Cobro manual · {inv.get('period', '')} · {inv['invoiceNumber']}",
-            metadata={"fiscalId": inv["fiscalId"], "kind": "manual_charge", "invoiceNumber": inv["invoiceNumber"]})
-        if pi.status == "succeeded":
-            await db.invoices.update_one({"_id": inv["_id"]},
-                {"$set": {"status": "paid", "chargeStatus": "paid", "chargeAttempts": attempts}})
+        st = await _charge_invoice_once(inv, cid, pm, pm_types,
+            f"Cobro manual · {inv.get('period', '')} · {inv['invoiceNumber']}",
+            {"fiscalId": inv["fiscalId"], "kind": "manual_charge"}, {"chargeAttempts": attempts})
+        if st == "locked":
+            raise HTTPException(status_code=400, detail="Esta factura ya se está cobrando. No se vuelve a cobrar.")
+        if st == "processing":
+            inv = await db.invoices.find_one({"_id": inv["_id"]})
+            return {"ok": True, "status": "processing", "invoice": clean(inv)}
+        if st == "paid":
             await log_event("billing", "success",
                             f"Cobro manual correcto · {inv['invoiceNumber']} · {inv['total']:.2f} € · {inv['fiscalId']}",
                             {"fiscalId": inv["fiscalId"]})
             inv = await db.invoices.find_one({"_id": inv["_id"]})
             return {"ok": True, "status": "paid", "invoice": clean(inv)}
-        raise Exception(f"estado {pi.status}")
+        raise Exception("cobro rechazado")
     except stripe.error.CardError as e:  # noqa
-        await db.invoices.update_one({"_id": inv["_id"]},
-            {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
         raise HTTPException(status_code=402, detail=f"Tarjeta rechazada: {e.user_message or str(e)}")
     except HTTPException:
         raise
     except Exception as e:  # noqa
-        await db.invoices.update_one({"_id": inv["_id"]},
-            {"$set": {"chargeStatus": "failed", "chargeAttempts": attempts, "chargeError": str(e)[:150]}})
         raise HTTPException(status_code=402, detail=f"No se pudo cobrar: {str(e)[:120]}")
 
 
@@ -7193,6 +7351,11 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.customers.create_index("fiscalId", unique=True)
     await db.lines.create_index("lineNumber", unique=True)
+    try:
+        await db.invoices.create_index([("fiscalId", 1), ("period", 1)], unique=True, name="uniq_recurring_period",
+                                       partialFilterExpression={"kind": "recurring"})
+    except Exception as e:  # noqa
+        logger.warning("No se pudo crear índice único de facturas (hay duplicados previos): %s", e)
     try:
         await seed_admin(db)
         await seed_tariffs(db)

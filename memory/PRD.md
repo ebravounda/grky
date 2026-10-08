@@ -771,3 +771,8 @@ La API real responde **403 Forbidden (AWS API Gateway)** = restricción por IP. 
 ## 2026-06 — Revendedor restringido (solo clientes + facturas impagadas)
 - Backend: whitelist `RESELLER_ALLOWED` en current_user (auth, access/me, customers, customers/{fid} GET, invoices GET, invoices/{id}/pdf, invoices/{id}/email). Perms fijos `RESELLER_PERMS` (customers.view/edit, invoices.view). /invoices y ficha reducida solo muestran facturas no pagadas de sus clientes.
 - Frontend: reseller entra a /app/customers, menú solo Clientes + Facturas, ficha reducida `ResellerCustomerView`, sin export ZIP ni Cobrar. Testado iteration_21 (100%).
+
+## 2026-06 — FIX CRÍTICO: cobros SEPA duplicados/triplicados
+- Causas: (1) reintento diario y "Cobrar ahora" trataban SEPA `processing` como fallo → recobraban hasta 3 veces; (2) cobro mensual/"Cobrar todo"/cobro de pendientes no excluían facturas en proceso; (3) sin idempotency_key ni bloqueo; (4) scheduler duplicado si hay varios workers uvicorn.
+- Fix: `_charge_invoice_once` (bloqueo atómico `chargeStatus=charging` + idempotency_key `inv-{id}-{seq}` + comprobación previa en Stripe `_existing_active_pi`), usado en TODOS los cobros de factura; reseller charge reclama cada factura; `_job_once` (colección job_runs) para cobro mensual y reintentos; índice único facturas recurring (fiscalId, period); conciliación desbloquea `charging` >30 min.
+- Nuevo: GET /api/billing/duplicate-charges + botón "Cobros duplicados" en Cobros (solo lectura, enlaces a Stripe para devolver).

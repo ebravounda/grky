@@ -6563,6 +6563,31 @@ async def delete_invoice(invoice_id: str, request: Request):
     return {"ok": True, "deleted": inv["invoiceNumber"]}
 
 
+class BulkPaidBody(BaseModel):
+    ids: List[str]
+
+
+@api.post("/invoices/mark-paid-bulk")
+async def mark_invoices_paid_bulk(body: BulkPaidBody, request: Request):
+    """Marca varias facturas como pagadas manualmente de una vez."""
+    from bson import ObjectId
+    user = await require_perm(request, "billing.manage")
+    oids = []
+    for i in body.ids[:2000]:
+        try:
+            oids.append(ObjectId(i))
+        except Exception:  # noqa
+            pass
+    if not oids:
+        raise HTTPException(status_code=400, detail="No hay facturas seleccionadas")
+    invs = await db.invoices.find({"_id": {"$in": oids}, "status": {"$ne": "paid"}}, {"invoiceNumber": 1}).to_list(2000)
+    res = await db.invoices.update_many({"_id": {"$in": [i["_id"] for i in invs]}, "status": {"$ne": "paid"}}, {"$set": {
+        "status": "paid", "paidManually": True, "paidAt": now_iso(), "paidBy": user.get("email")}})
+    await log_event("billing", "success", f"{res.modified_count} facturas marcadas como pagadas manualmente por {user.get('email')}",
+                    {"invoices": [i["invoiceNumber"] for i in invs][:200]})
+    return {"ok": True, "updated": res.modified_count, "alreadyPaid": len(oids) - len(invs)}
+
+
 @api.post("/invoices/{invoice_id}/mark-paid")
 async def mark_invoice_paid(invoice_id: str, request: Request):
     """Marca una factura como pagada manualmente (cobro por otro medio: efectivo, transferencia, etc.)."""

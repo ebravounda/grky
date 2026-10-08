@@ -5,13 +5,17 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { FileText, CreditCard, Mail, FileArchive } from "lucide-react";
+import { FileText, CreditCard, Mail, FileArchive, CheckCheck, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
 export default function Invoices() {
-  const { user } = useAuth();
+  const { user, hasPerm } = useAuth();
   const isReseller = user?.role === "reseller";
+  const canBulk = !isReseller && hasPerm("billing.manage");
+  const [sel, setSel] = useState([]);
+  const [marking, setMarking] = useState(false);
   const [invoices, setInvoices] = useState([]);
   const [paying, setPaying] = useState(null);
   const [emailing, setEmailing] = useState(null);
@@ -20,6 +24,20 @@ export default function Invoices() {
 
   const load = () => api.get("/invoices").then((r) => setInvoices(r.data));
   useEffect(() => { load(); }, []);
+
+  const unpaidIds = invoices.filter((i) => i.status !== "paid").map((i) => i.id);
+  const toggle = (id) => setSel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const allSel = unpaidIds.length > 0 && unpaidIds.every((id) => sel.includes(id));
+  const selTotal = invoices.filter((i) => sel.includes(i.id)).reduce((a, i) => a + i.total, 0);
+  const markPaid = async () => {
+    if (!window.confirm(`¿Marcar ${sel.length} factura(s) como pagadas (${selTotal.toFixed(2)} €)?`)) return;
+    setMarking(true);
+    try {
+      const { data } = await api.post("/invoices/mark-paid-bulk", { ids: sel });
+      toast.success(`${data.updated} factura(s) marcadas como pagadas`);
+      setSel([]); load();
+    } catch (e) { toast.error(apiErr(e)); } finally { setMarking(false); }
+  };
 
   const periods = Array.from(new Set(invoices.map((i) => i.period).filter(Boolean)));
   const matchCount = invoices.filter((i) =>
@@ -83,10 +101,21 @@ export default function Invoices() {
         </Button>
       </div>}
 
+      {canBulk && sel.length > 0 && (
+        <div data-testid="bulk-bar" className="sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-full border border-primary/30 bg-primary/5 backdrop-blur px-4 py-2">
+          <span className="text-sm" data-testid="bulk-count"><b>{sel.length}</b> seleccionada(s) · {selTotal.toFixed(2)} €</span>
+          <Button data-testid="bulk-mark-paid-btn" size="sm" className="rounded-full gap-1.5 bg-success hover:bg-success/90 text-white" disabled={marking} onClick={markPaid}>
+            <CheckCheck size={14} /> {marking ? "Marcando…" : "Marcar como pagadas"}
+          </Button>
+          <Button data-testid="bulk-clear-btn" size="sm" variant="ghost" className="rounded-full gap-1" onClick={() => setSel([])}><X size={14} /> Quitar selección</Button>
+        </div>
+      )}
+
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-muted/50 text-muted-foreground text-left">
             <tr>
+              {canBulk && <th className="pl-4 py-3 w-8"><Checkbox data-testid="select-all-unpaid" checked={allSel} onCheckedChange={(v) => setSel(v ? unpaidIds : [])} aria-label="Seleccionar todas las pendientes" /></th>}
               <th className="px-4 py-3 font-medium">Nº</th>
               <th className="px-4 py-3 font-medium hidden sm:table-cell">Cliente</th>
               <th className="px-4 py-3 font-medium hidden md:table-cell">Fecha</th>
@@ -97,7 +126,8 @@ export default function Invoices() {
           </thead>
           <tbody className="divide-y divide-border">
             {invoices.map((i) => (
-              <tr key={i.id} data-testid={`invoice-row-${i.invoiceNumber}`}>
+              <tr key={i.id} data-testid={`invoice-row-${i.invoiceNumber}`} className={sel.includes(i.id) ? "bg-primary/5" : ""}>
+                {canBulk && <td className="pl-4 py-3">{i.status !== "paid" && <Checkbox data-testid={`select-invoice-${i.invoiceNumber}`} checked={sel.includes(i.id)} onCheckedChange={() => toggle(i.id)} />}</td>}
                 <td className="px-4 py-3 font-medium">{i.invoiceNumber}</td>
                 <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{i.customerName}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{i.date?.slice(0, 10)}</td>
@@ -120,7 +150,7 @@ export default function Invoices() {
                 </td>
               </tr>
             ))}
-            {invoices.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Sin facturas.</td></tr>}
+            {invoices.length === 0 && <tr><td colSpan={canBulk ? 7 : 6} className="px-4 py-10 text-center text-muted-foreground">Sin facturas.</td></tr>}
           </tbody>
         </table>
       </div>

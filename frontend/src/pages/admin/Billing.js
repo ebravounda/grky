@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CreditCard, Landmark, RefreshCw, PlayCircle, AlertTriangle, CheckCircle2, CalendarClock, RotateCcw, Users, Send, FileText, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { DuplicateChargesButton } from "@/components/DuplicateChargesButton";
+import { PaymentCancellationsPanel } from "@/components/PaymentCancellationsPanel";
 
 const DOT = {
   card: { c: "bg-success", t: "Tarjeta activa" },
@@ -24,6 +25,7 @@ export default function Billing() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(null);
   const [pstatus, setPstatus] = useState(null);
+  const [cancKey, setCancKey] = useState(0);
 
   const load = () => { setLoading(true); api.get("/billing/subscriptions").then((r) => setSubs(r.data)).finally(() => setLoading(false)); };
   const loadStatus = () => api.get("/billing/payment-status").then((r) => setPstatus(r.data)).catch(() => {});
@@ -149,7 +151,7 @@ export default function Billing() {
             <Button data-testid="run-monthly-btn" variant="outline" className="rounded-full gap-2" onClick={runMonthly} disabled={busy === "monthly"}><CalendarClock size={15} /> {busy === "monthly" ? "Cobrando…" : "Cobrar mes (día 5)"}</Button>
             <Button data-testid="charge-all-btn" className="rounded-full gap-2 bg-success hover:bg-success/90 text-white" onClick={chargeAll} disabled={busy === "chargeall"}><CreditCard size={15} className={busy === "chargeall" ? "animate-pulse" : ""} /> {busy === "chargeall" ? "Cobrando…" : "Cobrar todo el mes"}</Button>
             <Button data-testid="dedupe-invoices-btn" variant="outline" className="rounded-full gap-2 text-destructive border-destructive/30" onClick={dedupe} disabled={busy === "dedupe"}><Copy size={15} className={busy === "dedupe" ? "animate-pulse" : ""} /> {busy === "dedupe" ? "Analizando…" : "Limpiar facturas duplicadas"}</Button>
-            <DuplicateChargesButton />
+            <DuplicateChargesButton onChanged={() => setCancKey((k) => k + 1)} />
             <Button data-testid="reconcile-sepa-btn" variant="outline" className="rounded-full gap-2 text-blue-600 border-blue-300" onClick={reconcileSepa} disabled={busy === "reconcile"}><Landmark size={15} className={busy === "reconcile" ? "animate-pulse" : ""} /> {busy === "reconcile" ? "Actualizando…" : "Actualizar pagos SEPA"}</Button>
             <Button data-testid="retry-charges-btn" variant="outline" className="rounded-full gap-2" onClick={retryCharges} disabled={busy === "retry"}><RotateCcw size={15} /> {busy === "retry" ? "Reintentando…" : "Reintentar cobros"}</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={() => { load(); loadStatus(); }} disabled={loading}><RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Actualizar</Button>
@@ -261,6 +263,8 @@ export default function Billing() {
           </table>
         </div>
       </div>
+
+      <PaymentCancellationsPanel refreshKey={cancKey} />
 
       <p className="text-xs text-muted-foreground mt-3">
         Los botones «Simular» permiten probar el flujo de reintentos, avisos y suspensión sin esperar al cobro real de SEPA (que tarda días en liquidar).

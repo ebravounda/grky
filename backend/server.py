@@ -5473,9 +5473,94 @@ async def duplicate_charges(request: Request, days: int = 120):
         g["extraAmount"] = round(g["amount"] * (g["count"] - 1), 2)
         for c in g["charges"]:
             c["created"] = datetime.fromtimestamp(c["created"], tz=timezone.utc).isoformat()
+    all_ids = [c["id"] for g in groups for c in g["charges"]]
+    canc = {d["_id"]: d for d in await db.payment_cancellations.find({"_id": {"$in": all_ids}}).to_list(5000)}
+    for g in groups:
+        for c in g["charges"]:
+            d = canc.get(c["id"])
+            if d:
+                c["cancelStatus"] = d.get("status")
+                c["cancelLabel"] = REFUND_STATUS_ES.get(d.get("status"), d.get("status"))
     groups.sort(key=lambda g: (-g["count"], -g["extraAmount"]))
     return {"groups": groups, "totalExtra": round(sum(g["extraAmount"] for g in groups), 2),
             "affectedCustomers": len(groups), "scanned": len(pis), "days": days}
+
+
+REFUND_STATUS_ES = {"pending": "Devolución pendiente", "requires_action": "Devolución pendiente",
+                    "succeeded": "Devuelto", "failed": "Devolución fallida", "canceled": "Devolución cancelada",
+                    "cancelled_pi": "Cancelado en Stripe"}
+
+
+class CancelPaymentBody(BaseModel):
+    keepPiId: Optional[str] = None
+    reason: Optional[str] = "duplicate"
+
+
+@api.post("/billing/payments/{pi_id}/cancel")
+async def cancel_payment(pi_id: str, body: CancelPaymentBody, request: Request):
+    """Cancela un cobro en Stripe: si aún no se ha confirmado se cancela el PaymentIntent;
+    si está en proceso (SEPA) o cobrado se crea la devolución completa."""
+    user = await require_perm(request, "billing.manage")
+    if not pi_id.startswith("pi_"):
+        raise HTTPException(status_code=400, detail="Identificador de pago no válido")
+    prev = await db.payment_cancellations.find_one({"_id": pi_id})
+    if prev and prev.get("status") not in ("failed", "canceled"):
+        raise HTTPException(status_code=400, detail="Este cobro ya está cancelado o en devolución.")
+    await _stripe_apply()
+    try:
+        pi = await asyncio.to_thread(stripe.PaymentIntent.retrieve, pi_id)
+        if pi.status in ("requires_payment_method", "requires_confirmation", "requires_action", "requires_capture"):
+            await asyncio.to_thread(lambda: stripe.PaymentIntent.cancel(pi_id, cancellation_reason="duplicate"))
+            action, refund_id, status = "cancel", None, "cancelled_pi"
+        elif pi.status in ("processing", "succeeded"):
+            rf = await asyncio.to_thread(lambda: stripe.Refund.create(
+                payment_intent=pi_id, reason="duplicate" if body.reason == "duplicate" else "requested_by_customer",
+                metadata={"by": user.get("email", ""), "source": "crm_duplicate"},
+                idempotency_key=f"refund-{pi_id}-{(prev or {}).get('attempt', 0) + 1}"))
+            action, refund_id, status = "refund", rf.id, rf.status
+        else:
+            raise HTTPException(status_code=400, detail=f"El cobro está en estado '{pi.status}' y no se puede cancelar.")
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=400, detail=f"Stripe no permitió cancelar: {getattr(e, 'user_message', None) or str(e)[:150]}")
+    md = dict(pi.metadata or {})
+    cust = await db.customers.find_one({"$or": [{"stripeCustomerId": pi.customer}, {"stripeCustomerId_live": pi.customer},
+                                                {"stripeCustomerId_test": pi.customer}]}) if pi.customer else None
+    name = " ".join(filter(None, [(cust or {}).get("name"), (cust or {}).get("firstSurname"), (cust or {}).get("lastSurname")]))
+    doc = {"piId": pi_id, "action": action, "refundId": refund_id, "status": status, "amount": pi.amount / 100,
+           "piStatus": pi.status, "description": pi.description or "", "customer": pi.customer,
+           "fiscalId": (cust or {}).get("fiscalId") or md.get("fiscalId"), "customerName": name or md.get("fiscalId") or pi.customer,
+           "by": user.get("email"), "at": now_iso(), "attempt": (prev or {}).get("attempt", 0) + 1}
+    await db.payment_cancellations.update_one({"_id": pi_id}, {"$set": doc}, upsert=True)
+    if body.keepPiId:
+        await db.invoices.update_many({"stripePaymentIntentId": pi_id}, {"$set": {"stripePaymentIntentId": body.keepPiId}})
+    await log_event("billing", "warning", f"Cobro {pi_id} cancelado ({action}) · {pi.amount / 100:.2f} € · {doc['customerName']}",
+                    {"fiscalId": doc["fiscalId"]})
+    return {"ok": True, **doc, "statusLabel": REFUND_STATUS_ES.get(status, status)}
+
+
+@api.get("/billing/payment-cancellations")
+async def list_payment_cancellations(request: Request):
+    await require_perm(request, "billing.manage")
+    docs = await db.payment_cancellations.find().sort("at", -1).to_list(500)
+    pending = [d for d in docs if d.get("refundId") and d.get("status") in ("pending", "requires_action")]
+    if pending:
+        await _stripe_apply()
+        for d in pending:
+            try:
+                rf = await asyncio.to_thread(stripe.Refund.retrieve, d["refundId"])
+                if rf.status != d["status"]:
+                    d["status"] = rf.status
+                    await db.payment_cancellations.update_one({"_id": d["_id"]}, {"$set": {"status": rf.status, "checkedAt": now_iso()}})
+            except Exception as e:  # noqa
+                logger.warning("refund status %s: %s", d["refundId"], e)
+    out = []
+    for d in docs:
+        d.pop("_id", None)
+        d["statusLabel"] = REFUND_STATUS_ES.get(d.get("status"), d.get("status"))
+        out.append(d)
+    return {"items": out, "totalCancelled": round(sum(d["amount"] for d in out if d.get("status") not in ("failed", "canceled")), 2)}
 
 
 @api.post("/billing/reconcile-sepa")

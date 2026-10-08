@@ -2,15 +2,28 @@ import { useState } from "react";
 import api, { apiErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { AlertTriangle, ExternalLink, Search } from "lucide-react";
+import { AlertTriangle, ExternalLink, Search, XCircle } from "lucide-react";
+import { CANCEL_TONE } from "@/components/PaymentCancellationsPanel";
 import { toast } from "sonner";
 
 const fmt = (d) => new Date(d).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-export const DuplicateChargesButton = () => {
+export const DuplicateChargesButton = ({ onChanged }) => {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(null);
+
+  const cancel = async (g, c) => {
+    if (!window.confirm(`¿Cancelar en Stripe el cobro de ${g.amount.toFixed(2)} € del ${fmt(c.created)} a ${g.customerName}?\n\nSi el SEPA está en proceso o ya cobrado, se devolverá el importe completo.`)) return;
+    setCancelling(c.id);
+    try {
+      const { data: d } = await api.post(`/billing/payments/${c.id}/cancel`, { keepPiId: g.charges[0].id });
+      toast.success(`Cobro cancelado · ${d.statusLabel}`);
+      setData((prev) => ({ ...prev, groups: prev.groups.map((gg) => ({ ...gg, charges: gg.charges.map((cc) => cc.id === c.id ? { ...cc, cancelStatus: d.status, cancelLabel: d.statusLabel } : cc) })) }));
+      onChanged && onChanged();
+    } catch (e) { toast.error(apiErr(e)); } finally { setCancelling(null); }
+  };
 
   const scan = async () => {
     setOpen(true); setLoading(true); setData(null);
@@ -27,7 +40,7 @@ export const DuplicateChargesButton = () => {
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto" data-testid="duplicate-charges-dialog">
           <DialogHeader>
             <DialogTitle>Cobros duplicados en Stripe</DialogTitle>
-            <DialogDescription>Clientes cobrados varias veces por el mismo importe en menos de 20 días (últimos 120 días). Las devoluciones se hacen desde Stripe.</DialogDescription>
+            <DialogDescription>Clientes cobrados varias veces por el mismo importe en menos de 20 días (últimos 120 días). Pulsa «Cancelar cobro» para anularlo o devolverlo en Stripe.</DialogDescription>
           </DialogHeader>
           {loading && <p className="py-10 text-center text-muted-foreground flex items-center justify-center gap-2"><Search size={16} className="animate-pulse" /> Consultando Stripe…</p>}
           {data && (
@@ -53,6 +66,14 @@ export const DuplicateChargesButton = () => {
                         <span className="text-muted-foreground truncate max-w-[280px]">{c.description}</span>
                         <span className="text-xs uppercase text-muted-foreground">{c.method === "sepa_debit" ? "SEPA" : c.method} · {c.status === "processing" ? "en proceso" : "cobrado"}</span>
                         <a href={c.url} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-primary hover:underline" data-testid={`dup-stripe-link-${c.id}`}>Abrir en Stripe <ExternalLink size={13} /></a>
+                        {c.cancelStatus ? (
+                          <span data-testid={`dup-cancel-status-${c.id}`} className={`text-[11px] font-bold uppercase rounded-full px-2 py-0.5 ${CANCEL_TONE[c.cancelStatus] || "bg-muted"}`}>{c.cancelLabel}</span>
+                        ) : ci > 0 && (
+                          <Button size="sm" variant="outline" className="h-7 rounded-full gap-1 text-destructive border-destructive/40" disabled={cancelling === c.id}
+                            data-testid={`dup-cancel-btn-${c.id}`} onClick={() => cancel(g, c)}>
+                            <XCircle size={13} /> {cancelling === c.id ? "Cancelando…" : "Cancelar cobro"}
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>

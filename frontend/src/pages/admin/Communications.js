@@ -10,11 +10,17 @@ import {
 } from "@/components/ui/select";
 import { Megaphone, Send, Users, CheckCircle2, AlertTriangle, Bold, Italic, Link2, Heading, List, History, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import { CustomerPicker, parseEmails, isEmail } from "@/components/CustomerPicker";
 
 export default function Communications() {
   const [audience, setAudience] = useState("customers");
   const [resellerId, setResellerId] = useState("");
   const [resellers, setResellers] = useState([]);
+  const [picked, setPicked] = useState([]);
+  const [extraTxt, setExtraTxt] = useState("");
+  const extras = parseEmails(extraTxt);
+  const invalidExtras = extras.filter((e) => !isEmail(e));
+  const validExtras = extras.filter(isEmail);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [count, setCount] = useState(null);
@@ -70,12 +76,17 @@ export default function Communications() {
     } catch (e) { toast.error(apiErr(e)); }
   };
 
+  const pickedKey = picked.map((c) => c.fiscalId).join(",");
+  const extraKey = validExtras.join(",");
   useEffect(() => {
     if (audience === "reseller" && !resellerId) { setCount(null); return; }
     const params = { audience };
     if (audience === "reseller") params.resellerId = resellerId;
-    api.get("/communications/audience-count", { params }).then((r) => setCount(r.data.count)).catch(() => setCount(null));
-  }, [audience, resellerId]);
+    if (audience === "selected") params.fiscalIds = pickedKey;
+    if (extraKey) params.extra = extraKey;
+    const t = setTimeout(() => api.get("/communications/audience-count", { params }).then((r) => setCount(r.data.count)).catch(() => setCount(null)), 300);
+    return () => clearTimeout(t);
+  }, [audience, resellerId, pickedKey, extraKey]);
 
   useEffect(() => () => clearInterval(pollRef.current), []);
 
@@ -92,11 +103,15 @@ export default function Communications() {
   const send = async () => {
     if (!subject.trim() || !message.trim()) return toast.error("Indica asunto y mensaje");
     if (audience === "reseller" && !resellerId) return toast.error("Elige un revendedor");
+    if (audience === "selected" && picked.length === 0 && validExtras.length === 0) return toast.error("Selecciona al menos un cliente");
+    if (audience === "none" && validExtras.length === 0) return toast.error("Añade al menos un email");
+    if (invalidExtras.length) return toast.error(`Emails no válidos: ${invalidExtras.join(", ")}`);
     if (!window.confirm(`¿Enviar este correo a ${count ?? "los"} destinatarios?`)) return;
     setSending(true); setJob(null);
     try {
       const { data } = await api.post("/communications/bulk-email", {
-        audience, resellerId: audience === "reseller" ? resellerId : null, subject: subject.trim(), message });
+        audience, resellerId: audience === "reseller" ? resellerId : null, subject: subject.trim(), message,
+        fiscalIds: audience === "selected" ? picked.map((c) => c.fiscalId) : [], extraEmails: validExtras });
       toast.success(`Enviando a ${data.total} destinatarios…`);
       setJob({ total: data.total, sent: 0, failed: 0, status: "sending" });
       poll(data.jobId);
@@ -151,6 +166,8 @@ export default function Communications() {
                 <SelectItem value="customers">Todos los clientes del CRM</SelectItem>
                 <SelectItem value="all">Todos (clientes + portal + staff)</SelectItem>
                 <SelectItem value="reseller">Clientes de un revendedor</SelectItem>
+                <SelectItem value="selected">Clientes concretos (elegir)</SelectItem>
+                <SelectItem value="none">Solo los emails que escriba</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -165,6 +182,22 @@ export default function Communications() {
               </Select>
             </div>
           )}
+        </div>
+
+        {audience === "selected" && (
+          <div className="space-y-1.5">
+            <Label>Elige los clientes ({picked.length} seleccionado/s)</Label>
+            <CustomerPicker selected={picked} onChange={setPicked} />
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="extra-emails">Añadir más emails {audience === "none" ? "" : "(opcional)"}</Label>
+          <Textarea id="extra-emails" data-testid="extra-emails-input" rows={2} value={extraTxt} onChange={(e) => setExtraTxt(e.target.value)}
+            placeholder="ejemplo@correo.com, otro@empresa.es — separados por coma, espacio o salto de línea" />
+          <p className="text-xs text-muted-foreground" data-testid="extra-emails-info">
+            {validExtras.length} email(s) válido(s){invalidExtras.length > 0 && <span className="text-destructive"> · no válidos: {invalidExtras.join(", ")}</span>}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 text-sm text-primary bg-primary/5 rounded-md px-3 py-2">

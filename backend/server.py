@@ -230,7 +230,7 @@ async def _claim_invoice(inv_id):
     """Bloqueo atómico: solo un proceso puede cobrar la factura; nunca si ya está en proceso/pagada."""
     from pymongo import ReturnDocument
     return await db.invoices.find_one_and_update(
-        {"_id": inv_id, "status": {"$ne": "paid"}, "chargeStatus": {"$nin": CHARGE_LOCKED}},
+        {"_id": inv_id, "status": {"$ne": "paid"}, "chargeStatus": {"$nin": CHARGE_LOCKED}, "refunded": {"$ne": True}},
         {"$set": {"chargeStatus": "charging", "chargingAt": now_iso()}, "$inc": {"chargeSeq": 1}},
         return_document=ReturnDocument.AFTER)
 
@@ -274,19 +274,24 @@ async def _charge_invoice_once(inv, cid, pm, pm_types, description, metadata, ex
     return st
 
 
-async def _existing_active_pi(inv, cid):
+async def _existing_active_pi(inv, cid, exclude_pi=None):
     """Busca en Stripe (últimos 45 días) un cobro activo o cobrado de ESTA factura, para no repetirlo."""
     since = int((datetime.now(timezone.utc) - timedelta(days=45)).timestamp())
     amount = int(round(float(inv.get("total") or 0) * 100))
     period, number = inv.get("period") or "", inv.get("invoiceNumber") or ""
     try:
         res = await asyncio.to_thread(lambda: list(stripe.PaymentIntent.list(
-            customer=cid, created={"gte": since}, limit=100).auto_paging_iter()))
+            customer=cid, created={"gte": since}, limit=100, expand=["data.latest_charge"]).auto_paging_iter()))
     except Exception as e:  # noqa
         logger.warning("existing pi check %s: %s", number, e)
         return None
     for p in res:
         if p.status not in ("succeeded", "processing", "requires_action") or p.amount != amount:
+            continue
+        if exclude_pi and p.id == exclude_pi:
+            continue
+        ch = p.latest_charge if p.latest_charge and not isinstance(p.latest_charge, str) else None
+        if ch and int(getattr(ch, "amount_refunded", 0) or 0) >= p.amount:
             continue
         md = dict(p.metadata or {})
         if (md.get("invoiceId") == str(inv["_id"]) or (number and md.get("invoiceNumber") == number)
@@ -616,8 +621,10 @@ class CustomerContactBody(BaseModel):
 
 
 class BulkEmailBody(BaseModel):
-    audience: str = "customers"  # all | customers | reseller
+    audience: str = "customers"  # all | customers | reseller | selected | none
     resellerId: Optional[str] = None
+    fiscalIds: Optional[List[str]] = []
+    extraEmails: Optional[List[str]] = []
     subject: str
     message: str
 
@@ -3421,6 +3428,8 @@ async def stripe_webhook(request: Request):
         await db.invoices.update_many(
             {"stripePaymentIntentId": obj["id"], "status": {"$ne": "paid"}},
             {"$set": {"status": "paid", "chargeStatus": "paid"}})
+    elif t == "charge.refunded":
+        await _on_charge_refunded(obj)
     elif t == "payment_intent.payment_failed":
         err = (obj.get("last_payment_error") or {}).get("message") or ""
         await db.invoices.update_many(
@@ -5329,6 +5338,18 @@ async def _reconcile_sepa_processing():
     'payment_intent.succeeded' (por si no llega): así el SEPA nunca se queda colgado."""
     await _stripe_apply()
     result = {"checked": 0, "paid": 0, "failed": 0, "stillProcessing": 0, "errors": 0, "unlocked": 0}
+    try:
+        since = int((datetime.now(timezone.utc) - timedelta(days=60)).timestamp())
+        refunds = await asyncio.to_thread(lambda: list(stripe.Refund.list(
+            created={"gte": since}, limit=100, expand=["data.charge"]).auto_paging_iter()))
+        for rf in refunds:
+            if rf.status == "succeeded" and rf.charge and not isinstance(rf.charge, str):
+                c = rf.charge
+                await _on_charge_refunded({"payment_intent": c.payment_intent, "amount": c.amount,
+                                           "amount_refunded": c.amount_refunded, "customer": c.customer,
+                                           "description": c.description})
+    except Exception as e:  # noqa
+        logger.warning("reconcile refunds: %s", e)
     stale = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
     for inv in await db.invoices.find({"chargeStatus": "charging", "chargingAt": {"$lt": stale}}).to_list(5000):
         try:
@@ -5403,6 +5424,68 @@ async def reconcile_sepa_job():
         await _reconcile_sepa_processing()
     except Exception as e:  # noqa
         logger.warning("reconcile_sepa_job failed: %s", e)
+
+
+@api.get("/billing/monthly-preview")
+async def monthly_billing_preview(request: Request):
+    """Vista previa (sin cobrar nada) de lo que hará el próximo cobro mensual."""
+    await require_perm(request, "billing.manage")
+    settings = await get_app_settings()
+    billing_day = int(settings.get("billingDay", 5) or 5)
+    now = datetime.now(timezone.utc)
+    run = now.replace(day=billing_day) if now.day <= billing_day else (now.replace(day=1) + timedelta(days=32)).replace(day=billing_day)
+    p_start, _ = _prev_month_bounds(run)
+    period = _period_label(datetime(p_start.year, p_start.month, 1, tzinfo=timezone.utc))
+    await _stripe_apply()
+    sem = asyncio.Semaphore(8)
+
+    async def row(cust):
+        fid = cust["fiscalId"]
+        name = " ".join(filter(None, [cust.get("name"), cust.get("firstSurname"), cust.get("lastSurname")]))
+        r = {"fiscalId": fid, "customerName": name, "period": period, "invoiceNumber": None, "total": 0.0, "method": None}
+        if (cust.get("recurring") or {}).get("stripeSubscriptionId"):
+            return {**r, "result": "stripe_subscription"}
+        invs = await db.invoices.find({"fiscalId": fid, "period": period, "kind": {"$ne": "service"}}).to_list(10)
+        if len(invs) > 1:
+            r["warning"] = f"{len(invs)} facturas para el mismo mes"
+        inv = invs[0] if invs else None
+        if not inv:
+            if not await db.lines.count_documents({"fiscalId": fid, "status": "ACTIVE"}):
+                return {**r, "result": "no_lines"}
+            r["invoiceNumber"] = "se generará"
+            monthly, _, _ = await _resolve_monthly(fid)
+            r["total"] = round(float(monthly or 0), 2)
+        else:
+            r["invoiceNumber"], r["total"] = inv.get("invoiceNumber"), round(float(inv.get("total", 0) or 0), 2)
+            if inv.get("status") == "paid" or inv.get("chargeStatus") == "paid":
+                return {**r, "result": "paid"}
+            if inv.get("refunded"):
+                return {**r, "result": "refunded"}
+            if inv.get("chargeStatus") in ("processing", "charging"):
+                return {**r, "result": "processing"}
+        if r["total"] <= 0:
+            return {**r, "result": "zero"}
+        method = "sepa" if (cust.get("recurring") or {}).get("method") == "sepa" else "card"
+        async with sem:
+            cid, pm = await _get_saved_pm_typed(cust, method)
+            if not (cid and pm):
+                method = "card" if method == "sepa" else "sepa"
+                cid, pm = await _get_saved_pm_typed(cust, method)
+        if not (cid and pm):
+            return {**r, "result": "no_method"}
+        return {**r, "method": method, "result": "will_charge"}
+
+    customers = await db.customers.find().to_list(20000)
+    rows = await asyncio.gather(*[row(c) for c in customers])
+    summary = {}
+    for x in rows:
+        b = summary.setdefault(x["result"], {"count": 0, "total": 0.0})
+        b["count"] += 1
+        b["total"] = round(b["total"] + x["total"], 2)
+    order = {"will_charge": 0, "no_method": 1, "processing": 2, "refunded": 3, "paid": 4, "zero": 5, "stripe_subscription": 6, "no_lines": 7}
+    rows = sorted([x for x in rows if x["result"] != "no_lines"], key=lambda x: (order.get(x["result"], 9), x["customerName"]))
+    return {"period": period, "billingDate": run.strftime("%Y-%m-%d"), "summary": summary, "rows": rows,
+            "warnings": [x for x in rows if x.get("warning")]}
 
 
 @api.get("/billing/duplicate-charges")
@@ -5484,6 +5567,36 @@ async def duplicate_charges(request: Request, days: int = 120):
     groups.sort(key=lambda g: (-g["count"], -g["extraAmount"]))
     return {"groups": groups, "totalExtra": round(sum(g["extraAmount"] for g in groups), 2),
             "affectedCustomers": len(groups), "scanned": len(pis), "days": days}
+
+
+async def _on_charge_refunded(ch):
+    """Reembolso hecho (desde el CRM o directamente en Stripe). Nunca provoca un nuevo cobro:
+    si la factura apuntaba a ese pago y existe otro pago válido, se re-enlaza; si no, se marca 'reembolsada'."""
+    pi_id = ch.get("payment_intent")
+    if not pi_id or int(ch.get("amount_refunded") or 0) < int(ch.get("amount") or 0):
+        return
+    prev = await db.payment_cancellations.find_one({"_id": pi_id})
+    if not prev:
+        cust = await db.customers.find_one({"$or": [{"stripeCustomerId": ch.get("customer")}, {"stripeCustomerId_live": ch.get("customer")},
+                                                    {"stripeCustomerId_test": ch.get("customer")}]}) if ch.get("customer") else None
+        await db.payment_cancellations.insert_one({
+            "_id": pi_id, "piId": pi_id, "action": "refund", "status": "succeeded", "source": "stripe",
+            "amount": int(ch.get("amount") or 0) / 100, "description": ch.get("description") or "",
+            "customer": ch.get("customer"), "fiscalId": (cust or {}).get("fiscalId"),
+            "customerName": " ".join(filter(None, [(cust or {}).get("name"), (cust or {}).get("firstSurname")])) or ch.get("customer"),
+            "by": "Stripe", "at": now_iso()})
+    elif prev.get("status") != "succeeded":
+        await db.payment_cancellations.update_one({"_id": pi_id}, {"$set": {"status": "succeeded"}})
+    for inv in await db.invoices.find({"stripePaymentIntentId": pi_id}).to_list(200):
+        alt = await _existing_active_pi(inv, ch.get("customer"), exclude_pi=pi_id) if ch.get("customer") else None
+        if alt:
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"stripePaymentIntentId": alt.id},
+                                                              "$addToSet": {"refundedPis": pi_id}})
+        else:
+            await db.invoices.update_one({"_id": inv["_id"]}, {"$set": {"refunded": True, "refundedAt": now_iso()},
+                                                              "$addToSet": {"refundedPis": pi_id}})
+            await log_event("billing", "warning", f"Factura {inv.get('invoiceNumber')} reembolsada en Stripe ({pi_id}). No se volverá a cobrar automáticamente.",
+                            {"fiscalId": inv.get("fiscalId")})
 
 
 REFUND_STATUS_ES = {"pending": "Devolución pendiente", "requires_action": "Devolución pendiente",
@@ -5861,17 +5974,27 @@ async def bulk_assign_reseller(body: BulkResellerBody, request: Request):
 
 
 # ------------------------- ENVÍO MASIVO DE CORREOS -------------------------
-async def _bulk_email_recipients(audience, reseller_id):
+EMAIL_RX = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$", re.I)
+
+
+async def _bulk_email_recipients(audience, reseller_id, fiscal_ids=None, extra_emails=None):
     """Construye el diccionario {email_lower: nombre} de destinatarios según el público."""
     emails = {}
 
     def add(email, name):
         if email and "@" in str(email):
             e = str(email).strip().lower()
-            if e and e not in emails:
+            if e and e not in emails and EMAIL_RX.match(e):
                 emails[e] = name or ""
 
-    if audience == "reseller":
+    for e in (extra_emails or [])[:500]:
+        add(e, "")
+    if audience == "none":
+        return emails
+    if audience == "selected":
+        for c in await db.customers.find({"fiscalId": {"$in": list(fiscal_ids or [])[:5000]}}).to_list(5000):
+            add(c.get("email"), c.get("name"))
+    elif audience == "reseller":
         custs = await db.customers.find({"billingResellerId": reseller_id,
                                          "email": {"$nin": [None, ""]}}).to_list(50000)
         for c in custs:
@@ -5908,11 +6031,13 @@ async def _run_bulk_email(job_id, recipients, subject, message):
 
 
 @api.get("/communications/audience-count")
-async def audience_count(request: Request, audience: str = "customers", resellerId: Optional[str] = None):
+async def audience_count(request: Request, audience: str = "customers", resellerId: Optional[str] = None,
+                         fiscalIds: Optional[str] = None, extra: Optional[str] = None):
     """Nº de destinatarios con email para el público elegido (vista previa antes de enviar)."""
     await require_admin(request)
-    recips = await _bulk_email_recipients(audience, resellerId)
-    return {"count": len(recips)}
+    recips = await _bulk_email_recipients(audience, resellerId, [f for f in (fiscalIds or "").split(",") if f],
+                                          [e for e in (extra or "").split(",") if e])
+    return {"count": len(recips), "invalid": [e for e in (extra or "").split(",") if e and not EMAIL_RX.match(e.strip())]}
 
 
 @api.post("/communications/bulk-email")
@@ -5922,11 +6047,12 @@ async def bulk_email(body: BulkEmailBody, request: Request):
     await require_admin(request)
     if not (body.subject or "").strip() or not (body.message or "").strip():
         raise HTTPException(status_code=400, detail="Indica el asunto y el mensaje.")
-    recips = await _bulk_email_recipients(body.audience, body.resellerId)
+    recips = await _bulk_email_recipients(body.audience, body.resellerId, body.fiscalIds, body.extraEmails)
     if not recips:
         raise HTTPException(status_code=400, detail="No hay destinatarios con email para ese público.")
     job = {"_id": str(uuid.uuid4()), "total": len(recips), "sent": 0, "failed": 0,
            "status": "sending", "subject": body.subject.strip(), "audience": body.audience,
+           "selectedCount": len(body.fiscalIds or []), "extraCount": len(body.extraEmails or []),
            "createdAt": now_iso()}
     await db.bulk_email_jobs.insert_one(job)
     _spawn_bg(_run_bulk_email(job["_id"], recips, body.subject.strip(), body.message))
@@ -5965,8 +6091,13 @@ async def bulk_email_history(request: Request):
     """Historial de envíos masivos: fecha, asunto, público y resultados."""
     await require_admin(request)
     rows = await db.bulk_email_jobs.find().sort("createdAt", -1).to_list(200)
-    labels = {"all": "Todos", "customers": "Clientes", "reseller": "Clientes de revendedor"}
-    return [{"id": r["_id"], "subject": r.get("subject"), "audience": labels.get(r.get("audience"), r.get("audience")),
+    labels = {"all": "Todos", "customers": "Clientes", "reseller": "Clientes de revendedor",
+              "selected": "Clientes seleccionados", "none": "Solo emails manuales"}
+
+    def aud(r):
+        t = labels.get(r.get("audience"), r.get("audience"))
+        return t + (f" + {r['extraCount']} email(s) extra" if r.get("extraCount") and r.get("audience") != "none" else "")
+    return [{"id": r["_id"], "subject": r.get("subject"), "audience": aud(r),
              "total": r.get("total", 0), "sent": r.get("sent", 0), "failed": r.get("failed", 0),
              "status": r.get("status"), "createdAt": r.get("createdAt")} for r in rows]
 
@@ -6625,6 +6756,8 @@ async def charge_invoice_now(invoice_id: str, request: Request):
         raise HTTPException(status_code=400, detail="La factura ya está pagada")
     if inv.get("chargeStatus") in ("processing", "charging"):
         raise HTTPException(status_code=400, detail="Esta factura ya tiene un cobro en curso (SEPA en proceso). No se vuelve a cobrar.")
+    if inv.get("refunded"):
+        raise HTTPException(status_code=400, detail="Esta factura fue reembolsada en Stripe. Para evitar errores no se vuelve a cobrar automáticamente.")
     customer = await db.customers.find_one({"fiscalId": inv["fiscalId"]})
     if not customer:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")

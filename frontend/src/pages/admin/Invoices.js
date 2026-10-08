@@ -132,7 +132,7 @@ export default function Invoices() {
                 <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{i.customerName}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{i.date?.slice(0, 10)}</td>
                 <td className="px-4 py-3 font-semibold">{i.total.toFixed(2)} €</td>
-                <td className="px-4 py-3"><StatusPill status={i.status} /></td>
+                <td className="px-4 py-3"><StatusPill status={i.status} />{i.refunded && <span data-testid={`invoice-refunded-${i.invoiceNumber}`} className="ml-1.5 text-[10px] font-bold uppercase rounded-full px-1.5 py-0.5 bg-purple-100 text-purple-700">Reembolsada</span>}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2 justify-end">
                     <Button data-testid={`invoice-pdf-${i.invoiceNumber}`} variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => openInvoicePdf(i.id)}>

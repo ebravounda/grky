@@ -1,0 +1,25 @@
+{
+  "summary": "Iter22 testing covered the new Communications 'selected customers + extra emails' flow and the Billing monthly-preview + charge-protection refactors. Backend: 18/18 pytest tests passed, including 4 audience-count variants (none+valid, none+invalid, selected+testCustomer, dedup with existing email), bulk-email creation returns proper total/jobId, history label 'Solo emails manuales' and 'Clientes seleccionados + N email(s) extra' both appear, monthly-preview returns expected structure and requires admin, and the unit-level charge protections against the previous duplicate-SEPA bug all hold: _claim_invoice rejects paid/processing/refunded invoices and admits pending, _charge_invoice_once under 5-way concurrency makes exactly 1 Stripe PaymentIntent.create call (others return 'locked'), _on_charge_refunded relinks to an alternate non-refunded PI when one exists and otherwise marks invoice.refunded=True + records refundedPis, and _existing_active_pi ignores PIs whose latest_charge is fully refunded. Frontend (Playwright, admin login): Communications page loads, audience-select exposes new 'Clientes concretos' and 'Solo los emails que escriba' options; selecting 'selected' reveals CustomerPicker, search for 12345678A yields pick-row-12345678A and clicking produces picked-12345678A chip; extra-emails-input parses mixed input and info text shows '2 email(s) válido(s) · no válidos: bademail@'; recipient banner reports '3 destinatario(s)' (1 picked + 2 valid extras, correct dedup). Switching audience to 'none' hides the picker. History shows the new labels. Billing page shows monthly-preview-btn, duplicate-charges-btn, reconcile-sepa-btn; dialog monthly-preview-dialog opens with filter chips (preview-filter-all) and rendered 46 preview-row-* items; Invoices page still exposes select-invoice-* checkboxes (bulk-mark-paid-btn is only rendered after a row is selected, which is expected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_comms_billing.py",
+    "/app/test_reports/pytest/iter22.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 7829 lines — splitting billing/communications into their own modules would greatly improve maintainability.",
+    "audience_count returns `invalid` list by naive comma-split only; the frontend splits by comma/space/newline. Both ends agree on count (dedup is done by _bulk_email_recipients which also validates with EMAIL_RX), but the server's `invalid` field is slightly inaccurate if the user supplies space/newline-separated emails. Not a correctness bug — the frontend already blocks sending when it detects invalid locally.",
+    "_bulk_email_recipients loads up to 50000 customers in-memory for audience=all/customers; fine today, but consider cursor streaming at scale.",
+    "FastAPI on_event startup/shutdown deprecated warnings — switch to lifespan handlers.",
+    "monthly_billing_preview fans out stripe PM lookups with semaphore of 8, which with ~200+ customers could be slow in prod (preview completed in a few seconds here)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter22_comms_billing.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% of flows verified"},
+  "test_credentials": "admin@goroky.com / Goroky2026! (seed admin)",
+  "seed_data_creation": "Transient TEST_iter22_* invoices created during unit tests and cleaned up in finally blocks. Three TEST_Iter22 bulk-email jobs were created with example.com recipients (do not deliver to real users).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Env preview Stripe key is test but expired, so real charge-all paths won't succeed; use mocks like iter22 does. The /communications/history list is append-only; existing TEST_ jobs from iter22 will remain. Admin login works via /api/auth/login with admin@goroky.com. The REACT_APP_BACKEND_URL env var is not exported into the shell by default — export it before running pytest or hard-code via fallback (iter22 test file does both).",
+  "rca of the issue": "N/A — all iteration 22 feature changes verified; previous SEPA duplicate-charge bug remains fixed (verified by test_charge_once_under_concurrency and _claim_invoice refund guard)."
+}

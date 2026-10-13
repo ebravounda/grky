@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
   Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe, PhoneCall, CreditCard, Activity, Store,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ const nav = [
   { to: "/app/users", label: "Usuarios y permisos", icon: ShieldCheck, id: "usuarios", perm: "users.manage" },
   { to: "/app/settings", label: "Configuración", icon: Settings, id: "configuracion", perm: "settings.manage" },
   { to: "/app/site-content", label: "Contenido web", icon: Globe, id: "contenido-web", perm: "settings.manage" },
+  { to: "/app/blog-seo", label: "Blog SEO", icon: Newspaper, id: "blog-seo", perm: "settings.manage", adminOnly: true },
   { to: "/app/monitor", label: "Monitor servidor", icon: Activity, id: "monitor", superadmin: true },
 ];
 
@@ -45,7 +47,7 @@ function NavItems({ onNavigate, unread, hasPerm, monitorAllowed }) {
   const { user } = useAuth();
   return (
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-      {nav.filter((n) => !(n.noReseller && user?.role === "reseller") && (n.superadmin ? monitorAllowed : hasPerm(n.perm))).map((n) => (
+      {nav.filter((n) => !(n.noReseller && user?.role === "reseller") && !(n.adminOnly && user?.role !== "admin") && (n.superadmin ? monitorAllowed : hasPerm(n.perm))).map((n) => (
         <NavLink
           key={n.to}
           to={n.to}

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import CoverageChecker from "@/components/CoverageChecker";
 import OpenFacturaSection from "@/components/OpenFacturaSection";
+import LatestArticles from "@/components/LatestArticles";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
   Zap, Repeat, Smartphone, Star, Menu, Headphones, ShieldCheck, Sparkles, Info, PhoneCall, CreditCard,
@@ -132,6 +133,7 @@ export default function PublicCatalog() {
           <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm font-bold">
             <a href="#planes" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Tarifas</a>
             <a href="#cobertura" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Cobertura fibra</a>
+            <button onClick={() => navigate("/blog")} data-testid="header-blog-link" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Blog</button>
             <button onClick={() => navigate("/openfactura")} data-testid="header-openfactura-link"
               className="inline-flex items-center gap-1.5 text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">
               Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
@@ -157,6 +159,7 @@ export default function PublicCatalog() {
                 <img src={LOGO} alt="GoRoky" className="h-9 w-auto" />
                 <a href="#planes" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Tarifas</a>
                 <a href="#cobertura" onClick={() => setMenuOpen(false)} className="text-lg font-bold text-slate-800">Cobertura fibra</a>
+                <button onClick={() => { setMenuOpen(false); navigate("/blog"); }} data-testid="mobile-blog-link" className="text-lg font-bold text-slate-800 text-left">Blog</button>
                 <button onClick={() => { setMenuOpen(false); navigate("/openfactura"); }} data-testid="mobile-openfactura-link"
                   className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
                   Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
@@ -425,6 +428,7 @@ export default function PublicCatalog() {
       </section>
 
       <OpenFacturaSection />
+      <LatestArticles />
 
       {/* App móvil — sección moderna */}
       <section className="relative overflow-hidden bg-[#05070D] text-white py-24 lg:py-32" data-testid="app-section" id="app">
@@ -520,6 +524,7 @@ export default function PublicCatalog() {
               <span>© {new Date().getFullYear()} {footer.company}</span>
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <a href="/blog" className="hover:text-white transition-colors" data-testid="footer-blog-link">Blog</a>
               <a href="/openfactura" className="hover:text-white transition-colors" data-testid="footer-openfactura-link">OpenFactura</a>
               <a href="/privacidad" className="hover:text-white transition-colors" data-testid="footer-privacy-link">Política de privacidad</a>
               <a href="/terminos" className="hover:text-white transition-colors" data-testid="footer-terms-link">Términos y condiciones</a>

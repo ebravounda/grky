@@ -7,6 +7,7 @@ from pymongo.errors import DuplicateKeyError
 import os
 import io
 import re
+from blog import create_blog_router
 import asyncio
 import logging
 import uuid
@@ -7579,6 +7580,7 @@ async def get_kyc(fiscalId: str, request: Request):
 
 app.include_router(create_auth_router(db))
 app.include_router(api)
+app.include_router(create_blog_router(db, require_admin))
 
 app.add_middleware(
     CORSMiddleware,

@@ -47,6 +47,9 @@ import ResubmitDocs from "@/pages/public/ResubmitDocs";
 import PayBill from "@/pages/public/PayBill";
 import LegalPage from "@/pages/public/LegalPage";
 import OpenFacturaPage from "@/pages/public/OpenFacturaPage";
+import Blog from "@/pages/public/Blog";
+import BlogArticle from "@/pages/public/BlogArticle";
+import BlogSettings from "@/pages/admin/BlogSettings";
 
 function Loading() {
   return (
@@ -64,9 +67,9 @@ function AppIndex() {
   return <Dashboard />;
 }
 
-function PermGuard({ perm, noReseller, children }) {
+function PermGuard({ perm, noReseller, adminOnly, children }) {
   const { hasPerm, user } = useAuth();
-  if (!hasPerm(perm) || (noReseller && user?.role === "reseller")) return <Navigate to="/app" replace />;
+  if (!hasPerm(perm) || (noReseller && user?.role === "reseller") || (adminOnly && user?.role !== "admin")) return <Navigate to="/app" replace />;
   return children;
 }
 
@@ -100,6 +103,8 @@ function App() {
           <Route path="/" element={<PublicCatalog />} />
           <Route path="/login" element={<Login />} />
           <Route path="/openfactura" element={<OpenFacturaPage />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogArticle />} />
           <Route path="/payment/:result" element={<PaymentResult />} />
           <Route path="/contratar" element={<PublicCatalog />} />
           <Route path="/pagar-cuenta" element={<PayBill />} />
@@ -123,6 +128,7 @@ function App() {
             <Route path="tariffs" element={<PermGuard perm="tariffs.manage"><Tariffs /></PermGuard>} />
             <Route path="settings" element={<PermGuard perm="settings.manage"><Settings /></PermGuard>} />
             <Route path="site-content" element={<PermGuard perm="settings.manage"><SiteContent /></PermGuard>} />
+            <Route path="blog-seo" element={<PermGuard perm="settings.manage" adminOnly><BlogSettings /></PermGuard>} />
             <Route path="orders" element={<PermGuard perm="orders.manage"><Orders /></PermGuard>} />
             <Route path="billing" element={<PermGuard perm="billing.manage"><Billing /></PermGuard>} />
             <Route path="payments" element={<PermGuard perm="billing.manage"><Payments /></PermGuard>} />

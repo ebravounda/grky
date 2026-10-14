@@ -5,7 +5,7 @@ import api, { API, apiErr } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { BlogShell, fmtDate } from "@/components/BlogShell";
+import { useOwnSeo, BlogShell, fmtDate } from "@/components/BlogShell";
 import { ArrowLeft, Send, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,6 +41,7 @@ export default function BlogArticle() {
   const [a, setA] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const bodyRef = useRef(null);
+  useOwnSeo();
 
   useEffect(() => {
     setA(null); setNotFound(false);

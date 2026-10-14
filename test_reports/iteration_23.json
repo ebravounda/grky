@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 23: Blog SEO module (proxy to external engine) e2e tested. Backend 14/14 pytest cases pass. Frontend blog list/article/404/lead/track flows pass. Admin BlogSettings page shows connected card + masked key, http-URL rejected with https error toast, disconnect flow empties /blog and hides home-latest-articles. Reseller forbidden on /api/admin/blog/settings (403) and 'Blog SEO' hidden in sidebar; direct /app/blog-seo redirects. Key never leaks to public endpoints or page HTML. blog_settings restored after disconnect test. Required a frontend supervisor restart to pick up new routes/components (HMR hadn't flushed PublicCatalog changes).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/blog/:slug", "issues": ["Duplicate meta tags in <head>: index.html ships default meta description, canonical, og:title/og:description/og:image which are NOT replaced by react-helmet-async — Helmet only appends a second tag with the article values. document.title is correctly overridden, link rel=stylesheet, ld+json, article og:image/og:title/og:description/canonical/description ARE present as second occurrences, but SEO crawlers may read the first (default GoRoky) tag. Consider removing those defaults from public/index.html for article pages or using Helmet attribute-matching so the index.html tags are managed."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_blog.py",
+    "/app/test_reports/pytest/iter23.xml"
+  ],
+  "action_items": [
+    "(Optional) Deduplicate article meta tags on /blog/:slug: remove or Helmet-manage the default meta description, canonical and og:* that live in public/index.html, so article values are the only ones in <head>."
+  ],
+  "critical_code_review_comments": [
+    "blog.py upstream(): JSON POST merges server key into body (good — frontend never sees it). GET params injection also looks correct and excludes /styles.css.",
+    "Mask function uses bullets (•) only when key length > 8 — ok for the 13-char test key.",
+    "BlogArticle Helmet duplicates: see design_issues above.",
+    "Preview SW/HMR occasionally serves a stale bundle after large UI edits; a `sudo supervisorctl restart frontend` was required to surface header-blog-link, footer-blog-link, mobile-blog-link and LatestArticles. Not a code bug but worth noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_blog.py"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% core flows"},
+  "test_credentials": "admin@goroky.com / Goroky2026! ; revendedor@goroky.com / Revende2026!",
+  "seed_data_creation": "Re-seeded blog_settings {_id:'config', api_base:'http://localhost:9999/api/public/site1', key:'testkey123456', enabled:true, brand:'Goroky', published:1} after disconnect test. Mock engine kept running at :9999.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Blog proxy and admin BlogSettings fully functional. If re-testing, run tests/test_iter23_blog.py — it both verifies and re-seeds blog_settings. Mock engine lives at /app/backend/tests/mock_blog_engine.py (uvicorn on :9999). Only sub-par item is duplicate head meta tags on /blog/:slug (index.html defaults + Helmet).",
+  "rca of the issue": "N/A — duplicate head tags come from public/index.html defaults not being managed by react-helmet-async. Fix: either strip those defaults from index.html for article pages or render them inside a top-level <Helmet defaultTitle=... > so BlogArticle's <Helmet> replaces them."
+}

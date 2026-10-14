@@ -1,7 +1,18 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 const LOGO = "https://customer-assets-lxgj4vgw.emergentagent.net/job_likes-telecom-app/artifacts/szvng4fe_IMG_6073.png";
+
+const SEO_SEL = 'meta[name="description"],link[rel="canonical"],meta[property^="og:"],meta[name^="twitter:"]';
+
+export const useOwnSeo = () => {
+  useEffect(() => {
+    const removed = [...document.head.querySelectorAll(SEO_SEL)].filter((el) => !el.hasAttribute("data-rh"));
+    removed.forEach((el) => el.remove());
+    return () => removed.forEach((el) => document.head.appendChild(el));
+  }, []);
+};
 
 export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "");
 

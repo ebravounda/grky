@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import api from "@/lib/api";
-import { BlogShell, ArticleCard } from "@/components/BlogShell";
+import { useOwnSeo, BlogShell, ArticleCard } from "@/components/BlogShell";
 
 export default function Blog() {
   const [items, setItems] = useState(null);
+  useOwnSeo();
   useEffect(() => { api.get("/blog/articles").then((r) => setItems(Array.isArray(r.data) ? r.data : [])).catch(() => setItems([])); }, []);
 
   return (

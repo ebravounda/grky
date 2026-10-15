@@ -224,7 +224,7 @@ async def assert_invoice_access(user: dict, inv: dict):
         raise HTTPException(status_code=403, detail="No autorizado")
 
 
-CHARGE_LOCKED = ["processing", "paid", "charging"]
+CHARGE_LOCKED = ["processing", "paid", "charging", "duplicate"]
 
 
 async def _claim_invoice(inv_id):
@@ -239,11 +239,21 @@ async def _claim_invoice(inv_id):
 async def _charge_invoice_once(inv, cid, pm, pm_types, description, metadata, extra_set=None):
     """Cobra una factura UNA sola vez (bloqueo + idempotency_key de Stripe).
     Devuelve 'locked' | 'paid' | 'processing' | 'failed'. Lanza la excepción de Stripe si falla."""
+    if inv.get("kind") == "recurring" and inv.get("period"):
+        sib = await db.invoices.find_one({"_id": {"$ne": inv["_id"]}, "fiscalId": inv["fiscalId"], "period": inv["period"],
+                                          "kind": "recurring", "$or": [{"status": "paid"}, {"chargeStatus": {"$in": ["paid", "processing", "charging"]}}]})
+        if sib:
+            await db.invoices.update_one({"_id": inv["_id"], "status": {"$ne": "paid"}}, {"$set": {
+                "chargeStatus": "duplicate", "duplicateOf": sib.get("invoiceNumber"),
+                "chargeError": f"Duplicada de {sib.get('invoiceNumber')} (ya cobrada/en proceso)"}})
+            await log_event("billing", "warning", f"Cobro evitado: {inv.get('invoiceNumber')} es duplicada de {sib.get('invoiceNumber')}",
+                            {"fiscalId": inv.get("fiscalId")})
+            return "locked"
     claimed = await _claim_invoice(inv["_id"])
     if not claimed:
         return "locked"
     extra = dict(extra_set or {})
-    prev = await _existing_active_pi(inv, cid)
+    prev = await _existing_active_pi(inv, cid, loose=bool(metadata.get("kind") in ("recurring", "recurring_retry")))
     if prev:
         st = "paid" if prev.status == "succeeded" else "processing"
         upd = {"status": "paid", "chargeStatus": "paid"} if st == "paid" else {"chargeStatus": "processing"}
@@ -275,9 +285,10 @@ async def _charge_invoice_once(inv, cid, pm, pm_types, description, metadata, ex
     return st
 
 
-async def _existing_active_pi(inv, cid, exclude_pi=None):
+async def _existing_active_pi(inv, cid, exclude_pi=None, loose=False):
     """Busca en Stripe (últimos 45 días) un cobro activo o cobrado de ESTA factura, para no repetirlo."""
     since = int((datetime.now(timezone.utc) - timedelta(days=45)).timestamp())
+    since_loose = int((datetime.now(timezone.utc) - timedelta(days=25)).timestamp())
     amount = int(round(float(inv.get("total") or 0) * 100))
     period, number = inv.get("period") or "", inv.get("invoiceNumber") or ""
     try:
@@ -298,7 +309,18 @@ async def _existing_active_pi(inv, cid, exclude_pi=None):
         if (md.get("invoiceId") == str(inv["_id"]) or (number and md.get("invoiceNumber") == number)
                 or (period and (md.get("period") == period or period in (p.description or "")))):
             return p
+        # Cobros automáticos: cualquier cobro del mismo importe en los últimos 25 días que no sea
+        # claramente de OTRA factura cuenta como ya cobrado (mejor no cobrar que cobrar dos veces).
+        if loose and getattr(p, "created", 0) >= since_loose and not (md.get("invoiceId") or md.get("invoiceNumber")):
+            return p
     return None
+
+
+async def _manual_charge_guard(fiscal_id, amount):
+    """Evita el doble clic: mismo cliente + mismo importe solo una vez cada 2 minutos."""
+    slot = int(datetime.now(timezone.utc).timestamp() // 120)
+    if not await _job_once("manual_charge", f"{fiscal_id}:{int(round(float(amount) * 100))}:{slot}"):
+        raise HTTPException(status_code=409, detail="Ya se ha lanzado este mismo cobro hace un momento. Espera 2 minutos antes de repetirlo.")
 
 
 async def _pm_types_of(pm):
@@ -4399,6 +4421,7 @@ async def charge_service(fiscalId: str, body: ServiceChargeBody, request: Reques
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="El importe debe ser mayor que 0")
+    await _manual_charge_guard(fiscalId, body.amount)
     await _stripe_apply()
     method = body.method or (customer.get("recurring") or {}).get("method") or "card"
 
@@ -4502,6 +4525,7 @@ async def charge_now(fiscalId: str, body: ChargeNowBody, request: Request):
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="El importe debe ser mayor que 0")
     method = "sepa" if body.method == "sepa" else "card"
+    await _manual_charge_guard(fiscalId, body.amount)
     await _stripe_apply()
     _, prod_name, _ = await _resolve_monthly(fiscalId)
     concept = (body.concept or "").strip() or prod_name or "Cuota mensual"
@@ -4916,6 +4940,9 @@ async def likes_health_job():
 
 
 async def likes_reconcile_job():
+    """Sincronización con Likes: UNA vez al día (03:00 UTC). El resto, manual desde el CRM."""
+    if not await _job_once("likes_reconcile", datetime.now(timezone.utc).strftime("%Y-%m-%d")):
+        return
     if not await asyncio.to_thread(likes_client.get_token):
         return
     try:
@@ -7617,13 +7644,13 @@ async def startup():
     # scheduler: recordatorios de pago + salud de integraciones
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
         global scheduler
         scheduler = AsyncIOScheduler(timezone="UTC")
         scheduler.add_job(billing_daily_job, "interval", hours=12, id="billing_daily", replace_existing=True)
-        scheduler.add_job(likes_health_job, "interval", minutes=15, id="likes_health", replace_existing=True)
-        scheduler.add_job(likes_reconcile_job, "interval", minutes=20, id="likes_reconcile", replace_existing=True)
+        scheduler.add_job(likes_health_job, "interval", hours=6, id="likes_health", replace_existing=True)
+        scheduler.add_job(likes_reconcile_job, CronTrigger(hour=3, minute=0), id="likes_reconcile", replace_existing=True)
         # Facturación mensual automática: se ejecuta cada día a las 06:00 UTC y solo actúa el día de facturación (día 5)
-        from apscheduler.triggers.cron import CronTrigger
         scheduler.add_job(monthly_invoicing_job, CronTrigger(hour=5, minute=0), id="monthly_invoicing", replace_existing=True)
         scheduler.add_job(monthly_billing_job, CronTrigger(hour=6, minute=0), id="monthly_billing", replace_existing=True)
         # Recordatorio de tarjeta: una vez al día

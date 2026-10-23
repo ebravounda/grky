@@ -71,10 +71,38 @@ RESELLER_ALLOWED = [
 ]
 
 
-CONSUMPTION_ALLOWED = [
-    ("GET", re.compile(r"^/api/consumption/?$")),
-    ("GET", re.compile(r"^/api/customers/[^/]+/consumption$")),
-]
+# Rutas sin require_perm explícito: se abren al revendedor solo si tiene el permiso de esa sección.
+PREFIX_PERM = [("/api/lines", "lines.view"), ("/api/dashboard", "dashboard.view"), ("/api/events", "alerts.view"),
+               ("/api/alerts", "alerts.view"), ("/api/commissions", "commissions.view"), ("/api/catalog", "catalog.view"),
+               ("/api/coverage", "catalog.view"), ("/api/orders", "orders.manage"), ("/api/tickets", "tickets.manage"),
+               ("/api/solicitudes", "solicitudes.manage"), ("/api/callbacks", "solicitudes.manage"),
+               ("/api/resources", "resources.view"), ("/api/tariffs", "tariffs.manage")]
+ROUTE_PERMS = []  # [(methods, path_regex, perms)] en el orden de FastAPI; se rellena al arrancar
+
+
+def _build_route_perms():
+    import inspect
+    from fastapi.routing import APIRoute
+    rx = re.compile(r'require_perm\(\s*request\s*,\s*"([a-z_.]+)"')
+    ROUTE_PERMS.clear()
+    for r in app.routes:
+        if isinstance(r, APIRoute):
+            try:
+                perms = set(rx.findall(inspect.getsource(r.endpoint)))
+            except (OSError, TypeError):
+                perms = set()
+            ROUTE_PERMS.append((r.methods, r.path_regex, perms))
+
+
+def _reseller_route_ok(path, method, perms):
+    if any((m == "*" or m == method) and rx.match(path) for m, rx in RESELLER_ALLOWED):
+        return True
+    for methods, rx, rp in ROUTE_PERMS:
+        if method in methods and rx.match(path):
+            if rp:
+                return bool(rp & perms)
+            break
+    return any(path.startswith(pre) and perm in perms for pre, perm in PREFIX_PERM)
 
 
 async def current_user(request: Request) -> dict:
@@ -82,10 +110,7 @@ async def current_user(request: Request) -> dict:
     if user.get("role") == "reseller":
         path, method = request.url.path, request.method
         perms = await get_role_perms("reseller")
-        if perms - RESELLER_PERMS - {"consumption.view"}:
-            return user  # el admin le dio más permisos: los controla require_perm en cada endpoint
-        allowed = RESELLER_ALLOWED + (CONSUMPTION_ALLOWED if "consumption.view" in perms else [])
-        if not any((m == "*" or m == method) and rx.match(path) for m, rx in allowed):
+        if not _reseller_route_ok(path, method, perms):
             raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
     return user
 
@@ -1637,6 +1662,8 @@ async def get_line(lineNumber: str, request: Request):
     if not line:
         raise HTTPException(status_code=404, detail="Línea no encontrada")
     if user.get("role") == "client" and line["fiscalId"] != user.get("fiscalId"):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if user.get("role") == "reseller" and line.get("fiscalId") not in await reseller_fids(user):
         raise HTTPException(status_code=403, detail="No autorizado")
     line = await _refresh_line_live(line)
     line = _enrich_line(line)
@@ -6473,6 +6500,8 @@ async def consumption_list(request: Request, q: Optional[str] = None):
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
         match_f = [f for f, n in names.items() if re.search(re.escape(q.strip()), f"{f} {n}", re.I)]
         query = {"$and": [query, {"$or": [{"lineNumber": rx}, {"fiscalId": {"$in": match_f}}]}]}
+    query = {"$and": [query, {"lineNumber": {"$nin": [None, ""]}, "fiscalId": {"$nin": [None, ""]},
+                              "status": {"$nin": ["REMOVED", "CANCELED", "CANCELLED"]}}]}
     lines = await db.lines.find(query).sort("lineNumber", 1).to_list(500)
     return [{**_usage_view(ln), "customerName": names.get(ln.get("fiscalId"), "")} for ln in lines]
 
@@ -7658,6 +7687,7 @@ async def get_kyc(fiscalId: str, request: Request):
 app.include_router(create_auth_router(db))
 app.include_router(api)
 app.include_router(create_blog_router(db, require_admin))
+_build_route_perms()
 
 app.add_middleware(
     CORSMiddleware,

@@ -97,11 +97,11 @@ def _public(user: dict) -> dict:
 
 
 async def get_current_user(request: Request, db) -> dict:
-    token = request.cookies.get("access_token")
+    # El header Bearer (sesión de la pestaña) manda sobre la cookie, para no mezclar usuarios.
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:] if auth_header.startswith("Bearer ") and len(auth_header) > 7 else None
     if not token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+        token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="No autenticado")
     try:

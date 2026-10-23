@@ -1,0 +1,42 @@
+{
+  "summary": "Tested the RBAC toggle bug fix, the new consumption.view permission (/app/consumption page, ConsumptionPanel in the reseller customer view) and the VozLeads landing section and /vozleads page. Backend: 9/9 pytest pass. Frontend: all requested flows pass. When testing started, the frontend failed to compile ('Module not found @/pages/public/VozLeadsPage'). This was a stale webpack watcher: the file existed but was created after App.js was saved. Running touch on App.js made it recompile; it is now clean. No source code was changed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/consumption", "issue": "Returns lines without a lineNumber (e.g. TEST_ARR_210035 test data), REMOVED or CANCELED lines with fiscalId null (admin view), and fiber lines (15-WD_..., 9xxxxxxxx Fibra) with all-zero usage. Consider filtering to mobile lines that are not REMOVED and have a lineNumber."},
+      {"endpoint": "auth.get_current_user", "issue": "The access_token cookie takes priority over the Authorization Bearer header. If a second user logs in in the same browser (or in the same cookie jar), the backend acts as the cookie user while the frontend shows the localStorage user. Seen in testing: the reseller UI rendered the full admin menu. The Bearer header should take precedence, or the two should be kept in sync."},
+      {"endpoint": "current_user (reseller)", "issue": "When the reseller role gets any perm outside RESELLER_PERMS plus consumption.view, the whitelist is skipped entirely. Endpoints that call only current_user (not require_perm) then become open to resellers. This was already the case before this change; it should be audited."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter24_consumption_perms.py", "/app/test_reports/pytest/pytest_iter24.xml"],
+  "action_items": [
+    "Optional: filter /api/consumption to mobile lines that have a lineNumber and are not REMOVED.",
+    "Fix auth token precedence (Bearer over cookie) to avoid sessions mixing between users.",
+    "Audit endpoints that use only current_user, because they open up to resellers once the reseller role has extra perms."
+  ],
+  "critical_code_review_comments": [
+    "Cookie-over-Bearer precedence in auth.py:get_current_user can mix sessions.",
+    "The RESELLER_ALLOWED whitelist bypass (perms - RESELLER_PERMS - {consumption.view}) is all-or-nothing.",
+    "Webpack in preview did not pick up a newly created file until App.js was touched. When adding new files, check the frontend log for 'Compiled with problems'."
+  ],
+  "verified": [
+    "Admin /app/users: toggling perm-reseller-consumption.view and clicking save-role-reseller shows a toast, GET /api/roles reflects the change, and it persists after reload. The agent role toggle persists too.",
+    "Reseller without re-login: after the grant plus a focus event, 'Consumo' appears in the sidebar. After the revoke it disappears within 47s via the interval. GET /api/consumption returns 403 after revoke.",
+    "Reseller /app/consumption: 13 rows, own clients only (12345678A, 55667788R). Search for 55667788R gives 3 rows. The row click opens consumption-dialog with consumption-panel. The calls toggle shows call details. Read-only (only toggle and Close buttons).",
+    "Reseller /app/customers/12345678A: reseller-customer-view contains consumption-panel when the perm is granted and not when it is revoked.",
+    "Default reseller perms: menu shows only Clientes and Facturas; /lines, /consumption and /dashboard/stats return 403. Granting lines.view makes /lines return 200; revoking it returns 403.",
+    "Landing: vozleads-landing-section sits after openfactura, title is correct, price reads 'desde 39 €/mes', register CTA points to https://vozleads.com/registro with target=_blank, demo CTA points to vozleads.com/#solicitar, 'more' CTA goes to /vozleads. Header 'Call center', footer and mobile links are all present.",
+    "/vozleads: hero, register and demo buttons, 8 services (from data), 5 plans (basico 39 promo, pyme 69, empresa 99 'MÁS ELEGIDO', oro 149, platino 299) with ?plan= CTAs, 4 FAQ items (vl-faq-*), back link."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter24_consumption_perms.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Reseller perms restored to [customers.view, customers.edit, invoices.view]; agent perms restored to their original values.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n0 (pytest.ini adds xdist). When testing two users in Playwright, use separate browser contexts: the cookie jar is shared within a context and the cookie overrides the Bearer token. Always restore the reseller perms afterwards."
+}

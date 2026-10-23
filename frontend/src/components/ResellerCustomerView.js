@@ -5,6 +5,8 @@ import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText, Mail, User, Phone, MapPin } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { ConsumptionPanel } from "@/components/ConsumptionPanel";
 
 function Info({ icon: Icon, label, value, testid }) {
   return (
@@ -19,6 +21,7 @@ export default function ResellerCustomerView() {
   const { fiscalId } = useParams();
   const [data, setData] = useState(null);
   const [emailing, setEmailing] = useState(null);
+  const { hasPerm } = useAuth();
 
   useEffect(() => {
     api.get(`/customers/${fiscalId}`).then((r) => setData(r.data)).catch((e) => { toast.error(apiErr(e)); setData(false); });
@@ -62,6 +65,7 @@ export default function ResellerCustomerView() {
         ))}
         {data.invoices.length === 0 && <p className="px-4 py-8 text-center text-muted-foreground" data-testid="rc-no-invoices">Este cliente no tiene facturas pendientes.</p>}
       </div>
+      {hasPerm("consumption.view") && <div className="mt-6"><ConsumptionPanel fiscalId={fiscalId} /></div>}
     </div>
   );
 }

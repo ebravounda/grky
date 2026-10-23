@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import CoverageChecker from "@/components/CoverageChecker";
 import OpenFacturaSection from "@/components/OpenFacturaSection";
+import VozLeadsSection from "@/components/VozLeadsSection";
 import LatestArticles from "@/components/LatestArticles";
 import {
   Signal, Wifi, Satellite, Tv, CheckCircle2, ArrowRight, Tv2,
@@ -138,6 +139,7 @@ export default function PublicCatalog() {
               className="inline-flex items-center gap-1.5 text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">
               Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
             </button>
+            <button onClick={() => navigate("/vozleads")} data-testid="header-vozleads-link" className="text-slate-800 hover:text-[#015EEF] transition-colors tracking-wide">Call center</button>
             <button onClick={() => openCallback()} data-testid="header-callback-btn"
               className="inline-flex items-center gap-2 text-slate-800 hover:text-[#FF7A00] transition-colors tracking-wide">
               <PhoneCall size={16} /> Te llamamos
@@ -164,6 +166,7 @@ export default function PublicCatalog() {
                   className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
                   Facturación <span className="text-[10px] uppercase tracking-wider bg-[#FF7A00] text-white rounded-full px-2 py-0.5">Nuevo</span>
                 </button>
+                <button onClick={() => { setMenuOpen(false); navigate("/vozleads"); }} data-testid="mobile-vozleads-link" className="text-lg font-bold text-slate-800 text-left">Call center 24/7</button>
                 <button onClick={() => { setMenuOpen(false); openCallback(); }} data-testid="mobile-callback-btn"
                   className="inline-flex items-center gap-2 text-lg font-bold text-slate-800 text-left">
                   <PhoneCall size={18} className="text-[#FF7A00]" /> Te llamamos
@@ -428,6 +431,7 @@ export default function PublicCatalog() {
       </section>
 
       <OpenFacturaSection />
+      <VozLeadsSection />
       <LatestArticles />
 
       {/* App móvil — sección moderna */}
@@ -526,6 +530,7 @@ export default function PublicCatalog() {
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               <a href="/blog" className="hover:text-white transition-colors" data-testid="footer-blog-link">Blog</a>
               <a href="/openfactura" className="hover:text-white transition-colors" data-testid="footer-openfactura-link">OpenFactura</a>
+              <a href="/vozleads" className="hover:text-white transition-colors" data-testid="footer-vozleads-link">Call center</a>
               <a href="/privacidad" className="hover:text-white transition-colors" data-testid="footer-privacy-link">Política de privacidad</a>
               <a href="/terminos" className="hover:text-white transition-colors" data-testid="footer-terms-link">Términos y condiciones</a>
               <button onClick={() => navigate("/login")} className="hover:text-white transition-colors text-left" data-testid="footer-login-btn">Acceso clientes</button>

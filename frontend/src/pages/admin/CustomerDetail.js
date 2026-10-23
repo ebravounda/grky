@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api, { apiErr, openInvoicePdf, openContractPdf, openCustomerDoc } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { ConsumptionPanel } from "@/components/ConsumptionPanel";
 import ResellerCustomerView from "@/components/ResellerCustomerView";
 import { PageHeader, StatusPill } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -399,6 +400,7 @@ function CustomerDetail() {
           </div>
         )}
       />
+      {hasPerm("consumption.view") && !hasPerm("lines.view") && <div className="mb-6"><ConsumptionPanel fiscalId={customer.fiscalId} /></div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="rounded-lg border border-border bg-card p-6 space-y-3">

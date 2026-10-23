@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
+import { Gauge,
   LayoutDashboard, Users, Signal, PackageSearch, ShoppingCart,
   ReceiptText, LifeBuoy, LogOut, RadioTower, Tag, Settings, Menu,
   Wrench, ArrowRightLeft, FolderDown, Bell, ClipboardCheck, Banknote, Truck, Megaphone, Wallet, ShieldCheck, Smartphone, Globe, PhoneCall, CreditCard, Activity, Store,
@@ -19,6 +19,7 @@ const nav = [
   { to: "/app/customers", label: "Clientes", icon: Users, id: "clientes", perm: "customers.view" },
   { to: "/app/app-users", label: "Usuarios de la app", icon: Smartphone, id: "app-users", perm: "customers.view", noReseller: true },
   { to: "/app/lines", label: "Líneas", icon: Signal, id: "lineas", perm: "lines.view" },
+  { to: "/app/consumption", label: "Consumo", icon: Gauge, id: "consumo", perm: "consumption.view" },
   { to: "/app/tariffs", label: "Tarifas", icon: Tag, id: "tarifas", perm: "tariffs.manage" },
   { to: "/app/catalog", label: "Catálogo & Cobertura", icon: PackageSearch, id: "catalogo", perm: "catalog.view" },
   { to: "/app/orders", label: "Contratación", icon: ShoppingCart, id: "contratacion", perm: "orders.manage" },

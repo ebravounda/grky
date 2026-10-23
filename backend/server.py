@@ -71,11 +71,21 @@ RESELLER_ALLOWED = [
 ]
 
 
+CONSUMPTION_ALLOWED = [
+    ("GET", re.compile(r"^/api/consumption/?$")),
+    ("GET", re.compile(r"^/api/customers/[^/]+/consumption$")),
+]
+
+
 async def current_user(request: Request) -> dict:
     user = await get_current_user(request, db)
     if user.get("role") == "reseller":
         path, method = request.url.path, request.method
-        if not any((m == "*" or m == method) and rx.match(path) for m, rx in RESELLER_ALLOWED):
+        perms = await get_role_perms("reseller")
+        if perms - RESELLER_PERMS - {"consumption.view"}:
+            return user  # el admin le dio más permisos: los controla require_perm en cada endpoint
+        allowed = RESELLER_ALLOWED + (CONSUMPTION_ALLOWED if "consumption.view" in perms else [])
+        if not any((m == "*" or m == method) and rx.match(path) for m, rx in allowed):
             raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
     return user
 
@@ -6393,6 +6403,7 @@ ALL_PERMISSIONS = [
     "catalog.view", "orders.manage", "billing.manage", "installations.manage",
     "portabilities.manage", "shipments.manage", "promotions.manage", "invoices.view",
     "resources.view", "tickets.manage", "settings.manage", "users.manage", "commissions.view",
+    "consumption.view",
 ]
 DEFAULT_ROLE_PERMS = {
     "admin": list(ALL_PERMISSIONS),
@@ -6403,18 +6414,22 @@ DEFAULT_ROLE_PERMS = {
 }
 
 
+RESELLER_PERMS = {"customers.view", "customers.edit", "invoices.view"}
+
+
 async def seed_roles(db):
     for role, perms in DEFAULT_ROLE_PERMS.items():
         if not await db.role_permissions.find_one({"_id": role}):
             await db.role_permissions.insert_one({"_id": role, "permissions": perms})
-
-
-RESELLER_PERMS = {"customers.view", "customers.edit", "invoices.view"}
+    # Migración única: el revendedor arranca solo con Clientes + Facturas impagadas; luego el admin decide.
+    try:
+        await db.migrations.insert_one({"_id": "reseller_perms_v2", "at": now_iso()})
+        await db.role_permissions.update_one({"_id": "reseller"}, {"$set": {"permissions": sorted(RESELLER_PERMS)}}, upsert=True)
+    except DuplicateKeyError:
+        pass
 
 
 async def get_role_perms(role):
-    if role == "reseller":
-        return set(RESELLER_PERMS)
     doc = await db.role_permissions.find_one({"_id": role})
     return set(doc["permissions"]) if doc else set(DEFAULT_ROLE_PERMS.get(role, []))
 
@@ -6434,6 +6449,41 @@ def _scope(user):
     if user.get("role") == "reseller":
         return {"ownerId": str(user["_id"])}
     return {}
+
+
+def _usage_view(line, with_calls=False):
+    u = _line_usage(line)
+    calls = sorted(u.pop("calls", []), key=lambda c: c.get("date") or "", reverse=True)
+    out = {**u, "status": line.get("status"), "fiscalId": line.get("fiscalId"), "callsCount": len(calls),
+           "callMinutes": u.get("nationalMinutes", 0)}
+    if with_calls:
+        out["calls"] = calls[:300]
+    return out
+
+
+@api.get("/consumption")
+async def consumption_list(request: Request, q: Optional[str] = None):
+    """Consumo de líneas (solo lectura): GB, minutos, SMS. Limitado a los clientes visibles por el usuario."""
+    user = await require_perm(request, "consumption.view")
+    scope = _cust_scope(user)
+    custs = await db.customers.find(scope, {"fiscalId": 1, "name": 1, "firstSurname": 1, "lastSurname": 1}).to_list(20000)
+    names = {c["fiscalId"]: " ".join(filter(None, [c.get("name"), c.get("firstSurname"), c.get("lastSurname")])) for c in custs}
+    query = {"fiscalId": {"$in": list(names)}} if scope else {}
+    if q and q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        match_f = [f for f, n in names.items() if re.search(re.escape(q.strip()), f"{f} {n}", re.I)]
+        query = {"$and": [query, {"$or": [{"lineNumber": rx}, {"fiscalId": {"$in": match_f}}]}]}
+    lines = await db.lines.find(query).sort("lineNumber", 1).to_list(500)
+    return [{**_usage_view(ln), "customerName": names.get(ln.get("fiscalId"), "")} for ln in lines]
+
+
+@api.get("/customers/{fiscalId}/consumption")
+async def customer_consumption(fiscalId: str, request: Request):
+    user = await require_perm(request, "consumption.view")
+    if not await db.customers.find_one({"fiscalId": fiscalId, **_cust_scope(user)}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    lines = await db.lines.find({"fiscalId": fiscalId}).sort("lineNumber", 1).to_list(200)
+    return [_usage_view(ln, with_calls=True) for ln in lines]
 
 
 def _cust_scope(user):

@@ -25,6 +25,7 @@ const PERM_LABEL = {
   "shipments.manage": "Envíos de SIM", "promotions.manage": "Promociones", "invoices.view": "Ver facturas",
   "resources.view": "Recursos", "tickets.manage": "Soporte/tickets", "settings.manage": "Configuración",
   "users.manage": "Usuarios y permisos", "commissions.view": "Ver comisiones",
+  "consumption.view": "Ver consumo (GB, llamadas, SMS) · solo lectura",
 };
 
 const EMPTY = { email: "", name: "", password: "", role: "agent", commissionPerSim: 0 };
@@ -62,7 +63,7 @@ export default function Users() {
   };
 
   const saveRole = async (role) => {
-    try { await api.put(`/roles/${role}`, { permissions: roles[role] }); toast.success(`Permisos de ${ROLE_LABEL[role]} guardados`); }
+    try { await api.put(`/roles/${role}`, { permissions: roles[role] }); toast.success(`Permisos de ${ROLE_LABEL[role]} guardados. Se aplican en menos de 1 minuto.`); load(); }
     catch (e) { toast.error(apiErr(e)); }
   };
 

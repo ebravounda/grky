@@ -26,6 +26,14 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, [loadAccess]);
 
+  useEffect(() => {
+    if (!user || user.role === "client" || user.role === "admin") return;
+    const refresh = () => loadAccess(user);
+    const t = setInterval(refresh, 45000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(t); window.removeEventListener("focus", refresh); };
+  }, [user, loadAccess]);
+
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("goroky_token", data.token);

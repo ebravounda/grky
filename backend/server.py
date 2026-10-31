@@ -3653,9 +3653,149 @@ async def _monitor_cfg():
 
 
 class SecuritySettingsBody(BaseModel):
+    reportEmail: Optional[str] = ""
     trapPrefix: Optional[str] = ""
     trustedIps: Optional[List[str]] = []
     securityAlerts: Optional[bool] = True
+
+
+class SecurityKillBody(BaseModel):
+    pid: int
+
+
+class SecurityIpBody(BaseModel):
+    ip: str
+    reason: Optional[str] = ""
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")) or ""
+
+
+@api.post("/admin/monitor/security/kill")
+async def monitor_security_kill(body: SecurityKillBody, request: Request):
+    user = await require_superadmin(request)
+    res = await asyncio.to_thread(security_monitor.kill_process, body.pid)
+    await db.security_actions.insert_one({"type": "kill", "target": str(body.pid), "result": res,
+                                          "by": user.get("email"), "at": now_iso()})
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("error"))
+    await log_event("security", "warning", f"Proceso detenido desde el monitor: {res['name']} (pid {res['pid']}, {res['user']}) por {user.get('email')}")
+    return res
+
+
+@api.get("/admin/monitor/security/blocked")
+async def monitor_security_blocked(request: Request):
+    await require_superadmin(request)
+    docs = await db.blocked_ips.find().sort("at", -1).to_list(1000)
+    return [{**{k: v for k, v in d.items() if k != "_id"}, "_id": str(d["_id"])} for d in docs]
+
+
+@api.post("/admin/monitor/security/block")
+async def monitor_security_block(body: SecurityIpBody, request: Request):
+    import ipaddress
+    user = await require_superadmin(request)
+    try:
+        ip = str(ipaddress.ip_address(body.ip.strip()))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="IP no válida")
+    obj = ipaddress.ip_address(ip)
+    cfg = await _monitor_cfg()
+    if obj.is_private or obj.is_loopback or obj.is_link_local or obj.is_unspecified:
+        raise HTTPException(status_code=400, detail="No se bloquean IPs privadas o locales del propio servidor")
+    if ip == _client_ip(request) or ip in (cfg.get("trustedIps") or []):
+        raise HTTPException(status_code=400, detail="Es tu propia IP o una IP de confianza: no se bloquea para no dejarte fuera")
+    try:
+        engine = await asyncio.to_thread(security_monitor.block_ip, ip)
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=500, detail=f"No se pudo bloquear en el firewall: {str(e)[:150]}")
+    await db.blocked_ips.update_one({"_id": ip}, {"$set": {"ip": ip, "reason": (body.reason or "")[:200], "engine": engine,
+                                                          "by": user.get("email"), "at": now_iso()}}, upsert=True)
+    await db.security_actions.insert_one({"type": "block", "target": ip, "by": user.get("email"), "at": now_iso()})
+    await log_event("security", "warning", f"IP bloqueada en el firewall ({engine}): {ip} · {body.reason or ''}")
+    return {"ok": True, "ip": ip, "engine": engine}
+
+
+@api.delete("/admin/monitor/security/block/{ip}")
+async def monitor_security_unblock(ip: str, request: Request):
+    user = await require_superadmin(request)
+    if not await db.blocked_ips.find_one({"_id": ip}):
+        raise HTTPException(status_code=404, detail="Esa IP no está en la lista de bloqueadas")
+    await asyncio.to_thread(security_monitor.unblock_ip, ip)
+    await db.blocked_ips.delete_one({"_id": ip})
+    await db.security_actions.insert_one({"type": "unblock", "target": ip, "by": user.get("email"), "at": now_iso()})
+    return {"ok": True}
+
+
+async def _reapply_blocked_ips():
+    """iptables no persiste tras reinicio: re-aplica la lista guardada al arrancar."""
+    if not os.path.isdir(os.environ.get("VHOSTS_PATH", "/var/www/vhosts")):
+        return
+    for b in await db.blocked_ips.find().to_list(1000):
+        try:
+            await asyncio.to_thread(security_monitor.block_ip, b["_id"])
+        except Exception as e:  # noqa
+            logger.warning("reapply block %s: %s", b["_id"], e)
+
+
+async def _security_report_html():
+    cfg, data, acked = await _security_snapshot()
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    alerts = await db.security_alerted.find({"at": {"$gte": since}}).sort("at", -1).to_list(200)
+    actions = await db.security_actions.find({"at": {"$gte": since}}).sort("at", -1).to_list(200)
+    blocked = await db.blocked_ips.find().to_list(1000)
+    m = await asyncio.to_thread(server_monitor.system_metrics)
+    sec = [("Conexiones salientes sospechosas", [c for c in data["outbound"] if c["suspicious"] and c["fp"] not in acked]),
+           ("Trampa (intentos bloqueados 24 h)", data["trap"]), ("Procesos web no-PHP", data["webProcs"]),
+           ("Procesos desde /tmp", data["tmpProcs"]), ("CPU alta desconocida", [c for c in data["cpu"] if c["suspicious"]]),
+           ("Persistencia (no conocida)", [f for f in data["persistence"] if not f["known"] and f["fp"] not in acked]),
+           ("Logins", [x for x in data["logins"] if x["fp"] not in acked]), ("PHP en carpetas de subidas", data["phpUploads"])]
+    def badge(n):
+        return f"<b style='color:{'#dc2626' if n else '#059669'}'>{n if n else 'OK'}</b>"
+    rows = "".join(f"<tr><td style='padding:6px 0;border-bottom:1px solid #eee'>{t}</td><td style='text-align:right;border-bottom:1px solid #eee'>{badge(len(r))}</td></tr>" for t, r in sec)
+    al = "".join(f"<li style='margin:3px 0'>{a['at'][:16].replace('T', ' ')} · {a['msg'][:200]}</li>" for a in alerts[:40]) or "<li>Ninguna alerta nueva esta semana.</li>"
+    ac = "".join(f"<li>{a['at'][:16].replace('T', ' ')} · {a['type']} {a['target']} ({a.get('by')})</li>" for a in actions[:40]) or "<li>Ninguna.</li>"
+    bl = ", ".join(b["_id"] for b in blocked) or "ninguna"
+    cpu = m.get("cpu", {}).get("percent") if isinstance(m.get("cpu"), dict) else m.get("cpu_percent")
+    mem = m.get("memory", {}).get("percent") if isinstance(m.get("memory"), dict) else ""
+    body = (f"<p>Resumen de seguridad de los últimos 7 días del servidor GoRoky.</p>"
+            f"<p><b>Estado actual:</b> CPU {cpu}% · RAM {mem}% · {len(alerts)} alerta(s) nuevas en la semana.</p>"
+            f"<table width='100%' style='font-size:13px;border-collapse:collapse'>{rows}</table>"
+            f"<h3 style='font-size:15px;margin-top:20px'>Alertas de la semana</h3><ul style='font-size:12px;padding-left:18px'>{al}</ul>"
+            f"<h3 style='font-size:15px'>Acciones realizadas</h3><ul style='font-size:12px;padding-left:18px'>{ac}</ul>"
+            f"<p style='font-size:12px'><b>IPs bloqueadas:</b> {bl}</p>"
+            f"<p style='font-size:12px;color:#6b7280'>Detalle en tiempo real: CRM → Monitor del servidor → Seguridad.</p>")
+    return emailer.base_template("Informe semanal de seguridad", body), len(alerts)
+
+
+async def _send_security_report():
+    cfg = await _monitor_cfg()
+    to = (cfg.get("reportEmail") or "ed0.2580@gmail.com").strip()
+    html, n = await _security_report_html()
+    await emailer.send_email(to, f"Informe semanal de seguridad · GoRoky · {n} alerta(s)", html)
+    return to
+
+
+async def security_weekly_report_job():
+    if not os.path.isdir(os.environ.get("VHOSTS_PATH", "/var/www/vhosts")):
+        return
+    if not await _job_once("security_report", datetime.now(timezone.utc).strftime("%Y-%W")):
+        return
+    try:
+        await _send_security_report()
+    except Exception as e:  # noqa
+        logger.warning("security report: %s", e)
+
+
+@api.post("/admin/monitor/security/report")
+async def monitor_security_report_now(request: Request):
+    await require_superadmin(request)
+    try:
+        to = await _send_security_report()
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=400, detail=f"No se pudo enviar: {str(e)[:150]}")
+    return {"ok": True, "to": to}
 
 
 class SecurityAckBody(BaseModel):
@@ -3674,10 +3814,13 @@ async def _security_snapshot():
 async def monitor_security(request: Request):
     await require_superadmin(request)
     cfg, data, acked = await _security_snapshot()
-    for key in ("outbound", "nonRoot", "trap", "webProcs", "tmpProcs", "cpu", "persistence", "logins"):
+    for key in ("outbound", "nonRoot", "trap", "webProcs", "tmpProcs", "cpu", "persistence", "logins", "phpUploads"):
         for r in data[key]:
             r["acked"] = r["fp"] in acked
+    data["myIp"] = _client_ip(request)
+    data["blockedIps"] = [b["_id"] for b in await db.blocked_ips.find({}, {"_id": 1}).to_list(1000)]
     data["settings"] = {"trapPrefix": cfg.get("trapPrefix", ""), "trustedIps": cfg.get("trustedIps", []),
+                        "reportEmail": cfg.get("reportEmail") or "ed0.2580@gmail.com",
                         "securityAlerts": cfg.get("securityAlerts", True)}
     data["openFindings"] = len(security_monitor.findings(data, acked))
     return data
@@ -3702,7 +3845,8 @@ async def monitor_security_settings(body: SecuritySettingsBody, request: Request
     await require_superadmin(request)
     ips = [i.strip() for i in (body.trustedIps or []) if i.strip()][:50]
     await db.app_settings.update_one({"_id": "monitor"}, {"$set": {
-        "trapPrefix": (body.trapPrefix or "").strip()[:60], "trustedIps": ips, "securityAlerts": bool(body.securityAlerts)}}, upsert=True)
+        "trapPrefix": (body.trapPrefix or "").strip()[:60], "trustedIps": ips, "securityAlerts": bool(body.securityAlerts),
+        "reportEmail": (body.reportEmail or "").strip()[:120] or "ed0.2580@gmail.com"}}, upsert=True)
     return {"ok": True}
 
 
@@ -7803,6 +7947,10 @@ async def startup():
     except DuplicateKeyError:
         pass
     try:
+        await _reapply_blocked_ips()
+    except Exception as e:  # noqa
+        logger.warning("reapply blocked ips: %s", e)
+    try:
         await _stripe_apply()
     except Exception as e:  # noqa
         logger.warning("stripe config load failed: %s", e)
@@ -7825,6 +7973,7 @@ async def startup():
         # Conciliación SEPA con Stripe (respaldo del webhook): cada 6 horas
         scheduler.add_job(reconcile_sepa_job, "interval", hours=6, id="reconcile_sepa", replace_existing=True)
         scheduler.add_job(security_alert_job, "interval", minutes=5, id="security_alert", replace_existing=True)
+        scheduler.add_job(security_weekly_report_job, CronTrigger(day_of_week="mon", hour=7, minute=0), id="security_report", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

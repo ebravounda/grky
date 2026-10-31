@@ -281,6 +281,7 @@ def collect(cfg):
         "cpu": cpu,
         "persistence": persistence(),
         "logins": logins(cfg.get("trustedIps") or []),
+        "phpUploads": php_in_uploads(),
     }
 
 
@@ -300,6 +301,123 @@ def findings(data, acked):
     for f in data["persistence"]:
         if not f["known"]:
             out.append((f["fp"], f"Persistencia: modificado {f['path']} ({f['kind']})"))
+    for f in data.get("phpUploads", []):
+        out.append((f["fp"], f"PHP nuevo en carpeta de subidas ({f['site']}): {f['path']}"))
     for lg in data["logins"]:
         out.append((lg["fp"], f"Login: {lg['user']} desde {lg['ip']} ({lg['method']})"))
     return [(k, msg) for k, msg in out if k not in acked]
+
+
+# ----------------------------- acciones: detener proceso -----------------------------
+PROTECTED_PROCS = {"systemd", "init", "sshd", "mongod", "mysqld", "mariadbd", "nginx", "httpd", "sw-engine",
+                   "sw-cp-server", "dockerd", "containerd", "supervisord", "journald", "systemd-journald",
+                   "rsyslogd", "firewalld", "dbus-daemon", "postgres", "kthreadd"}
+
+
+def kill_process(pid):
+    import psutil
+    pid = int(pid)
+    me = os.getpid()
+    protected_pids = {1, me} | {p.pid for p in psutil.Process(me).parents()}
+    try:
+        p = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return {"ok": False, "error": "El proceso ya no existe"}
+    if pid in protected_pids or p.name() in PROTECTED_PROCS or pid < 300 and p.username() == "root" and not p.exe():
+        return {"ok": False, "error": f"Proceso protegido del sistema ({p.name()}). No se detiene para no tumbar el servidor."}
+    info = {"pid": pid, "name": p.name(), "user": p.username(), "exe": (p.exe() if p.exe() else ""),
+            "cmd": " ".join(p.cmdline())[:300]}
+    procs = [p] + p.children(recursive=True)
+    for x in procs:
+        try:
+            x.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    gone, alive = psutil.wait_procs(procs, timeout=3)
+    for x in alive:
+        try:
+            x.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(alive, timeout=2)
+    return {"ok": True, **info, "stopped": len(procs), "forced": len(alive)}
+
+
+# ----------------------------- acciones: bloquear IP -----------------------------
+def _firewalld():
+    import shutil
+    return bool(shutil.which("firewall-cmd")) and _run(["firewall-cmd", "--state"]).strip() == "running"
+
+
+def _ipt(ip):
+    return "ip6tables" if ":" in ip else "iptables"
+
+
+def block_ip(ip):
+    fam = "ipv6" if ":" in ip else "ipv4"
+    if _firewalld():
+        for perm in ([], ["--permanent"]):
+            _run(["firewall-cmd", *perm, "--direct", "--add-rule", fam, "filter", "INPUT", "0", "-s", ip, "-j", "DROP"])
+            _run(["firewall-cmd", *perm, "--direct", "--add-rule", fam, "filter", "OUTPUT", "0", "-d", ip, "-j", "DROP"])
+        return "firewalld"
+    t = _ipt(ip)
+    for chain, flag in (("INPUT", "-s"), ("OUTPUT", "-d")):
+        if subprocess.run([t, "-C", chain, flag, ip, "-j", "DROP"], capture_output=True).returncode != 0:
+            r = subprocess.run([t, "-I", chain, "1", flag, ip, "-j", "DROP"], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(r.stderr.strip() or "iptables falló")
+    return "iptables"
+
+
+def unblock_ip(ip):
+    fam = "ipv6" if ":" in ip else "ipv4"
+    if _firewalld():
+        for perm in ([], ["--permanent"]):
+            _run(["firewall-cmd", *perm, "--direct", "--remove-rule", fam, "filter", "INPUT", "0", "-s", ip, "-j", "DROP"])
+            _run(["firewall-cmd", *perm, "--direct", "--remove-rule", fam, "filter", "OUTPUT", "0", "-d", ip, "-j", "DROP"])
+        return "firewalld"
+    t = _ipt(ip)
+    for chain, flag in (("INPUT", "-s"), ("OUTPUT", "-d")):
+        while subprocess.run([t, "-D", chain, flag, ip, "-j", "DROP"], capture_output=True).returncode == 0:
+            pass
+    return "iptables"
+
+
+# ----------------------------- 9 · PHP en carpetas de subidas -----------------------------
+UPLOAD_DIRS = {"uploads", "upload", "files", "images", "img", "media", "tmp", "temp", "cache", "attachments", "assets"}
+PHP_EXT = (".php", ".phtml", ".php3", ".php4", ".php5", ".php7", ".phar", ".pht", ".phps")
+_php_cache = {"at": 0, "rows": []}
+
+
+def php_in_uploads(days=7, ttl=600):
+    if time.time() - _php_cache["at"] < ttl:
+        return _php_cache["rows"]
+    base = os.environ.get("VHOSTS_PATH", "/var/www/vhosts")
+    since = time.time() - days * 86400
+    rows = []
+    for root_site in glob.glob(f"{base}/*/httpdocs") + glob.glob(f"{base}/*/*/httpdocs"):
+        site = root_site[len(base) + 1:].split("/")[0]
+        for root, dirs, _files in os.walk(root_site):
+            depth = root[len(root_site):].count("/")
+            dirs[:] = [d for d in dirs if d not in ("node_modules", "vendor", ".git")] if depth < 6 else []
+            if os.path.basename(root).lower() not in UPLOAD_DIRS:
+                continue
+            for r2, d2, f2 in os.walk(root):
+                d2[:] = [d for d in d2 if d not in ("node_modules", "vendor", ".git")]
+                for fn in f2:
+                    if fn.lower().endswith(PHP_EXT) and fn.lower() != "index.php" or fn.lower() == ".htaccess":
+                        fpath = os.path.join(r2, fn)
+                        try:
+                            st = os.stat(fpath)
+                        except Exception:  # noqa
+                            continue
+                        if st.st_mtime >= since:
+                            rows.append({"path": fpath, "site": site, "size": st.st_size,
+                                         "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                                         "owner": _user(st.st_uid)[0], "fp": fp("php", fpath, int(st.st_mtime))})
+                if len(rows) > 500:
+                    break
+            dirs[:] = []  # ya recorrido entero
+    rows.sort(key=lambda r: r["modified"], reverse=True)
+    _php_cache.update(at=time.time(), rows=rows[:300])
+    return _php_cache["rows"]

@@ -28,6 +28,7 @@ import emailer
 import base64
 import plesk_client
 import server_monitor
+import security_monitor
 import db_monitor
 from auth import create_auth_router, get_current_user, seed_admin, hash_password, verify_password
 from invoices import generate_invoice_pdf
@@ -3649,6 +3650,90 @@ async def system_health(request: Request):
 async def _monitor_cfg():
     doc = await db.app_settings.find_one({"_id": "monitor"}) or {}
     return doc
+
+
+class SecuritySettingsBody(BaseModel):
+    trapPrefix: Optional[str] = ""
+    trustedIps: Optional[List[str]] = []
+    securityAlerts: Optional[bool] = True
+
+
+class SecurityAckBody(BaseModel):
+    fp: str
+    label: Optional[str] = ""
+
+
+async def _security_snapshot():
+    cfg = await _monitor_cfg()
+    data = await asyncio.to_thread(security_monitor.collect, cfg)
+    acked = {a["_id"] for a in await db.security_acks.find({}, {"_id": 1}).to_list(5000)}
+    return cfg, data, acked
+
+
+@api.get("/admin/monitor/security")
+async def monitor_security(request: Request):
+    await require_superadmin(request)
+    cfg, data, acked = await _security_snapshot()
+    for key in ("outbound", "nonRoot", "trap", "webProcs", "tmpProcs", "cpu", "persistence", "logins"):
+        for r in data[key]:
+            r["acked"] = r["fp"] in acked
+    data["settings"] = {"trapPrefix": cfg.get("trapPrefix", ""), "trustedIps": cfg.get("trustedIps", []),
+                        "securityAlerts": cfg.get("securityAlerts", True)}
+    data["openFindings"] = len(security_monitor.findings(data, acked))
+    return data
+
+
+@api.post("/admin/monitor/security/ack")
+async def monitor_security_ack(body: SecurityAckBody, request: Request):
+    user = await require_superadmin(request)
+    await db.security_acks.update_one({"_id": body.fp}, {"$set": {"label": (body.label or "")[:300], "by": user.get("email"), "at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+@api.delete("/admin/monitor/security/ack/{fp}")
+async def monitor_security_unack(fp: str, request: Request):
+    await require_superadmin(request)
+    await db.security_acks.delete_one({"_id": fp})
+    return {"ok": True}
+
+
+@api.put("/admin/monitor/security/settings")
+async def monitor_security_settings(body: SecuritySettingsBody, request: Request):
+    await require_superadmin(request)
+    ips = [i.strip() for i in (body.trustedIps or []) if i.strip()][:50]
+    await db.app_settings.update_one({"_id": "monitor"}, {"$set": {
+        "trapPrefix": (body.trapPrefix or "").strip()[:60], "trustedIps": ips, "securityAlerts": bool(body.securityAlerts)}}, upsert=True)
+    return {"ok": True}
+
+
+async def security_alert_job():
+    """Cada 5 min: avisa (CRM + WhatsApp) solo de hallazgos NUEVOS. Solo en el VPS con Plesk."""
+    if not os.path.isdir(os.environ.get("VHOSTS_PATH", "/var/www/vhosts")):
+        return
+    now = datetime.now(timezone.utc)
+    if not await _job_once("security_alert", now.strftime("%Y-%m-%d %H:") + str(now.minute // 5)):
+        return
+    cfg, data, acked = await _security_snapshot()
+    if not cfg.get("securityAlerts", True):
+        return
+    new = []
+    for key, msg in security_monitor.findings(data, acked):
+        try:
+            await db.security_alerted.insert_one({"_id": key, "msg": msg, "at": now_iso()})
+            new.append(msg)
+        except DuplicateKeyError:
+            continue
+    if not new:
+        return
+    for msg in new[:20]:
+        await log_event("security", "critical", msg, {})
+    wa = await _get_whatsapp_cfg()
+    if wa and wa.get("admin_phone"):
+        text = "🚨 *Alerta de seguridad · servidor GoRoky*\n\n" + "\n".join(f"• {m[:180]}" for m in new[:6])
+        if len(new) > 6:
+            text += f"\n… y {len(new) - 6} más."
+        text += "\n\nRevísalo en CRM → Monitor del servidor → Seguridad."
+        _spawn_bg(send_whatsapp(wa["admin_phone"], text))
 
 
 @api.get("/admin/monitor/access")
@@ -7739,6 +7824,7 @@ async def startup():
         scheduler.add_job(retry_failed_charges_job, CronTrigger(hour=7, minute=0), id="retry_charges", replace_existing=True)
         # Conciliación SEPA con Stripe (respaldo del webhook): cada 6 horas
         scheduler.add_job(reconcile_sepa_job, "interval", hours=6, id="reconcile_sepa", replace_existing=True)
+        scheduler.add_job(security_alert_job, "interval", minutes=5, id="security_alert", replace_existing=True)
         scheduler.start()
     except Exception as e:  # noqa
         logger.warning("scheduler start failed: %s", e)

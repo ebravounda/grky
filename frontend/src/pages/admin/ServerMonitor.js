@@ -4,7 +4,8 @@ import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import {
+import { SecurityTab } from "@/components/SecurityTab";
+import { Siren,
   Cpu, MemoryStick, HardDrive, Clock, Activity, Server, ShieldAlert, RefreshCw,
   Network, Globe, FileClock, AlertTriangle, CheckCircle2, XCircle, ExternalLink, KeyRound,
   Database, ListTree, Boxes, Plug,
@@ -148,6 +149,7 @@ export default function ServerMonitor() {
     { k: "domains", label: "Dominios & Ataques", icon: ShieldAlert },
     { k: "files", label: "Cambios de archivos", icon: FileClock },
     { k: "plesk", label: "Plesk & MySQL", icon: KeyRound },
+    { k: "security", label: "Seguridad", icon: Siren },
   ];
 
   return (
@@ -555,6 +557,8 @@ export default function ServerMonitor() {
       )}
 
       {/* PLESK */}
+      {tab === "security" && <SecurityTab />}
+
       {tab === "plesk" && (
         <div className="space-y-6 max-w-3xl">
           <div className="rounded-xl border border-border bg-card p-5">
